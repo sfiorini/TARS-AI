@@ -31,6 +31,14 @@ class TestDeltaText(unittest.TestCase):
     def test_bare_dict(self):
         self.assertEqual(_delta_text({"type": "text", "text": "x"}), "")
 
+    def test_text_block_with_non_string_value(self):
+        content = [
+            {"type": "text", "text": None},
+            {"type": "text", "text": 5},
+            {"type": "text", "text": "ok"},
+        ]
+        self.assertEqual(_delta_text(content), "ok")
+
     def test_mixed_blocks(self):
         content = [
             {"type": "text", "text": "A"},
