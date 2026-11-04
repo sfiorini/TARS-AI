@@ -170,6 +170,22 @@ def _maybe_play_thinking_response():
         pass
 
 
+def _delta_text(content):
+    """Normalize a streamed delta/content value to plain text.
+    Handles GLM-style list-of-blocks: [{"type":"thinking",...},{"type":"text","text":...}]."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "".join(parts)
+    return ""
+
+
 def get_completion(user_prompt, istext=True, image_b64=None, source="voice"):
 
     if memory_manager is None or character_manager is None:
@@ -203,7 +219,7 @@ def get_completion(user_prompt, istext=True, image_b64=None, source="voice"):
                     break
                 try:
                     chunk = json.loads(data_str)
-                    token = chunk['choices'][0]['delta'].get('content', '')
+                    token = _delta_text(chunk['choices'][0]['delta'].get('content', ''))
                     if token:
                         _content_parts.append(token)
                 except (json.JSONDecodeError, KeyError, IndexError):
@@ -277,11 +293,12 @@ def _extract_text(response_json, istext):
     try:
         llm_backend = CONFIG['LLM']['llm_backend']
         if 'choices' in response_json:
-            return (
+            raw_content = (
                 response_json['choices'][0]['message']['content']
                 if llm_backend in ["openai", "grok", "deepinfra", "other"]
                 else response_json['choices'][0]['text']
-            ).strip()
+            )
+            return _delta_text(raw_content).strip()
         else:
             raise KeyError("Invalid response format: 'choices' key not found.")
     except (KeyError, IndexError, TypeError) as error:
@@ -330,7 +347,7 @@ def process_completion(prompt, image_b64=None):
                     break
                 try:
                     chunk = json.loads(data_str)
-                    token = chunk['choices'][0]['delta'].get('content', '')
+                    token = _delta_text(chunk['choices'][0]['delta'].get('content', ''))
                     if not token:
                         continue
                     if _t_first_byte is None:

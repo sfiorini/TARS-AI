@@ -1,0 +1,44 @@
+"""Unit tests for module_llm._delta_text (GLM list-of-blocks streaming fix)."""
+import os
+import sys
+import unittest
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from modules.module_llm import _delta_text
+
+
+class TestDeltaText(unittest.TestCase):
+    def test_plain_string(self):
+        self.assertEqual(_delta_text("hello"), "hello")
+
+    def test_glm_thinking_plus_text_blocks(self):
+        content = [
+            {"type": "thinking", "thinking": "Let me think..."},
+            {"type": "text", "text": "Hi there"},
+        ]
+        self.assertEqual(_delta_text(content), "Hi there")
+
+    def test_list_of_strings(self):
+        self.assertEqual(_delta_text(["Hel", "lo"]), "Hello")
+
+    def test_empty_list(self):
+        self.assertEqual(_delta_text([]), "")
+
+    def test_none(self):
+        self.assertEqual(_delta_text(None), "")
+
+    def test_bare_dict(self):
+        self.assertEqual(_delta_text({"type": "text", "text": "x"}), "")
+
+    def test_mixed_blocks(self):
+        content = [
+            {"type": "text", "text": "A"},
+            {"type": "thinking", "thinking": "B"},
+            "C",
+        ]
+        self.assertEqual(_delta_text(content), "AC")
+
+
+if __name__ == "__main__":
+    unittest.main()
