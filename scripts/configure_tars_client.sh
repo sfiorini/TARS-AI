@@ -12,7 +12,13 @@ if [ "$#" -ne 1 ]; then
     exit 1
 fi
 
+sed --version 2>/dev/null | grep -q 'GNU sed' || { echo "ERROR: this script requires GNU sed (standard on the robot's Debian)" >&2; exit 1; }
+
 API_KEY="$1"
+if [[ "$API_KEY" =~ [^A-Za-z0-9._~+/-] ]]; then
+    echo "ERROR: API key contains unexpected characters (expected url-safe token chars)" >&2
+    exit 1
+fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT/src/config.ini"
 ENV_FILE="$ROOT/.env"
@@ -35,10 +41,11 @@ set_kv() {
         if sed -n "/^\[${section}\]/,/^\[/p" "$CONFIG" | grep -qE "^[[:space:]]*${key}[[:space:]]*="; then
             sed -i "/^\[${section}\]/,/^\[/{s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|}" "$CONFIG"
         else
+            TMP="$(mktemp)"
             awk -v sect="$section" -v kv="${key} = ${value}" '
+                $0 ~ "^\\[" sect "\\][[:space:]]*$" { print; print kv; next }
                 { print }
-                $0 == "[" sect "]" { print kv }
-            ' "$CONFIG" > "$CONFIG.tmp" && mv "$CONFIG.tmp" "$CONFIG"
+            ' "$CONFIG" > "$TMP" && mv "$TMP" "$CONFIG"
         fi
     else
         printf '\n[%s]\n%s = %s\n' "$section" "$key" "$value" >> "$CONFIG"
@@ -64,7 +71,7 @@ set_kv RAG embedding_url http://mini:5678
 
 # --- .env: upsert EXTERNAL_API_KEY (delete existing line, append new) ---
 touch "$ENV_FILE"
-sed -i '/^[[:space:]]*EXTERNAL_API_KEY[[:space:]]*=/d' "$ENV_FILE"
+sed -i -E '/^[[:space:]]*(export[[:space:]]+)?EXTERNAL_API_KEY[[:space:]]*=/d' "$ENV_FILE"
 echo "EXTERNAL_API_KEY=\"$API_KEY\"" >> "$ENV_FILE"
 
 echo "=== src/config.ini changes ==="
