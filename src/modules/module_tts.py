@@ -272,9 +272,12 @@ async def generate_tts_audio(text, ttsoption, is_wakeword=False, ttsurl=None, to
             if text_to_speech_with_pipelining_espeak:
                 if not text_to_speech_with_pipelining_piper:
                     queue_message("WARNING: Piper unavailable, falling back to espeak")
+                _espeak_yielded = False
                 async for chunk in text_to_speech_with_pipelining_espeak(text):
+                    _espeak_yielded = True
                     yield chunk
-                return
+                if _espeak_yielded:
+                    return
             queue_message("ERROR: No TTS backend available for ElevenLabs fallback")
 
         elif ttsoption == "silero" and text_to_speech_with_pipelining_silero:
