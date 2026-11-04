@@ -205,6 +205,37 @@ def play_audio_stream(tts_stream, samplerate=22050, channels=1, gain=1.0, normal
         queue_message(f"ERROR: Error during audio playback: {e}")
 
 
+async def _external_tts_chunks(text):
+    """Fetch audio from the external TTS server (POST {ttsurl}/tts/generate).
+
+    Yields one BytesIO on HTTP 200; yields nothing (logs the error) on failure.
+    """
+    external_url = (CONFIG["TTS"].ttsurl or "").rstrip("/")
+    if not external_url:
+        queue_message("ERROR: External TTS URL (ttsurl) is not configured")
+        return
+    payload = {"text": text}
+    ext_voice = CONFIG["TTS"].tts_voice or ""
+    if ext_voice:
+        payload["voice"] = ext_voice
+    headers = {"Content-Type": "application/json"}
+    api_key = os.environ.get('EXTERNAL_API_KEY', '')
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    try:
+        response = requests.post(f"{external_url}/tts/generate", json=payload, headers=headers, timeout=30)
+        if response.status_code == 200:
+            audio_buffer = BytesIO(response.content)
+            audio_buffer.seek(0)
+            yield audio_buffer
+        else:
+            queue_message(f"ERROR: External TTS server returned {response.status_code}")
+    except requests.exceptions.ConnectionError:
+        queue_message(f"ERROR: Cannot connect to external TTS server at {external_url}")
+    except Exception as e:
+        queue_message(f"ERROR: External TTS failed: {e}")
+
+
 async def generate_tts_audio(text, ttsoption, is_wakeword=False, ttsurl=None, toggle_charvoice=True, tts_voice=None, emotion=None):
     try:
         if ttsoption == "espeak" and text_to_speech_with_pipelining_espeak:
@@ -228,30 +259,8 @@ async def generate_tts_audio(text, ttsoption, is_wakeword=False, ttsurl=None, to
                 yield chunk
 
         elif ttsoption == "external":
-            external_url = (CONFIG["TTS"].ttsurl or "").rstrip("/")
-            if not external_url:
-                queue_message("ERROR: External TTS URL (ttsurl) is not configured")
-                return
-            payload = {"text": text}
-            ext_voice = CONFIG["TTS"].tts_voice or ""
-            if ext_voice:
-                payload["voice"] = ext_voice
-            headers = {"Content-Type": "application/json"}
-            api_key = os.environ.get('EXTERNAL_API_KEY', '')
-            if api_key:
-                headers["Authorization"] = f"Bearer {api_key}"
-            try:
-                response = requests.post(f"{external_url}/tts/generate", json=payload, headers=headers, timeout=30)
-                if response.status_code == 200:
-                    audio_buffer = BytesIO(response.content)
-                    audio_buffer.seek(0)
-                    yield audio_buffer
-                else:
-                    queue_message(f"ERROR: External TTS server returned {response.status_code}")
-            except requests.exceptions.ConnectionError:
-                queue_message(f"ERROR: Cannot connect to external TTS server at {external_url}")
-            except Exception as e:
-                queue_message(f"ERROR: External TTS failed: {e}")
+            async for chunk in _external_tts_chunks(text):
+                yield chunk
 
         else:
             # Try fallback TTS options
