@@ -10,6 +10,9 @@ services:
       # mount point and the server starts with auth disabled.
       - ./config-server.ini:/app/config-server.ini
       - models:/app/models
+      # Piper voice weights (TARS.onnx + .onnx.json) — not in the repo (upstream
+      # never committed them); provisioned on the host from the robot's copy.
+      - ./voices:/app/tts
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5678/health', timeout=4).status==200 else 1)"]
