@@ -5,6 +5,9 @@ services:
     ports:
       - "5678:5678"
     volumes:
+      # IMPORTANT: ./config-server.ini MUST exist on the host BEFORE `docker compose up`
+      # (seed it per plan story S-M8-2). If absent, Docker creates a DIRECTORY at the
+      # mount point and the server starts with auth disabled.
       - ./config-server.ini:/app/config-server.ini
       - models:/app/models
     restart: unless-stopped

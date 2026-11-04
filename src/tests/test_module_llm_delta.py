@@ -5,6 +5,22 @@ import unittest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+# Bootstrap the gitignored src/config.ini from the template: module_llm runs
+# load_config() at import time, so a fresh clone without config.ini would
+# raise NoSectionError on import and error out the whole test module.
+_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_CONFIG_INI = os.path.join(_SRC, "config.ini")
+if not os.path.exists(_CONFIG_INI):
+    _TEMPLATE = os.path.join(_SRC, "config.ini.template")
+    try:
+        import shutil
+        shutil.copyfile(_TEMPLATE, _CONFIG_INI)
+    except OSError as exc:
+        raise RuntimeError(
+            "Cannot bootstrap src/config.ini from src/config.ini.template "
+            f"(required for module_llm import): {exc}"
+        ) from exc
+
 from modules.module_llm import _delta_text
 
 

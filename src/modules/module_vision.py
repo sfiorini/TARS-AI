@@ -177,7 +177,10 @@ def _describe_llm(image_data, prompt):
     }
     response = requests.post(url, headers=headers, json=payload, timeout=30)
     response.raise_for_status()
-    description = response.json()['choices'][0]['message']['content']
+    # Imported lazily: module_llm imports module_vision at its own import time,
+    # so a top-level import here would be circular.
+    from modules.module_llm import _delta_text
+    description = _delta_text(response.json()['choices'][0]['message']['content'])
     queue_message(f"Vision: {description}")
     return description
 
@@ -213,7 +216,9 @@ def _describe_openai(image_data, prompt):
     }
     response = requests.post(api_url, headers=headers, json=payload, timeout=30)
     response.raise_for_status()
-    description = response.json()['choices'][0]['message']['content']
+    # Imported lazily to avoid a circular import (see _describe_llm).
+    from modules.module_llm import _delta_text
+    description = _delta_text(response.json()['choices'][0]['message']['content'])
     queue_message(f"Vision: {description}")
     return description
 
