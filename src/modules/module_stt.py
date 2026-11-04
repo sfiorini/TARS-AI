@@ -988,9 +988,11 @@ class STTManager:
             api_key = os.environ.get('EXTERNAL_API_KEY', '')
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
+            # 30s: server-side whisper on shared CPU can take >10s (measured ~14s
+            # for short utterances on the mini's 4 cores) — see M10 runbook.
             response = requests.post(
                 f"{external_url}/save_audio",
-                files=files, headers=headers, timeout=10
+                files=files, headers=headers, timeout=30
             )
             if response.status_code != 200:
                 queue_message(f"ERROR: Server STT returned {response.status_code}: {response.text[:200]}")
