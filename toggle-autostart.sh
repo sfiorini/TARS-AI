@@ -30,7 +30,7 @@ fi
 
 export DISPLAY=:0
  
-lxterminal --working-directory="$SCRIPT_DIR" --command="bash -c 'python3 "$SCRIPT_DIR/App-Start.py"; exec bash'" &
+lxterminal --working-directory="$SCRIPT_DIR" --command="bash -c '"$SCRIPT_DIR/src/.venv/bin/python" "$SCRIPT_DIR/App-Start.py"; exec bash'" &
 
 echo "TARS-AI launched at $(date)" >> "$SCRIPT_DIR/autostart.log"
 LAUNCHER_EOF
