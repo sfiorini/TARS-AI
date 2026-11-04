@@ -1,0 +1,18 @@
+services:
+  tars-server:
+    build: .
+    container_name: tars-server
+    ports:
+      - "5678:5678"
+    volumes:
+      - ./config-server.ini:/app/config-server.ini
+      - models:/app/models
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:5678/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+
+volumes:
+  models:
