@@ -247,8 +247,18 @@ async def generate_tts_audio(text, ttsoption, is_wakeword=False, ttsurl=None, to
                 yield chunk
 
         elif ttsoption == "elevenlabs" and text_to_speech_with_pipelining_elevenlabs:
+            _yielded = False
             async for chunk in text_to_speech_with_pipelining_elevenlabs(text, is_wakeword):
+                _yielded = True
                 yield chunk
+            if _yielded:
+                return
+            queue_message("WARNING: ElevenLabs TTS produced no audio, falling back to external TTS")
+            async for chunk in _external_tts_chunks(text):
+                _yielded = True
+                yield chunk
+            if _yielded:
+                return
 
         elif ttsoption == "silero" and text_to_speech_with_pipelining_silero:
             async for chunk in text_to_speech_with_pipelining_silero(text):
