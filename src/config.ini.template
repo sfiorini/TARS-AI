@@ -85,6 +85,8 @@ stt_processor = sherpa-onnx
 use_indicators = True
 # External STT server URL (stt_processor = external only)
 external_url = http://192.168.1.100:5678
+# ElevenLabs Scribe model for cloud STT (scribe_v2; falls back to scribe_v1-era behavior via the API)
+elevenlabs_stt_model = scribe_v2
 # End-of-speech detection (independent of stt/wake — mix freely)
 #   Pi5: smart-turn | sherpa-onnx | silero | rms
 #   Pi4: smart-turn | sherpa-onnx | silero | rms

@@ -1040,6 +1040,7 @@ class STTManager:
             queue_message("WARNING: ELEVENLABS_API_KEY not set, falling back to external STT")
             return self._transcribe_with_server()
 
+        fallback_warning = None
         try:
             chunks, _ = self._record_audio_chunks()
             if chunks is None:
@@ -1072,27 +1073,30 @@ class STTManager:
                 headers=headers, data=data, files=files, timeout=15
             )
             if response.status_code != 200:
-                queue_message(
+                fallback_warning = (
                     f"WARNING: ElevenLabs STT failed (HTTP {response.status_code}), "
                     "falling back to external STT"
                 )
-                return self._transcribe_with_server()
-
-            raw_text = (response.json().get("text") or "").strip()
-            if not raw_text:
-                queue_message("WARNING: ElevenLabs STT returned empty text, falling back to external STT")
-                return self._transcribe_with_server()
-
-            if self.DEBUG:
-                queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")
-            extra = {
-                "result": [
-                    {"conf": 1.0, "start": 0, "end": 0, "word": raw_text}
-                ]
-            }
-            return self._emit_result(raw_text, extra)
+            else:
+                raw_text = (response.json().get("text") or "").strip()
+                if not raw_text:
+                    fallback_warning = "WARNING: ElevenLabs STT returned empty text, falling back to external STT"
+                else:
+                    if self.DEBUG:
+                        queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")
+                    extra = {
+                        "result": [
+                            {"conf": 1.0, "start": 0, "end": 0, "word": raw_text}
+                        ]
+                    }
+                    return self._emit_result(raw_text, extra)
         except Exception as e:
-            queue_message(f"WARNING: ElevenLabs STT failed ({e}), falling back to external STT")
+            fallback_warning = f"WARNING: ElevenLabs STT failed ({e}), falling back to external STT"
+
+        # Fallback runs OUTSIDE the try so an unexpected exception raised by
+        # _transcribe_with_server cannot be caught above and re-record twice.
+        if fallback_warning:
+            queue_message(fallback_warning)
             return self._transcribe_with_server()
 
     def _transcribe_with_openai(self):

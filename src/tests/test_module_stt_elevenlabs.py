@@ -56,12 +56,15 @@ def _make_self(language="english", model=""):
 def _run(fake_self, response=None, exc=None, env_key="test-key-abc123"):
     """Run _transcribe_with_elevenlabs with module-level mocks; return (result, post, queued)."""
     env = {"ELEVENLABS_API_KEY": env_key} if env_key is not None else {}
+    # Hermetic: when simulating a missing key, clear ALL ambient env so a
+    # real ELEVENLABS_API_KEY on the host (e.g. on tars) cannot leak in.
+    clear_env = env_key is None
     post = mock.MagicMock()
     if exc is not None:
         post.side_effect = exc
     elif response is not None:
         post.return_value = response
-    with mock.patch.dict(os.environ, env, clear=False), \
+    with mock.patch.dict(os.environ, env, clear=clear_env), \
          mock.patch.object(module_stt, "queue_message") as qmsg, \
          mock.patch.object(module_stt.requests, "post", post):
         result = module_stt.STTManager._transcribe_with_elevenlabs(fake_self)
@@ -88,6 +91,8 @@ class TestElevenlabsStt(unittest.TestCase):
         self.assertEqual(kwargs["data"]["language_code"], "en")
         self.assertEqual(kwargs["files"]["file"][0], "audio.wav")
         self.assertEqual(kwargs["timeout"], 15)
+        self.assertEqual(kwargs["data"]["timestamps_granularity"], "none")
+        self.assertEqual(post.call_args.args[0], "https://api.elevenlabs.io/v1/speech-to-text")
 
     def test_http_error_falls_back_with_warning(self):
         fake = _make_self()

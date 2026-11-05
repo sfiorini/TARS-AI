@@ -399,6 +399,7 @@ def load_config():
             "stt_processor": config['STT']['stt_processor'],
             "language": config['STT']['language'],
             "external_url": config['STT']['external_url'],
+            "elevenlabs_stt_model": config.get('STT', 'elevenlabs_stt_model', fallback=''),
             "sherpa_onnx_denoise": config.get('STT', 'sherpa_onnx_denoise', fallback='False'),
             "sherpa_onnx_punctuation": config.get('STT', 'sherpa_onnx_punctuation', fallback='False'),
             "wake_word": config['STT']['wake_word'],

@@ -1,6 +1,6 @@
 #!/bin/bash
-# Configure the TARS client (robot) to offload STT/vision/embeddings to the
-# mini app-server and enable ElevenLabs TTS with external fallback.
+# Configure the TARS client (robot): ElevenLabs cloud STT/TTS (primary) with
+# mini app-server fallback; vision/embeddings offloaded to mini.
 #
 # Usage: ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>
 # Idempotent: safe to run multiple times. [LLM] is intentionally untouched.
