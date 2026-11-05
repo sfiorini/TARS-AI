@@ -58,7 +58,7 @@ class DeviceCapabilities:
 DEVICE_PROFILES: Dict[DeviceProfile, DeviceCapabilities] = {
     DeviceProfile.PI5: DeviceCapabilities(
         profile=DeviceProfile.PI5,
-        allowed_stt={"fastrtc", "silero", "openai", "external", "sherpa-onnx"},
+        allowed_stt={"fastrtc", "silero", "openai", "external", "elevenlabs", "sherpa-onnx"},
         allowed_tts={"espeak", "piper", "silero", "elevenlabs", "openai", "other", "external"},
         allowed_vad={"silero", "rms", "sherpa-onnx", "smart-turn"},
         allowed_wake={"fastrtc", "atomik", "sherpa-onnx"},
@@ -731,8 +731,8 @@ CONFIG_METADATA = {
         'stt_processor': {
             'group': 'stt', 'group_label': 'Speech Recognition',
             'label': 'STT Engine',
-            'options': ['sherpa-onnx', 'fastrtc', 'openai', 'external', 'silero'],
-            'description': 'How TARS converts your speech to text after the wake word triggers. "sherpa-onnx" is fast and offline (Pi5/Pi4, recommended). "fastrtc" is cloud-based, very accurate. "openai" uses OpenAI Whisper (best for non-English, requires API key). "silero" runs on-device (Pi5 only). "external" forwards audio to your own STT server.'
+            'options': ['sherpa-onnx', 'fastrtc', 'openai', 'external', 'elevenlabs', 'silero'],
+            'description': 'How TARS converts your speech to text after the wake word triggers. "sherpa-onnx" is fast and offline (Pi5/Pi4, recommended). "fastrtc" is cloud-based, very accurate. "openai" uses OpenAI Whisper (best for non-English, requires API key). "silero" runs on-device (Pi5 only). "external" forwards audio to your own STT server. "elevenlabs" is cloud-based ElevenLabs Scribe — fast and accurate, requires ELEVENLABS_API_KEY; falls back to the external server on failure.'
         },
         'language': {
             'group': 'stt',
@@ -743,8 +743,14 @@ CONFIG_METADATA = {
         'external_url': {
             'group': 'stt',
             'label': 'External STT Server URL',
-            'depends_on': [{'field': 'stt_processor', 'values': ['external']}],
+            'depends_on': [{'field': 'stt_processor', 'values': ['external', 'elevenlabs']}],
             'description': 'URL of your external speech-to-text server. Format: http://IP-ADDRESS:PORT'
+        },
+        'elevenlabs_stt_model': {
+            'group': 'stt',
+            'label': 'ElevenLabs STT Model',
+            'depends_on': [{'field': 'stt_processor', 'values': ['elevenlabs']}],
+            'description': 'ElevenLabs Scribe model ID (leave empty for the default, scribe_v2).'
         },
         'sherpa_onnx_denoise': {
             'group': 'stt',

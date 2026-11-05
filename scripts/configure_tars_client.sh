@@ -56,8 +56,8 @@ set_kv() {
 set_kv TTS ttsoption elevenlabs
 set_kv TTS ttsurl http://mini:5678
 
-# --- [STT]: external (mini) whisper ---
-set_kv STT stt_processor external
+# --- [STT]: ElevenLabs Scribe (cloud) primary; external (mini) whisper fallback ---
+set_kv STT stt_processor elevenlabs
 set_kv STT external_url http://mini:5678
 
 # --- [VISION]: external (mini) BLIP captioning ---

@@ -90,6 +90,13 @@ if CAPABILITIES is None or (CAPABILITIES.allowed_stt and "sherpa-onnx" in CAPABI
     except ImportError:
         pass
 
+# [STT] language setting -> ISO-639-1 code for ElevenLabs Scribe (unknown -> auto-detect)
+_ELEVENLABS_LANGUAGE_CODES = {
+    "english": "en", "spanish": "es", "french": "fr", "german": "de",
+    "italian": "it", "portuguese": "pt", "dutch": "nl", "russian": "ru",
+    "chinese": "zh", "japanese": "ja", "korean": "ko",
+}
+
 # Pre-compiled regex for stripping SenseVoice tags (language: <|en|>, emotion: <|HAPPY|>, event: <|Speech|>, etc.)
 _SENSEVOICE_TAG_RE = re.compile(r'<\|[A-Za-z]+\|>')
 _NON_ALNUM_RE = re.compile(r'[^\w]')
@@ -752,6 +759,7 @@ class STTManager:
                 "fastrtc": self._transcribe_with_fastrtc,
                 "silero": self._transcribe_silero,
                 "external": self._transcribe_with_server,
+                "elevenlabs": self._transcribe_with_elevenlabs,
                 "openai": self._transcribe_with_openai,
                 "sherpa-onnx": self._transcribe_with_sherpa_onnx,
             }
@@ -1018,6 +1026,74 @@ class STTManager:
         except requests.RequestException as e:
             queue_message(f"ERROR: Server transcription request failed: {e}")
         return None
+
+    def _transcribe_with_elevenlabs(self):
+        """Transcribe audio using ElevenLabs Scribe (cloud STT).
+
+        Primary STT on the robot. On ANY failure (missing key, HTTP error,
+        empty text, request exception) it falls back to the external server
+        path (_transcribe_with_server) — same total-failure philosophy as the
+        TTS chain.
+        """
+        api_key = os.environ.get('ELEVENLABS_API_KEY', '')
+        if not api_key:
+            queue_message("WARNING: ELEVENLABS_API_KEY not set, falling back to external STT")
+            return self._transcribe_with_server()
+
+        try:
+            chunks, _ = self._record_audio_chunks()
+            if chunks is None:
+                if self.DEBUG:
+                    queue_message("DEBUG STT: No speech recorded (silence timeout)")
+                return None
+
+            # scribe_v2 verified working on the robot's account (live probe);
+            # overridable via [STT] elevenlabs_stt_model in config.ini
+            model = self.config['STT'].get('elevenlabs_stt_model', '') or 'scribe_v2'
+            language = self.config['STT'].get('language', 'english').strip().lower()
+            language_code = _ELEVENLABS_LANGUAGE_CODES.get(language)
+
+            if self.DEBUG:
+                total_samples = sum(len(c) for c in chunks)
+                queue_message(f"DEBUG STT: Sending {total_samples} samples to ElevenLabs Scribe ({model})")
+
+            wav_buf = self._chunks_to_wav_buffer(chunks, self.MODEL_RATE)
+            headers = {"xi-api-key": api_key}
+            data = {
+                "model_id": model,
+                "tag_audio_events": "false",
+                "timestamps_granularity": "none",
+            }
+            if language_code:
+                data["language_code"] = language_code
+            files = {"file": ("audio.wav", wav_buf, "audio/wav")}
+            response = requests.post(
+                "https://api.elevenlabs.io/v1/speech-to-text",
+                headers=headers, data=data, files=files, timeout=15
+            )
+            if response.status_code != 200:
+                queue_message(
+                    f"WARNING: ElevenLabs STT failed (HTTP {response.status_code}), "
+                    "falling back to external STT"
+                )
+                return self._transcribe_with_server()
+
+            raw_text = (response.json().get("text") or "").strip()
+            if not raw_text:
+                queue_message("WARNING: ElevenLabs STT returned empty text, falling back to external STT")
+                return self._transcribe_with_server()
+
+            if self.DEBUG:
+                queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")
+            extra = {
+                "result": [
+                    {"conf": 1.0, "start": 0, "end": 0, "word": raw_text}
+                ]
+            }
+            return self._emit_result(raw_text, extra)
+        except Exception as e:
+            queue_message(f"WARNING: ElevenLabs STT failed ({e}), falling back to external STT")
+            return self._transcribe_with_server()
 
     def _transcribe_with_openai(self):
         """Transcribe and translate audio using OpenAI's Whisper API."""
