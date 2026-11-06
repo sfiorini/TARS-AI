@@ -27,8 +27,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      # sounddevice loads the system PortAudio shared library at import time.
-      - run: sudo apt-get update && sudo apt-get install -y libportaudio2
+      # sounddevice loads the system PortAudio shared library at import time and
+      # initializes a host API, so the headless runner needs libportaudio2 plus
+      # a running PulseAudio server (no audio hardware on CI runners).
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio --start --exit-idle-time=-1
       # Tests import app modules at collection time: module_config needs
       # python-dotenv, module_llm/module_vision need requests, and
       # module_stt/module_mic/module_tts need numpy, sounddevice, soundfile,
