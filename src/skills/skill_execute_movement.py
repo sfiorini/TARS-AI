@@ -48,6 +48,22 @@ Response: {{"reply": "Moving now.", "function_calls": [{{"function": "execute_mo
 }
 
 
+def _import_movements():
+    """Import module_movements, guarding its circular import with servoctl.
+
+    module_movements imports module_servoctl at module level, and servoctl
+    re-imports module_movements at its end — the pair only initializes cleanly
+    when servoctl loads first (the app's startup order). If a fresh
+    module_movements import hits that cycle, load servoctl first, then retry.
+    """
+    try:
+        from modules import module_movements
+    except ImportError:
+        from modules import module_servoctl  # noqa: F401  (breaks import cycle)
+        from modules import module_movements
+    return module_movements
+
+
 def _resolve_movement(movement_id, arms_present):
     """Resolve a registry movement id to its callable in module_movements.
 
@@ -63,7 +79,7 @@ def _resolve_movement(movement_id, arms_present):
     if entry["type"] == HAS_ARMS and not arms_present:
         return None, "arm_gated"
 
-    from modules import module_movements
+    module_movements = _import_movements()
     function = getattr(module_movements, movement_id, None)
     if not callable(function):
         return None, "unknown"
@@ -76,7 +92,7 @@ def _execute_movement(movements, arms_present):
 
     # Fail fast if the servo stack is unavailable (no hardware / import error).
     try:
-        from modules import module_movements  # noqa: F401
+        _import_movements()
     except ImportError:
         queue_message("[ERROR] Servo control module not available.")
         return
