@@ -27,7 +27,7 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 `character_card_path` (relative to `src/`, default `character/TARS/TARS.json`), `user_name`, `user_details`, `location_name`, `latitude`/`longitude` (location-aware answers), `responses` (phrases said right after the wake word, JSON array), `enable_thinking_responses` + `thinking_responses` (filler phrases while the LLM thinks).
 
 ### `[LLM]` — the brain, called directly from the Pi
-`llm_backend` (`openai | grok | deepinfra | other`), `base_url` (used by `other`; the Pi POSTs to `{base_url}/v1/chat/completions`), `openai_model` / `grok_model` / `other_model`, `systemprompt`, `contextsize` (2000–8000 history tokens), `max_tokens`, `seed` (-1 = random), `temperature`, `top_p`, `json_mode` (disable for backends without `response_format`), `override_encoding_model` (tokenizer, `cl100k_base` default).
+`llm_backend` (`openai | grok | deepinfra | other`), `base_url` (used by `other`; the Pi POSTs to `{base_url}/v1/chat/completions`), `openai_model` / `grok_model` / `other_model`, `systemprompt`, `contextsize` (history tokens; 2000 on Pi Zero 2 up to 16000 on Pi5, template default 16000), `max_tokens`, `seed` (-1 = random), `temperature`, `top_p`, `json_mode` (disable for backends without `response_format`), `override_encoding_model` (tokenizer, `cl100k_base` default).
 
 ### `[STT]` — wake word + speech-to-text
 `language`, `wake_word` (2–3 syllables works best), `wake_word_processor` (`sherpa-onnx | atomik | fastrtc` on Pi5), `atomik_mode` (`auto | model | template`), `sensitivity` (**1–10: 1 = strict, 10 = lenient** — corrected in this fork; see [Voice Pipeline](voice-pipeline.md)), wake gates (`vad_transcript_verify`, `vad_speaker_verify`, `vad_presence_gate`), `stt_processor` (`sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`), `external_url`, `elevenlabs_stt_model` (`scribe_v2`), `vad_method` (`smart-turn | sherpa-onnx | silero | rms`), `use_indicators` (beeps), `enable_bargein` / `bargein_mode` (`fuzzy | voiceprint`) / `bargein_sensitivity`, `speechdelay` (tenths of a second), `speaker_id_enabled` / `speaker_id_threshold`, `mic_amp_gain`, `silence_margin`, `sherpa_onnx_denoise`, `sherpa_onnx_punctuation`.
@@ -37,7 +37,7 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 
 ### `[EMOTION]`, `[VISION]`, `[RAG]`
 `[EMOTION]`: `enabled`, `emotion_method` (`llm` — zero extra RAM | `classifier` — local HF model ~500 MB), `emotion_model` (use the ONNX variant, e.g. `SamLowe/roberta-base-go_emotions-onnx`).
-`[VISION]`: `enabled` (~1 GB RAM), `camera_rotation` (0/90/180/270), `vision_processor` (`blip | llm | openai | external`/`server_hosted`), `use_llm_backend`, `base_url`, `vision_model`, `vision_max_tokens`.
+`[VISION]`: `enabled` (~1 GB RAM), `camera_rotation` (0/90/180/270), `vision_processor` (`blip | llm | openai | external`), `use_llm_backend`, `base_url`, `vision_model`, `vision_max_tokens`.
 `[RAG]`: `enabled`, `enable_topic_tracking`, `strategy` (`hybrid` recommended | `naive`), `context_window`, `max_memories`, `top_k`, `recency_boost_days`, `embedding_source` (`local | openai | external`), `embedding_url`.
 
 ### `[ACCESS]`, `[UI]`, `[CONTROLS]`, `[BATTERY]`, `[SERVO]`

@@ -28,7 +28,7 @@
 
 - **Servo self-healing watchdog** — continuously verifies the PCA9685 MODE1/MODE2 registers and re-initializes the chip when they drift, including the MODE2 = 0x04 output-drive quirk of this board; recovery endpoints `GET /servo_status` and `POST /servo_reinit`.
 - **Full movement registry exposed to the LLM** via the `execute_movement` skill.
-- **ElevenLabs Scribe (`scribe_v2`) as primary STT**, with automatic fallback to the external server.
+- **ElevenLabs Scribe (`scribe_v2`) STT support** (set `stt_processor = elevenlabs`), with automatic fallback to the external server.
 - **Mistral streaming fix** — `delta.content` sent as a list of content blocks no longer produces empty replies.
 - **TTS fallback chain** (ElevenLabs → external server Piper → local → espeak).
 - **App-Stop TERM-to-KILL escalation** — a surviving process gets SIGKILL, so the app actually exits.
@@ -78,9 +78,9 @@ python -m pytest src/tests -q
 
 ```text
 TARS-AI/
-├── Install.sh, tars-launcher.sh, App-Start.py, App-Stop.py, ...  # root launcher scripts
+├── Install.sh, tars-launcher.sh, App-Start.py, App-Stop.py, aec.py, ...  # root scripts
 ├── src/
-│   ├── app.py, app_cms.py, aec.py, ...        # core apps
+│   ├── app.py, app_cms.py, ...                 # core apps
 │   ├── modules/  skills/  stt/  tts/  vision/  character/  memory/  music/
 │   ├── config.ini.template                    # copy to config.ini and edit
 │   ├── tests/                                 # pytest suite

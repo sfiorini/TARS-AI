@@ -6,7 +6,7 @@
 
 - **`TARS-AI_Server/app-server.py`** — FastAPI + uvicorn, default **port 5678** (`[server] port` in `config-server.ini`; `--port` to override).
 - **Auth**: `config-server.ini` → `[server] api_key = …`. On first boot with an empty key the server **auto-generates one** (`secrets.token_urlsafe(24)`) and logs it. All API requests must send `Authorization: Bearer <api_key>` (otherwise 401/403). The web UI (`/`, `/playground`, `/ui`, `/docs`) accepts the session cookie *or* the Bearer token.
-- **Endpoints**: `GET /health`, `POST /save_audio` (STT — faster-whisper + Silero VAD; also `POST /save_audio/v2`, `WS /ws/stt`), `POST /tts/generate` (Piper ONNX), `GET /tts/voices`, `POST /caption` (vision BLIP), `POST /v1/embeddings` (RAG, `all-MiniLM-L6-v2`), `POST /generate_image` (Stable Diffusion), `POST /generate_music` (ACE-Step). Services can be limited with `--services stt tts …`.
+- **Endpoints**: `GET /health`, `POST /save_audio`, `POST /transcribe` (STT — faster-whisper + Silero VAD; also `WS /ws/stt`), `POST /tts/generate` (Piper ONNX), `GET /tts/voices`, `POST /caption` (vision BLIP), `POST /v1/embeddings` (RAG, `all-MiniLM-L6-v2`), `POST /generate_image` (Stable Diffusion), `POST /generate_music` (ACE-Step). Services can be limited with `--services stt tts …`.
 - Non-Docker run on any OS: `python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-server.txt && python app-server.py` (Windows: `run-server.bat`). Details in `TARS-AI_Server/README.txt`.
 
 ## Docker deploy (CPU-only) on the mini
@@ -18,7 +18,7 @@ The repo ships a CPU-only container (the mini has no GPU):
   - `ports: "5678:5678"`
   - `./config-server.ini:/app/config-server.ini` — **the file must exist on the host before `docker compose up`**; if absent, Docker creates a *directory* at the mount point and the server starts with auth disabled.
   - `models:/app/models` — named volume; all model loaders (whisper, vision, embeddings) use explicit `cache_dir` under `/app/models`, so downloads persist across rebuilds.
-  - `./voices:/app/tts` — bind mount for the Piper voice weights (`TARS.onnx` + `TARS.onnx.json`). **Not in the repo** (upstream never committed them) — copy them from the robot's `src/character/TARS/voice/` onto the mini first, or the server logs "Found 0 voices".
+  - `./voices:/app/tts` — bind mount for the Piper voice weights (`TARS.onnx` + `TARS.onnx.json`). Only `TARS.onnx` is absent from the repo (gitignored); `TARS.onnx.json` is committed — copy them from the robot's `src/character/TARS/voice/` onto the mini first, or the server logs "Found 0 voices".
   - `restart: unless-stopped` + a healthcheck that GETs `http://127.0.0.1:5678/health` every 30 s (5 s timeout, 120 s start period for model loading).
 
 ## Deploy path on the mini: /opt/docker, root workflow
@@ -86,7 +86,7 @@ The same file also holds per-service model choices (`[stt]`, `[tts]`, `[vision]`
 
 | Service | Endpoint(s) | Model |
 |---|---|---|
-| STT | `POST /save_audio`, `/save_audio/v2`, `WS /ws/stt` | faster-whisper + Silero VAD |
+| STT | `POST /save_audio`, `POST /transcribe`, `WS /ws/stt` | faster-whisper + Silero VAD |
 | TTS | `POST /tts/generate`, `GET /tts/voices` | Piper ONNX (voice from `./voices`) |
 | Vision | `POST /caption` | BLIP captioning |
 | Embeddings | `POST /v1/embeddings` | sentence-transformers `all-MiniLM-L6-v2` |

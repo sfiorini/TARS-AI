@@ -17,7 +17,7 @@ Threshold curves in `module_stt._detect_wake_word_atomik`: template mode 0.70 at
 
 `stt_processor`: `sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`.
 
-**Fork default: ElevenLabs Scribe.** `stt_processor = elevenlabs` POSTs the recorded utterance to `https://api.elevenlabs.io/v1/speech-to-text` with `ELEVENLABS_API_KEY`, model `[STT] elevenlabs_stt_model` (**`scribe_v2`**, live-verified on the robot), timeout 15 s. On a missing key, empty transcript, or request error it **falls back to the external server** (`_transcribe_with_server`): `POST {external_url}/save_audio` with `Authorization: Bearer $EXTERNAL_API_KEY` and a **30 s timeout** (server-side whisper on a shared-CPU mini measured ~14 s). Set `external_url = http://mini:5678` in [server mode](server-mode.md).
+**Optional on Pi5: ElevenLabs Scribe** (template default is `sherpa-onnx`; set `stt_processor = elevenlabs` to use Scribe). `stt_processor = elevenlabs` POSTs the recorded utterance to `https://api.elevenlabs.io/v1/speech-to-text` with `ELEVENLABS_API_KEY`, model `[STT] elevenlabs_stt_model` (**`scribe_v2`**, live-verified on the robot), timeout 15 s. On a missing key, empty transcript, or request error it **falls back to the external server** (`_transcribe_with_server`): `POST {external_url}/save_audio` with `Authorization: Bearer $EXTERNAL_API_KEY` and a **30 s timeout** (server-side whisper on a shared-CPU mini measured ~14 s). Set `external_url = http://mini:5678` in [server mode](server-mode.md).
 
 Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay` (pre-processing silence, tenths of a second; 15 = 1.5 s), `enable_bargein` + `bargein_mode` (`fuzzy | voiceprint`) + `bargein_sensitivity` (1–10, 10 = easiest to interrupt TARS mid-sentence), `speaker_id_enabled`/`speaker_id_threshold` (passive speaker tagging), `use_indicators` (beep on listen start/stop), `sherpa_onnx_denoise`/`sherpa_onnx_punctuation`.
 
@@ -70,9 +70,9 @@ From the `[STT]` template comments (mix wake-word and STT engines freely — the
 | Pi | `stt_processor` options | `wake_word_processor` options | `vad_method` options |
 |---|---|---|---|
 | Pi5 | sherpa-onnx, fastrtc, silero, openai, external, elevenlabs | sherpa-onnx, atomik, fastrtc | smart-turn, sherpa-onnx, silero, rms |
-| Pi4 | sherpa-onnx, openai, external, elevenlabs | sherpa-onnx, atomik | smart-turn, sherpa-onnx, silero, rms |
-| Pi3 | openai, external, elevenlabs | sherpa-onnx, atomik | sherpa-onnx, rms |
-| PiZero2 | openai, external, elevenlabs | atomik | rms |
+| Pi4 | sherpa-onnx, openai, external | sherpa-onnx, atomik | smart-turn, sherpa-onnx, silero, rms |
+| Pi3 | openai, external | sherpa-onnx, atomik | sherpa-onnx, rms |
+| PiZero2 | openai | atomik | rms |
 
 ## Barge-in and speaker ID
 
