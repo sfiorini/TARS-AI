@@ -296,13 +296,23 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
         self.assertIsNone(servoctl._read_mode1())
 
     def test_mode2_healthy_boundaries(self):
-        # bit 0x08 clear = outputs enabled (verified live: 0x00/0x01/0x04 move servos)
+        # live-verified on the robot: ONLY 0x04 physically drives the servos;
+        # 0x01 (driver default after init) is silent; 0x0B/0x1E are hi-Z glitches
         self.assertTrue(servoctl._mode2_healthy(0x04))
-        self.assertTrue(servoctl._mode2_healthy(0x00))
-        self.assertTrue(servoctl._mode2_healthy(0x01))
+        self.assertFalse(servoctl._mode2_healthy(0x01))  # silent despite ACKing
+        self.assertFalse(servoctl._mode2_healthy(0x00))
         self.assertFalse(servoctl._mode2_healthy(0x1E))  # observed live: outputs hi-Z, no motor noise
         self.assertFalse(servoctl._mode2_healthy(0x0B))  # observed live: outputs off
         self.assertFalse(servoctl._mode2_healthy(None))   # unreadable
+
+    def test_init_writes_mode2_working_value(self):
+        # initialize_pca9685 must leave MODE2=0x04, the only live-verified
+        # output-drive state on this board
+        fake_pca = mock.MagicMock()
+        with mock.patch.object(servoctl.busio, "I2C", return_value=mock.MagicMock()), \
+             mock.patch.object(servoctl, "PCA9685", return_value=fake_pca):
+            self.assertTrue(servoctl.initialize_pca9685())
+        self.assertEqual(fake_pca.mode2_reg, 0x04)
 
     def test_read_mode2_returns_register_value(self):
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
@@ -328,6 +338,16 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
         # Live failure mode: MODE1 healthy (0x20) but MODE2=0x1E -> outputs hi-Z,
         # no motor drive. Watchdog must re-init even though MODE1 passes.
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time()
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+
+    def test_watchdog_tick_repairs_silent_mode2_default(self):
+        # 0x01 is the driver default after init but is SILENT on this board
+        # (user-confirmed: no movement, no motor noise) -> must trigger repair
+        servoctl.pca = _FakeMode1Pca(0x20, mode2=0x01)
         servoctl.MOVING = False
         servoctl._last_pwm_time = time.time()
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:

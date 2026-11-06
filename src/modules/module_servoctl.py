@@ -100,6 +100,7 @@ def initialize_pca9685():
         _i2c = i2c
         pca = PCA9685(i2c, address=0x40)
         pca.frequency = 50
+        _write_register(0x01, 0x04)  # MODE2: output-drive state verified working on this board (0x01 = silent, no motor drive)
         queue_message("LOAD: PCA9685 initialized successfully")
         return True
         
@@ -432,6 +433,20 @@ def _read_register(reg):
             queue_message(f"WARNING: PCA9685 register 0x{reg:02X} read failed: {e}")
     return None
 
+def _write_register(reg, value):
+    """Write a raw PCA9685 register; uses the driver struct attribute when
+    present, else raw writeto on the stored I2C handle."""
+    if pca is None:
+        return
+    attr = {0x00: "mode1_reg", 0x01: "mode2_reg"}.get(reg)
+    try:
+        if attr is not None and hasattr(pca, attr):
+            setattr(pca, attr, value)
+        elif _i2c is not None:
+            _i2c.writeto(0x40, bytes([reg, value]))
+    except Exception as e:
+        queue_message(f"WARNING: PCA9685 register 0x{reg:02X} write failed: {e}")
+
 def _read_mode1():
     """Read the PCA9685 MODE1 register; None if unreadable."""
     return _read_register(0x00)
@@ -441,15 +456,15 @@ def _read_mode2():
     return _read_register(0x01)
 
 def _mode2_healthy(mode2):
-    """Pure helper: MODE2 bit 0x08 (OUTNE[1]) must be clear = output drivers
-    enabled. Verified empirically on the robot: MODE2=0x00/0x01/0x04 drive the
-    servos; 0x0B and 0x1E (bit 0x08 set, seen after chip-logic glitches) put
-    ALL PWM output pins in high-impedance while the chip still ACKs on I2C —
-    servos get no signal at all (no movement, no motor noise) until the
-    driver state is restored."""
+    """Pure helper: MODE2 must be exactly the driver-verified working output
+    state 0x04 on this board. Verified empirically on the robot: MODE2=0x04
+    drives the servos (physical movement confirmed); 0x01 leaves them silent
+    (no movement, no motor noise) while the chip still ACKs on I2C; 0x0B and
+    0x1E (seen after chip-logic glitches) put ALL PWM output pins in
+    high-impedance. Health check: OUTNE bits (0x0C) == 0x04."""
     if mode2 is None:
         return False
-    return (mode2 & 0x08) == 0
+    return (mode2 & 0x0C) == 0x04
 
 def _chip_state_healthy(mode1, mode2):
     return _mode1_healthy(mode1) and _mode2_healthy(mode2)
