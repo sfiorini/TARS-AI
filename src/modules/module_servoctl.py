@@ -89,6 +89,22 @@ def signal_servo_activity():
     if battery_module is not None:
         battery_module.signal_servo_activity()
 
+def _write_register(reg, value):
+    """Write a raw PCA9685 register; uses the driver struct attribute when
+    present, else raw writeto on the stored I2C handle.
+    NOTE: must be defined BEFORE initialize_pca9685() — that function is
+    called at module import time and references this helper."""
+    if pca is None:
+        return
+    attr = {0x00: "mode1_reg", 0x01: "mode2_reg"}.get(reg)
+    try:
+        if attr is not None and hasattr(pca, attr):
+            setattr(pca, attr, value)
+        elif _i2c is not None:
+            _i2c.writeto(0x40, bytes([reg, value]))
+    except Exception as e:
+        queue_message(f"WARNING: PCA9685 register 0x{reg:02X} write failed: {e}")
+
 def initialize_pca9685():
     
     global pca, _last_init_attempt, _i2c
@@ -432,20 +448,6 @@ def _read_register(reg):
             _last_reg_read_log = now
             queue_message(f"WARNING: PCA9685 register 0x{reg:02X} read failed: {e}")
     return None
-
-def _write_register(reg, value):
-    """Write a raw PCA9685 register; uses the driver struct attribute when
-    present, else raw writeto on the stored I2C handle."""
-    if pca is None:
-        return
-    attr = {0x00: "mode1_reg", 0x01: "mode2_reg"}.get(reg)
-    try:
-        if attr is not None and hasattr(pca, attr):
-            setattr(pca, attr, value)
-        elif _i2c is not None:
-            _i2c.writeto(0x40, bytes([reg, value]))
-    except Exception as e:
-        queue_message(f"WARNING: PCA9685 register 0x{reg:02X} write failed: {e}")
 
 def _read_mode1():
     """Read the PCA9685 MODE1 register; None if unreadable."""

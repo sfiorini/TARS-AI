@@ -305,6 +305,13 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
         self.assertFalse(servoctl._mode2_healthy(0x0B))  # observed live: outputs off
         self.assertFalse(servoctl._mode2_healthy(None))   # unreadable
 
+    def test_write_register_defined_before_init_at_module_level(self):
+        # Regression: initialize_pca9685() runs at module import time, so
+        # _write_register must be defined earlier in the source (a boot-time
+        # NameError left pca=None until the watchdog recovered it).
+        src = open(os.path.join(os.path.dirname(servoctl.__file__), "module_servoctl.py")).read()
+        self.assertLess(src.index("def _write_register"), src.index("def initialize_pca9685"))
+
     def test_init_writes_mode2_working_value(self):
         # initialize_pca9685 must leave MODE2=0x04, the only live-verified
         # output-drive state on this board
