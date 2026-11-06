@@ -73,6 +73,7 @@ _last_init_attempt = 0.0
 _i2c_error_count = 0
 _last_pwm_time = 0.0
 _last_pca_none_log = 0.0
+_last_reg_read_log = 0.0
 _watchdog_running = False
 _i2c = None  # raw I2C handle kept for register reads (fallback if driver attrs missing)
 _watchdog_thread = None
@@ -422,10 +423,13 @@ def _read_register(reg):
         if attr is not None and hasattr(pca, attr):
             return int(getattr(pca, attr))
         if _i2c is not None:
-            _i2c.writeto(0x40, bytes([reg]))
-            return _i2c.readfrom(0x40, 1)[0]
+            return _i2c.writeto_then_readfrom(0x40, bytes([reg]), 1)[0]
     except Exception as e:
-        queue_message(f"WARNING: PCA9685 register 0x{reg:02X} read failed: {e}")
+        global _last_reg_read_log
+        now = time.time()
+        if now - _last_reg_read_log >= 30.0:
+            _last_reg_read_log = now
+            queue_message(f"WARNING: PCA9685 register 0x{reg:02X} read failed: {e}")
     return None
 
 def _read_mode1():
@@ -463,6 +467,10 @@ def _repair_chip_state_if_needed():
         m1, m2 = _read_mode1(), _read_mode2()
         if _chip_state_healthy(m1, m2):
             queue_message("SERVO: PCA9685 state repair complete")
+            # re-init cleared the PWM output registers — re-apply saved positions
+            # so servos hold instead of going limp until the next command
+            for channel, value in servo_positions.items():
+                set_servo_pwm(int(channel), value)
         else:
             queue_message(f"WARNING: servo watchdog - MODE1/MODE2 still unhealthy after re-init (MODE1={m1}, MODE2={m2})")
     else:
