@@ -65,6 +65,20 @@ class _RaisingChannel:
         raise self._exc
 
 
+class _FakeMode1Pca:
+    """Fake PCA9685 exposing a readable mode1_reg (value or raising)."""
+
+    def __init__(self, mode1=None, exc=None):
+        self._mode1 = mode1
+        self._exc = exc
+
+    @property
+    def mode1_reg(self):
+        if self._exc is not None:
+            raise self._exc
+        return self._mode1
+
+
 class ServoctlSelfHealingTestCase(unittest.TestCase):
     """Save/restore every servoctl global touched by a test."""
 
@@ -239,24 +253,68 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         ssp.assert_any_call(3, 300)
 
 
+class TestMode1Health(ServoctlSelfHealingTestCase):
+
+    def test_mode1_healthy_boundaries(self):
+        self.assertTrue(servoctl._mode1_healthy(0x20))   # healthy after driver init
+        self.assertFalse(servoctl._mode1_healthy(0x01))  # chip-logic-reset broken state
+        self.assertFalse(servoctl._mode1_healthy(0x00))
+        self.assertTrue(servoctl._mode1_healthy(0xA0))   # RESTART pending + AI set
+        self.assertFalse(servoctl._mode1_healthy(None))    # unreadable
+
+    def test_read_mode1_returns_register_value(self):
+        servoctl.pca = _FakeMode1Pca(0x20)
+        self.assertEqual(servoctl._read_mode1(), 0x20)
+
+    def test_read_mode1_returns_none_on_error(self):
+        servoctl.pca = _FakeMode1Pca(exc=OSError(121, "Remote I/O error"))
+        self.assertIsNone(servoctl._read_mode1())
+
+
 class TestWatchdog(ServoctlSelfHealingTestCase):
 
     def test_watchdog_tick_resets_stuck_moving(self):
         servoctl.MOVING = True
         servoctl._last_pwm_time = time.time() - 200
-        servoctl.pca = mock.MagicMock()
+        servoctl.pca = _FakeMode1Pca(0x20)
         servoctl._watchdog_tick()
         self.assertFalse(servoctl.MOVING)
 
     def test_watchdog_tick_leaves_active_movement_alone(self):
         servoctl.MOVING = True
         servoctl._last_pwm_time = time.time() - 5
-        servoctl.pca = mock.MagicMock()
+        servoctl.pca = _FakeMode1Pca(0x20)
         servoctl._watchdog_tick()
         self.assertTrue(servoctl.MOVING)
 
     def test_watchdog_tick_retries_pca_init_when_dead(self):
         servoctl.pca = None
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+
+    def test_watchdog_tick_repairs_unhealthy_mode1(self):
+        # RC-1b: chip ACKs on I2C but MODE1 lost bit 0x20 -> PWM writes
+        # land on wrong registers, servos frozen. Watchdog must re-init.
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time()
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+
+    def test_watchdog_tick_noop_when_mode1_healthy(self):
+        servoctl.pca = _FakeMode1Pca(0x20)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time()
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_watchdog_tick_repairs_unreadable_mode1(self):
+        servoctl.pca = _FakeMode1Pca(exc=OSError(121, "Remote I/O error"))
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time()
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
             servoctl._watchdog_tick()
             init.assert_called_once()

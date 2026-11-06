@@ -398,8 +398,40 @@ def _is_moving_stuck(moving, last_pwm_time, now, timeout=180):
         return True
     return (now - last_pwm_time) > timeout
 
+def _mode1_healthy(mode1):
+    """Pure helper: MODE1 bit 0x20 must be set. If the chip's logic resets,
+    MODE1 falls back to 0x01 while the device still ACKs on I2C — multi-byte
+    PWM writes then land on wrong registers and all servos freeze until the
+    driver state is restored (no reboot needed, just re-init)."""
+    if mode1 is None:
+        return False
+    return (mode1 & 0x20) != 0
+
+def _read_mode1():
+    """Read the PCA9685 MODE1 register; None if unreadable."""
+    try:
+        return int(pca.mode1_reg)
+    except Exception as e:
+        queue_message(f"WARNING: PCA9685 MODE1 read failed: {e}")
+        return None
+
+def _repair_mode1_if_needed():
+    """If MODE1 lost bit 0x20, re-run driver init to restore it."""
+    mode1 = _read_mode1()
+    if _mode1_healthy(mode1):
+        return
+    if mode1 is None:
+        queue_message("SERVO: PCA9685 MODE1 unreadable - re-initializing")
+    else:
+        queue_message(f"SERVO: PCA9685 MODE1 unhealthy (0x{mode1:02X}) - re-initializing")
+    if initialize_pca9685():
+        queue_message("SERVO: PCA9685 MODE1 repair complete")
+    else:
+        queue_message("WARNING: servo watchdog - MODE1 repair re-init failed")
+
 def _watchdog_tick():
-    """One watchdog pass: retry a dead PCA9685, reset a stuck MOVING flag."""
+    """One watchdog pass: retry a dead PCA9685, repair an unhealthy MODE1,
+    reset a stuck MOVING flag."""
     global MOVING
     
     now = time.time()
@@ -409,6 +441,8 @@ def _watchdog_tick():
             queue_message("SERVO: watchdog recovered PCA9685 I2C bus")
         else:
             queue_message("WARNING: servo watchdog - PCA9685 still unavailable")
+    else:
+        _repair_mode1_if_needed()
     
     if _is_moving_stuck(MOVING, _last_pwm_time, now):
         queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
@@ -453,10 +487,14 @@ def force_servo_recovery():
     
     MOVING = False
     
-    if initialize_pca9685() and servo_positions:
-        for channel, value in servo_positions.items():
-            set_servo_pwm(int(channel), value)
-            time.sleep(0.02)
+    if initialize_pca9685():
+        mode1 = _read_mode1()
+        if not _mode1_healthy(mode1):
+            queue_message("WARNING: servo recovery - PCA9685 MODE1 still unhealthy after re-init")
+        if servo_positions:
+            for channel, value in servo_positions.items():
+                set_servo_pwm(int(channel), value)
+                time.sleep(0.02)
     
     return servo_status()
 
