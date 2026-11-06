@@ -1074,6 +1074,30 @@ def robot_move():
         queue_message(f"Error moving robot: {e}")
         return jsonify({"error": f"Failed to move robot: {str(e)}"}), 500
 
+@flask_app.route('/servo_status', methods=['GET'])
+def servo_status_endpoint():
+    """
+    Returns live servo controller health (PCA alive, MOVING flag,
+    last PWM age, I2C error count, watchdog state).
+    """
+    try:
+        return jsonify(servo_status()), 200
+    except Exception as e:
+        queue_message(f"Error getting servo status: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@flask_app.route('/servo_reinit', methods=['POST'])
+def servo_reinit_endpoint():
+    """
+    No-reboot servo recovery: re-creates the I2C/PCA9685 device, re-applies
+    saved positions and clears a stuck MOVING flag. Returns the new status.
+    """
+    try:
+        return jsonify(force_servo_recovery()), 200
+    except Exception as e:
+        queue_message(f"Error forcing servo recovery: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @flask_app.route('/get_movements', methods=['GET'])
 def get_movements():
     """

@@ -575,6 +575,11 @@ def startup_initialization():
         initialize_servos()
         queue_message("SYSTEM: Servo initialization complete")
         try:
+            from modules.module_servoctl import start_servo_watchdog
+            start_servo_watchdog()
+        except Exception as e:
+            queue_message(f"WARNING: Servo watchdog not started: {e}")
+        try:
             from modules.module_cputemp import (
                 CPUTempModule,
                 set_cpu_temp_instance, 

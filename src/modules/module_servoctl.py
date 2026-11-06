@@ -20,6 +20,7 @@ This license applies only to this file and does not override licenses of other f
 from __future__ import division
 import time
 import os
+import threading
 import board
 import busio
 from adafruit_pca9685 import PCA9685
@@ -66,6 +67,16 @@ _channels_initialized = set(servo_positions.keys())
 pca = None
 MAX_RETRIES = 3
 
+# Self-healing state: lazy PCA re-init (rate-limited), I2C error accounting,
+# last PWM activity timestamp (stuck-MOVING detection) and the watchdog.
+_last_init_attempt = 0.0
+_i2c_error_count = 0
+_last_pwm_time = 0.0
+_last_pca_none_log = 0.0
+_watchdog_running = False
+_watchdog_thread = None
+_watchdog_interval = 15
+
 battery_module = None
 
 def set_battery_module(battery_mod):
@@ -78,7 +89,8 @@ def signal_servo_activity():
 
 def initialize_pca9685():
     
-    global pca
+    global pca, _last_init_attempt
+    _last_init_attempt = time.time()
     
     try:
         i2c = busio.I2C(board.SCL, board.SDA)
@@ -97,6 +109,35 @@ def initialize_pca9685():
     except Exception as e:
         queue_message(f"ERROR: Failed to initialize PCA9685: {e}")
         return False
+
+def _try_lazy_pca_init():
+    """Attempt to re-create the PCA9685 device object, at most once per 5s.
+    Covers the boot-failure case: a dead `pca` no longer bricks all movement
+    until a reboot — the next servo command retries the I2C bus."""
+    global _last_init_attempt
+    
+    if time.time() - _last_init_attempt < 5.0:
+        return
+    
+    if initialize_pca9685():
+        queue_message("SERVO: PCA9685 re-initialized on demand")
+
+def _log_pca_unavailable():
+    """Rate-limited warning while servo commands are being dropped."""
+    global _last_pca_none_log
+    
+    now = time.time()
+    if now - _last_pca_none_log >= 30.0:
+        _last_pca_none_log = now
+        queue_message("WARNING: PCA9685 unavailable - servo commands ignored until I2C bus recovers")
+
+def _invalidate_pca():
+    """Drop a dead PCA9685 handle so the next command re-creates the I2C
+    bus (bus recovery without a reboot)."""
+    global pca, _i2c_error_count
+    
+    _i2c_error_count += 1
+    pca = None
 
 controls = config.get('CONTROLS', {})
 _movement_enabled = controls.get('enabled', False) or controls.get('voicemovement', False)
@@ -271,32 +312,42 @@ def set_movement_callbacks(on_start=None, on_end=None):
 def _notify_movement_start():
     global _is_ventilate_operation
 
-    signal_servo_activity()
+    # Bulletproof: this is called OUTSIDE the try block of every movement
+    # function — if it raised, MOVING would stay True forever and every later
+    # movement would silently no-op. Never let an exception escape.
+    try:
+        signal_servo_activity()
 
-    if not _is_ventilate_operation:
-        try:
-            from modules.module_cputemp import is_ventilating
-            if is_ventilating():
-                from modules.module_movements import ventilate_off
-                ventilate_off()
-        except Exception as e:
-            pass
+        if not _is_ventilate_operation:
+            try:
+                from modules.module_cputemp import is_ventilating
+                if is_ventilating():
+                    from modules.module_movements import ventilate_off
+                    ventilate_off()
+            except Exception as e:
+                pass
 
-    if _on_movement_start:
-        try:
-            _on_movement_start()
-        except Exception as e:
-            queue_message(f"ERROR: Failed to pause UI/STT: {e}")
+        if _on_movement_start:
+            try:
+                _on_movement_start()
+            except Exception as e:
+                queue_message(f"ERROR: Failed to pause UI/STT: {e}")
+    except Exception as e:
+        queue_message(f"ERROR: movement-start notification failed: {e}")
 
 def _notify_movement_end():
 
-    signal_servo_activity()
+    # Bulletproof: same reasoning as _notify_movement_start.
+    try:
+        signal_servo_activity()
 
-    if _on_movement_end:
-        try:
-            _on_movement_end()
-        except Exception as e:
-            queue_message(f"ERROR: Failed to resume UI/STT: {e}")
+        if _on_movement_end:
+            try:
+                _on_movement_end()
+            except Exception as e:
+                queue_message(f"ERROR: Failed to resume UI/STT: {e}")
+    except Exception as e:
+        queue_message(f"ERROR: movement-end notification failed: {e}")
 
 def pulse_to_duty_cycle(pulse_value):
     
@@ -306,14 +357,20 @@ def pulse_to_duty_cycle(pulse_value):
     return duty_cycle
 
 def set_servo_pwm(channel, pwm_value):
+    global _last_pwm_time
+
     if pca is None:
-        return False
+        _try_lazy_pca_init()
+        if pca is None:
+            _log_pca_unavailable()
+            return False
     
     duty_cycle = pulse_to_duty_cycle(pwm_value)
 
     for attempt in range(MAX_RETRIES):
         try:
             pca.channels[channel].duty_cycle = duty_cycle
+            _last_pwm_time = time.time()
             return True
             
         except OSError as e:
@@ -321,15 +378,87 @@ def set_servo_pwm(channel, pwm_value):
                 if attempt < MAX_RETRIES - 1:
                     time.sleep(0.05)
                     continue
-                else:
-                    queue_message(f"I2C error on channel {channel} after {MAX_RETRIES} attempts")
+            queue_message(f"I2C error on channel {channel} after {attempt + 1} attempts: {e} - invalidating PCA9685 for bus recovery")
+            _invalidate_pca()
             return False
             
         except Exception as e:
-            queue_message(f"Error setting PWM on channel {channel}: {e}")
+            queue_message(f"Error setting PWM on channel {channel}: {e} - invalidating PCA9685 for bus recovery")
+            _invalidate_pca()
             return False
     
     return False
+
+def _is_moving_stuck(moving, last_pwm_time, now, timeout=180):
+    """Pure helper: MOVING with no PWM activity for more than `timeout`
+    seconds is stuck (an exception left the flag set)."""
+    if not moving:
+        return False
+    if not last_pwm_time:
+        return True
+    return (now - last_pwm_time) > timeout
+
+def _watchdog_tick():
+    """One watchdog pass: retry a dead PCA9685, reset a stuck MOVING flag."""
+    global MOVING
+    
+    now = time.time()
+    
+    if pca is None:
+        if initialize_pca9685():
+            queue_message("SERVO: watchdog recovered PCA9685 I2C bus")
+        else:
+            queue_message("WARNING: servo watchdog - PCA9685 still unavailable")
+    
+    if _is_moving_stuck(MOVING, _last_pwm_time, now):
+        queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
+        MOVING = False
+
+def _watchdog_loop():
+    while _watchdog_running:
+        time.sleep(_watchdog_interval)
+        try:
+            _watchdog_tick()
+        except Exception as e:
+            queue_message(f"ERROR: servo watchdog tick failed: {e}")
+
+def start_servo_watchdog(interval=15):
+    """Start the servo self-healing watchdog (daemon thread)."""
+    global _watchdog_running, _watchdog_thread, _watchdog_interval
+    
+    if _watchdog_running:
+        return
+    
+    _watchdog_interval = interval
+    _watchdog_running = True
+    _watchdog_thread = threading.Thread(target=_watchdog_loop, daemon=True, name="servo-watchdog")
+    _watchdog_thread.start()
+    queue_message(f"SERVO: watchdog started ({interval}s interval)")
+
+def servo_status():
+    """Live servo controller health snapshot."""
+    now = time.time()
+    return {
+        "pca_alive": pca is not None,
+        "moving": MOVING,
+        "last_pwm_age_s": round(now - _last_pwm_time, 1) if _last_pwm_time else None,
+        "i2c_error_count": _i2c_error_count,
+        "watchdog_running": _watchdog_running,
+    }
+
+def force_servo_recovery():
+    """No-reboot recovery: clear a stuck MOVING flag, re-create the I2C/PCA9685
+    device, then gently re-apply the saved servo positions (no neutral jerk)."""
+    global MOVING
+    
+    MOVING = False
+    
+    if initialize_pca9685() and servo_positions:
+        for channel, value in servo_positions.items():
+            set_servo_pwm(int(channel), value)
+            time.sleep(0.02)
+    
+    return servo_status()
 
 def initialize_servos():
     if pca is None:
