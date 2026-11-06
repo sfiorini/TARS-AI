@@ -232,3 +232,4 @@ TARS-AI_Server/output/*
 TARS-AI_Server/outputs/*
 # local planning artifacts (never commit)
 ai_plan/
+.pi/
