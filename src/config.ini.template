@@ -73,7 +73,8 @@ vad_transcript_verify = False
 vad_speaker_verify = off
 vad_speaker_threshold = 0.60
 vad_presence_gate = off
-# Wake word strictness 1–10 (atomik only; 1 = lenient, 10 = strict)
+# Wake word sensitivity 1–10 (atomik only; 1 = strict/hard to trigger, 10 = lenient/easy to trigger.
+# Raise the number if TARS stops hearing you; lower it if TARS activates randomly.)
 sensitivity = 7
 # Speech-to-text engine (independent of wake_word_processor — mix freely)
 #   Pi5: sherpa-onnx | fastrtc | silero | openai | external

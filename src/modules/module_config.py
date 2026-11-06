@@ -795,7 +795,7 @@ CONFIG_METADATA = {
             'min': 1,
             'max': 10,
             'step': 1,
-            'description': 'How strictly TARS matches the wake word (atomik only). 1 = very lenient, triggers easily. 10 = very strict, requires a clear and precise match. Start at 5. Raise it if TARS activates randomly; lower it if TARS stops hearing you.'
+            'description': 'Wake word matching sensitivity (atomik only). 1 = very strict, requires a clear and precise match. 10 = very lenient, triggers easily. Start at 5. Raise the number if TARS stops hearing you; lower it if TARS activates randomly.'
         },
 
         # ── Wake Word Gates ───────────────────────────────────────────────────
