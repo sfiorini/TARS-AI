@@ -99,6 +99,10 @@ class _FakeI2c:
     def readfrom(self, addr, n):
         return bytes([self._regs.get(self.last_reg, 0)])
 
+    def writeto_then_readfrom(self, addr, buf, n):
+        self.last_reg = buf[0]
+        return bytes([self._regs.get(self.last_reg, 0)])
+
 
 class ServoctlSelfHealingTestCase(unittest.TestCase):
     """Save/restore every servoctl global touched by a test."""
