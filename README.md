@@ -96,7 +96,6 @@ TARS-AI/
 ## Contributing
 
 This fork works only on **`V3`** — open issues and PRs against `sfiorini/TARS-AI` branch `V3`.
-Join the community on Discord: 👉 https://discord.gg/AmE2Gv9EUt
 
 ---
 
