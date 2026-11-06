@@ -14,7 +14,7 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 | `DEEPINFRA_API_KEY` | `llm_backend = deepinfra` |
 | `OTHER_API_KEY` | `llm_backend = other` — e.g. **Mistral**: `base_url = https://api.mistral.ai`, `other_model = zai-glm-5-3-flash` |
 | `ELEVENLABS_API_KEY` | Scribe STT (`module_stt.py`), ElevenLabs TTS (`module_elevenlabs.py`) |
-| `EXTERNAL_API_KEY` | Bearer key for the companion mini server — sent as `Authorization: Bearer …` by the STT (`/save_audio`), TTS (`/tts/generate`) and vision clients |
+| `EXTERNAL_API_KEY` | Bearer key for the companion companion server — sent as `Authorization: Bearer …` by the STT (`/save_audio`), TTS (`/tts/generate`) and vision clients |
 | `VISION_API_KEY` | dedicated vision API key (falls back to the LLM key) |
 | `DISCORD_TOKEN` | `skill_discord` |
 | `HA_TOKEN` | `skill_home_assistant` |
@@ -50,16 +50,16 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 ### `[SKILL:<name>]`
 Per-skill config and enable flag, e.g. `[SKILL:discord] disabled = true`. The template disables discord, home_assistant, generate_image, generate_music, network_camera, launch_retropie by default. Toggle via the web UI (`POST /toggle_skill`) or by editing the file.
 
-## Pointing the robot at the mini server
+## Pointing the robot at the server host server
 
 `scripts/configure_tars_client.sh <EXTERNAL_API_KEY>` rewrites `src/config.ini` idempotently (section-scoped `sed`; **`[LLM]` is deliberately untouched**) and upserts `EXTERNAL_API_KEY` in `.env`:
 
 ```bash
 ./scripts/configure_tars_client.sh "$API_KEY_FROM_MINI"
-# [TTS]    ttsoption = elevenlabs,  ttsurl = http://mini:5678
-# [STT]    stt_processor = elevenlabs, external_url = http://mini:5678
-# [VISION] vision_processor = external, use_llm_backend = False, base_url = http://mini:5678
-# [RAG]    embedding_source = external, embedding_url = http://mini:5678
+# [TTS]    ttsoption = elevenlabs,  ttsurl = http://<server-host>:5678
+# [STT]    stt_processor = elevenlabs, external_url = http://<server-host>:5678
+# [VISION] vision_processor = external, use_llm_backend = False, base_url = http://<server-host>:5678
+# [RAG]    embedding_source = external, embedding_url = http://<server-host>:5678
 ```
 
 It prints a diff of exactly those changes. The Bearer key is then sent automatically on STT/TTS/vision calls. See [Server Mode](server-mode.md).

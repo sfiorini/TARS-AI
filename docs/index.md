@@ -22,12 +22,12 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 
 - [Quickstart](quickstart.md) — OS image, clone `-b V3`, `Install.sh`, `.env`/`config.ini`, first launch, tests.
 - [Hardware & Wiring](hardware.md) — BOM summary, 3D-print folders, PCA9685 @ 0x40 (incl. the batch defect workaround), buck converter, INA260 @ 0x41, wiring SVGs.
-- [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; `scripts/configure_tars_client.sh` for pointing at the mini server.
+- [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; `scripts/configure_tars_client.sh` for pointing at the server host server.
 - [Running TARS](running.md) — `tars-launcher.sh`, `App-Start.py`/`App-Stop.py`, XDG autostart, logs, restart without reboot.
 - [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, motion tab, `/servo_status` + `/servo_reinit`.
 - [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, TTS fallback chain.
 - [Movements](movements.md) — the movement registry, arm gating, custom sequences, servo tester, how to add a movement.
-- [Server Mode (mini)](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/opt/docker`.
+- [Server Mode](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/srv`.
 - [Servo Watchdog & Recovery](servo-watchdog.md) — self-healing design, reading MODE1/MODE2, manual `i2cset` recovery.
 - [Troubleshooting](troubleshooting.md) — empty LLM replies, STT latency, silent servos, wake word, logs, `vcgencmd get_throttled`.
 - [Development](development.md) — repo layout, `src/.venv`, running the tests, authoring skills, CI, contributing.
@@ -48,7 +48,7 @@ This documentation site is built with MkDocs Material (`mkdocs.yml`, pages in `d
 - **64-bit Raspberry Pi OS** (Debian 13 "Trixie" aarch64 is what this fork's robot runs), I2C enabled (`sudo raspi-config` → Interface Options → I2C).
 - **API keys** in `.env` — at minimum one LLM key (`OTHER_API_KEY` for Mistral/OpenAI-compatible `base_url`, `OPENAI_API_KEY`, `GROK_API_KEY`, or `DEEPINFRA_API_KEY`); `ELEVENLABS_API_KEY` for Scribe STT / ElevenLabs TTS.
 - **Hardware** for the moving robot: PCA9685 servo driver (I2C `0x40`), buck converter + battery, optional INA260 (`0x41`), 10 servos, 3D-printed chassis, display/camera/mic/speaker — details in [Hardware & Wiring](hardware.md).
-- Optional **companion server** ("mini") for whisper STT, Piper TTS, BLIP vision, embeddings — [Server Mode](server-mode.md).
+- Optional **companion server** (companion server) for whisper STT, Piper TTS, BLIP vision, embeddings — [Server Mode](server-mode.md).
 
 ## Typical workflow
 
@@ -68,11 +68,11 @@ This documentation site is built with MkDocs Material (`mkdocs.yml`, pages in `d
 Two machines, one robot:
 
 1. **The robot** — a Raspberry Pi 5 inside the 3D-printed body, running this repo from `~/TARS-AI`. It handles the wake word, the LLM chat (called directly from the Pi), orchestration, memory, and the web UI on port 80, and drives the PCA9685 servos over I2C.
-2. **The mini (optional)** — a more powerful PC on the same network running `TARS-AI_Server/` in Docker on port 5678, offloading STT (whisper), TTS (Piper), vision captioning, and embeddings. The robot reaches it via `http://mini:5678` with a Bearer key; see [Server Mode](server-mode.md).
+2. **The server host (optional)** — a more powerful PC on the same network running `TARS-AI_Server/` in Docker on port 5678, offloading STT (whisper), TTS (Piper), vision captioning, and embeddings. The robot reaches it via `http://<server-host>:5678` with a Bearer key; see [Server Mode](server-mode.md).
 
 ## How a conversation flows
 
-Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (ElevenLabs → mini Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 15 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
+Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 15 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
 
 ## Hardware at a glance
 
@@ -90,6 +90,6 @@ The pages cross-link heavily; the nav in `mkdocs.yml` lists all twelve. If you o
 ## Conventions used in these pages
 
 - `<pi-ip>` — the Pi's LAN address (`hostname -I` on the robot).
-- `<EXTERNAL_API_KEY>` / `<api_key>` — the Bearer token from the mini's `TARS-AI_Server/config-server.ini`.
+- `<EXTERNAL_API_KEY>` / `<api_key>` — the Bearer token from the server host's `TARS-AI_Server/config-server.ini`.
 - Code spans like `MODE2`, `arms_present`, `sensitivity` refer to `src/config.ini` keys or `module_servoctl.py` names exactly as in the repo.
 - Shell examples assume you are on the Pi in the repo root (`~/TARS-AI`) unless noted; `curl` examples against the web UI assume a login cookie jar at `/tmp/tars.cookies` (see [Web UI](web-ui.md)).

@@ -69,7 +69,7 @@ python -m pytest src/tests -q
 ## Links
 
 - Full documentation: https://sfiorini.github.io/TARS-AI/
-- Server mode (mini): https://sfiorini.github.io/TARS-AI/server-mode/
+- Server mode (companion server): https://sfiorini.github.io/TARS-AI/server-mode/
 - Troubleshooting: https://sfiorini.github.io/TARS-AI/troubleshooting/
 
 ---
@@ -85,7 +85,7 @@ TARS-AI/
 │   ├── config.ini.template                    # copy to config.ini and edit
 │   ├── tests/                                 # pytest suite
 │   └── www/                                   # web UI
-├── TARS-AI_Server/                            # docker server ("mini"): app-server.py, Dockerfile, docker-compose.yml, www/
+├── TARS-AI_Server/                            # docker server (companion server): app-server.py, Dockerfile, docker-compose.yml, www/
 ├── docs/                                      # MkDocs source for the docs site
 ├── Documentation/                             # wiring diagrams, ComfyUI workflows
 └── scripts/                                   # client setup helper (configure_tars_client.sh)

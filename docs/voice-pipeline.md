@@ -17,7 +17,7 @@ Threshold curves in `module_stt._detect_wake_word_atomik`: template mode 0.70 at
 
 `stt_processor`: `sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`.
 
-**Optional on Pi5: ElevenLabs Scribe** (template default is `sherpa-onnx`; set `stt_processor = elevenlabs` to use Scribe). `stt_processor = elevenlabs` POSTs the recorded utterance to `https://api.elevenlabs.io/v1/speech-to-text` with `ELEVENLABS_API_KEY`, model `[STT] elevenlabs_stt_model` (**`scribe_v2`**, live-verified on the robot), timeout 15 s. On a missing key, empty transcript, or request error it **falls back to the external server** (`_transcribe_with_server`): `POST {external_url}/save_audio` with `Authorization: Bearer $EXTERNAL_API_KEY` and a **30 s timeout** (server-side whisper on a shared-CPU mini measured ~14 s). Set `external_url = http://mini:5678` in [server mode](server-mode.md).
+**Optional on Pi5: ElevenLabs Scribe** (template default is `sherpa-onnx`; set `stt_processor = elevenlabs` to use Scribe). `stt_processor = elevenlabs` POSTs the recorded utterance to `https://api.elevenlabs.io/v1/speech-to-text` with `ELEVENLABS_API_KEY`, model `[STT] elevenlabs_stt_model` (**`scribe_v2`**, live-verified on the robot), timeout 15 s. On a missing key, empty transcript, or request error it **falls back to the external server** (`_transcribe_with_server`): `POST {external_url}/save_audio` with `Authorization: Bearer $EXTERNAL_API_KEY` and a **30 s timeout** (server-side whisper on a shared-CPU x86_64 server measured ~14 s). Set `external_url = http://<server-host>:5678` in [server mode](server-mode.md).
 
 Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay` (pre-processing silence, tenths of a second; 15 = 1.5 s), `enable_bargein` + `bargein_mode` (`fuzzy | voiceprint`) + `bargein_sensitivity` (1–10, 10 = easiest to interrupt TARS mid-sentence), `speaker_id_enabled`/`speaker_id_threshold` (passive speaker tagging), `use_indicators` (beep on listen start/stop), `sherpa_onnx_denoise`/`sherpa_onnx_punctuation`.
 
@@ -33,7 +33,7 @@ Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay
 `generate_tts_audio()` in `module_tts.py` tries, in order:
 
 1. **`elevenlabs`** (`ttsoption = elevenlabs`; `elevenlabs_voice_id`, `elevenlabs_model = eleven_multilingual_v2`) — or the character-card voice when `toggle_charvoice = True`.
-2. **External Piper on the mini** — `POST {ttsurl}/tts/generate` (Bearer `EXTERNAL_API_KEY`, 30 s timeout) — used when ElevenLabs yields no audio.
+2. **External Piper on the server host** — `POST {ttsurl}/tts/generate` (Bearer `EXTERNAL_API_KEY`, 30 s timeout) — used when ElevenLabs yields no audio.
 3. **Local piper** (`module_piper.py`) — with `piper_multispeaker`, the detected emotion selects `piper_speaker_<emotion>`.
 4. **espeak** (`module_espeak.py`) — final fallback.
 

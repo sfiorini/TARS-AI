@@ -45,7 +45,7 @@ ELEVENLABS_API_KEY="..."   # Scribe STT + ElevenLabs TTS
 OTHER_API_KEY="..."        # LLM key for [LLM] llm_backend = other (e.g. Mistral)
 ```
 
-Full key list: `OPENAI_API_KEY`, `GROK_API_KEY`, `DEEPINFRA_API_KEY`, `OTHER_API_KEY`, `ELEVENLABS_API_KEY`, `EXTERNAL_API_KEY` (mini server Bearer key), `VISION_API_KEY`, `DISCORD_TOKEN`, `HA_TOKEN` — see [Configuration](configuration.md).
+Full key list: `OPENAI_API_KEY`, `GROK_API_KEY`, `DEEPINFRA_API_KEY`, `OTHER_API_KEY`, `ELEVENLABS_API_KEY`, `EXTERNAL_API_KEY` (companion server Bearer key), `VISION_API_KEY`, `DISCORD_TOKEN`, `HA_TOKEN` — see [Configuration](configuration.md).
 
 !!! warning "Never commit secrets"
     `.env` and `src/config.ini` are gitignored. Do not add them to git, issues, or chat.
@@ -65,10 +65,10 @@ webui_password = <change-me>
 arms_present = false        # true if your build has arm servos
 ```
 
-If you run the companion server on a mini PC, point the robot at it after install:
+If you run the companion server on a server machine, point the robot at it after install:
 
 ```bash
-./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>   # api_key from the mini's config-server.ini
+./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>   # api_key from the server host's config-server.ini
 ```
 
 ## 5. Launch

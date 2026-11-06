@@ -48,7 +48,7 @@ nav:
   - Web UI: web-ui.md
   - Voice Pipeline: voice-pipeline.md
   - Movements: movements.md
-  - Server Mode (mini): server-mode.md
+  - Server Mode: server-mode.md
   - Servo Watchdog & Recovery: servo-watchdog.md
   - Troubleshooting: troubleshooting.md
   - Development: development.md

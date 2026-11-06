@@ -18,7 +18,7 @@ TARS-AI/
 ├── 3d Printer Files/                # STL for the motorized build (A. Required/, B. Mods/, Tools/)
 ├── Static Version (no motors)/      # display-only statue files
 ├── Documentation/                   # wiring SVGs (copied into docs/assets/)
-├── scripts/configure_tars_client.sh # point the robot at the mini server
+├── scripts/configure_tars_client.sh # point the robot at the server host server
 ├── src/
 │   ├── .venv/                       # virtualenv created by Install.sh
 │   ├── app.py                       # entrypoint: python app.py show_ui=true [key=value …]
