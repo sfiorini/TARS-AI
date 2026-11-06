@@ -1,0 +1,6 @@
+# Docs-only dependencies. NEVER merge these into runtime/requirements files —
+# they are used exclusively by the docs build (mkdocs) in CI and local docs builds.
+# Pins verified to support Python >=3.8, so they install on both Python 3.9
+# (local macOS) and Python 3.11 (CI).
+mkdocs==1.6.1
+mkdocs-material==9.5.45

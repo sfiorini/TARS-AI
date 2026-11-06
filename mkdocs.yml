@@ -1,0 +1,54 @@
+site_name: TARS-AI (sfiorini fork, V3)
+site_url: https://sfiorini.github.io/TARS-AI/
+repo_url: https://github.com/sfiorini/TARS-AI
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - search.highlight
+  palette:
+    # Dark mode (default)
+    - scheme: slate
+      primary: deep purple
+      accent: deep orange
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+    # Light mode
+    - scheme: default
+      primary: deep purple
+      accent: deep orange
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+
+markdown_extensions:
+  - admonition
+  - tables
+  - fenced_code
+  - toc
+  - attr_list
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.tabbed
+  - pymdownx.details
+
+plugins:
+  - search
+
+use_directory_urls: true
+
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Hardware & Wiring: hardware.md
+  - Configuration: configuration.md
+  - Running TARS: running.md
+  - Web UI: web-ui.md
+  - Voice Pipeline: voice-pipeline.md
+  - Movements: movements.md
+  - Server Mode (mini): server-mode.md
+  - Servo Watchdog & Recovery: servo-watchdog.md
+  - Troubleshooting: troubleshooting.md
+  - Development: development.md

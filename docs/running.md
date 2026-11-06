@@ -1,0 +1,81 @@
+# Running TARS
+
+How to start, stop, autostart, and restart TARS-AI on the Pi, and where the logs are. All launchers live at the repo root.
+
+## Start
+
+```bash
+./tars-launcher.sh
+```
+
+`tars-launcher.sh` does three things, then runs `App-Start.py`:
+
+1. `source src/.venv/bin/activate` — the virtualenv created by `Install.sh`.
+2. `sudo setcap 'cap_net_bind_service=+ep' "$(readlink -f "$(which python3)")"` — lets Python bind privileged ports (<1024, i.e. the default web UI port 80) without running as root.
+3. `python App-Start.py "$@"`, which spawns the app as:
+
+   ```bash
+   cd src && source .venv/bin/activate && python app.py show_ui=true [extra key=value args]
+   ```
+
+   `show_ui=false` runs headless (no pygame display); extra `key=value` CLI args are forwarded to `app.py` (e.g. `debug=true`, `speed=true`).
+
+On a desktop Pi, `--reboot` mode relaunches the app in a visible `lxterminal` window; over SSH, start detached so the session can close: `ssh -f pi 'nohup ~/TARS-AI/tars-launcher.sh >/dev/null 2>&1 &'`.
+
+## Stop
+
+```bash
+python3 App-Stop.py
+```
+
+`App-Stop.py` runs `killall xterm`, then `_pkill_escalate("App-Start.py")` and `_pkill_escalate("python app.py")`: `pkill -f <pattern>`, poll `pgrep` for up to 2 s, then `pkill -9 -f <pattern>`. The TERM→KILL escalation is required because **pygame/SDL installs a SIGTERM handler that swallows the first SIGTERM** — a single `pkill` leaves the app alive (verified on the robot). The script cannot kill itself: its cmdline contains `App-Stop.py`, and the patterns `App-Start.py` / `python app.py` don't match it.
+
+## Autostart at boot (XDG, not systemd)
+
+```bash
+./toggle-autostart.sh     # toggles on/off, prints the current state
+```
+
+When enabled it writes **`~/.config/autostart/tars-ai.desktop`** (XDG autostart entry, `X-GNOME-Autostart-enabled=true`) whose `Exec` is the generated **`lp.sh`**. `lp.sh` sleeps 8 s, sources `~/.bashrc`, exports `DISPLAY=:0`, and opens an `lxterminal` running `src/.venv/bin/python App-Start.py`, logging to `autostart.log` at the repo root. There is deliberately no systemd unit — remove the `.desktop` file to disable autostart.
+
+## Restart without rebooting the Pi
+
+- From the **web UI**: `POST /reboot_program` (sys tab button). The running process spawns `tars-launcher.sh --reboot <old_pid> <python> app.py …` detached; the launcher sleeps 1 s (so the HTTP response reaches your browser), sends TERM to the old PID, waits up to 5 s, then KILL, closes the old terminal, and relaunches in a fresh `lxterminal`.
+- From a shell:
+
+  ```bash
+  python3 App-Stop.py && ./tars-launcher.sh
+  ```
+
+Config changes in `src/config.ini` require this restart to take effect. `GET /boot_id` returns a boot id that changes after every restart, so the UI can detect a restart happened.
+
+## Logs
+
+| Log | Path | Written by |
+|---|---|---|
+| Main app log | **`src/logs/tars-ai.log`** | `module_messageQue.queue_message()` — every module logs status/errors/warnings here (`src/modules/module_messageQue.py`) |
+| Recent lines via web | `GET /api/console/logs` | sys tab console |
+| Autostart marker | `autostart.log` (repo root) | `lp.sh` |
+| Live stdout | the lxterminal window on the Pi | `App-Start.py` / `app.py` |
+
+```bash
+tail -f ~/TARS-AI/src/logs/tars-ai.log
+```
+
+Servo-specific events (watchdog repairs, I2C errors, stuck-MOVING resets) appear here as `SERVO:` / `WARNING:` lines — see [Servo Watchdog & Recovery](servo-watchdog.md).
+
+## Other root scripts
+
+- `launch_retropie.sh` — hand control to RetroPie (used by `skill_launch_retropie`).
+- `lp.sh` — generated autostart launcher (see above).
+
+## Power check
+
+If behavior is erratic (USB drops, servo stalls, random reboots), check the PSU and thermals:
+
+```bash
+vcgencmd get_throttled    # 0x0 = OK; non-zero bits = under-voltage / throttling flags
+vcgencmd measure_temp
+```
+
+The servo rail must come from the buck converter, not the Pi 5 V pin — see [Hardware & Wiring](hardware.md).
