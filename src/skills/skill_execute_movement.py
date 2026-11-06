@@ -43,7 +43,7 @@ SKILL = {
     "examples": [
         """Example - Movement command:
 User: "Walk forward and then turn left"
-Response: {{"reply": "Moving now.", "function_calls": [{{"function": "execute_movement", "parameters": {{"movements": ["step_forward", "turn_left_slow"]}}}}], "new_memories": []}}""",
+Response: {"reply": "Moving now.", "function_calls": [{"function": "execute_movement", "parameters": {"movements": ["step_forward", "turn_left_slow"]}}], "new_memories": []}""",
     ],
 }
 
