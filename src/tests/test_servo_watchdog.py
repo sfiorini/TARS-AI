@@ -66,10 +66,11 @@ class _RaisingChannel:
 
 
 class _FakeMode1Pca:
-    """Fake PCA9685 exposing a readable mode1_reg (value or raising)."""
+    """Fake PCA9685 exposing readable mode1_reg/mode2_reg (value or raising)."""
 
-    def __init__(self, mode1=None, exc=None):
+    def __init__(self, mode1=None, mode2=0x04, exc=None):
         self._mode1 = mode1
+        self._mode2 = mode2
         self._exc = exc
 
     @property
@@ -77,6 +78,26 @@ class _FakeMode1Pca:
         if self._exc is not None:
             raise self._exc
         return self._mode1
+
+    @property
+    def mode2_reg(self):
+        if self._exc is not None:
+            raise self._exc
+        return self._mode2
+
+
+class _FakeI2c:
+    """Raw I2C fake for the register-read fallback path."""
+
+    def __init__(self, reg_values=None):
+        self._regs = reg_values or {}
+        self.last_reg = None
+
+    def writeto(self, addr, buf):
+        self.last_reg = buf[0]
+
+    def readfrom(self, addr, n):
+        return bytes([self._regs.get(self.last_reg, 0)])
 
 
 class ServoctlSelfHealingTestCase(unittest.TestCase):
@@ -87,7 +108,7 @@ class ServoctlSelfHealingTestCase(unittest.TestCase):
         "_last_pwm_time", "_on_movement_start", "_on_movement_end",
         "servo_positions", "_is_ventilate_operation",
         "_watchdog_running", "_watchdog_thread", "_watchdog_interval",
-        "battery_module",
+        "battery_module", "_i2c",
     )
 
     def setUp(self):
@@ -227,7 +248,7 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         status = servoctl.servo_status()
         self.assertEqual(
             set(status.keys()),
-            {"pca_alive", "moving", "last_pwm_age_s", "i2c_error_count", "watchdog_running"},
+            {"pca_alive", "moving", "last_pwm_age_s", "i2c_error_count", "watchdog_running", "mode1", "mode2"},
         )
         self.assertIsInstance(status["i2c_error_count"], int)
         self.assertIsInstance(status["pca_alive"], bool)
@@ -269,6 +290,45 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
     def test_read_mode1_returns_none_on_error(self):
         servoctl.pca = _FakeMode1Pca(exc=OSError(121, "Remote I/O error"))
         self.assertIsNone(servoctl._read_mode1())
+
+    def test_mode2_healthy_boundaries(self):
+        # bit 0x08 clear = outputs enabled (verified live: 0x00/0x01/0x04 move servos)
+        self.assertTrue(servoctl._mode2_healthy(0x04))
+        self.assertTrue(servoctl._mode2_healthy(0x00))
+        self.assertTrue(servoctl._mode2_healthy(0x01))
+        self.assertFalse(servoctl._mode2_healthy(0x1E))  # observed live: outputs hi-Z, no motor noise
+        self.assertFalse(servoctl._mode2_healthy(0x0B))  # observed live: outputs off
+        self.assertFalse(servoctl._mode2_healthy(None))   # unreadable
+
+    def test_read_mode2_returns_register_value(self):
+        servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
+        self.assertEqual(servoctl._read_mode2(), 0x1E)
+
+    def test_read_register_raw_fallback_when_driver_attr_missing(self):
+        class BarePca:  # no mode1_reg/mode2_reg attributes
+            pass
+        servoctl.pca = BarePca()
+        servoctl._i2c = _FakeI2c({0x00: 0x20, 0x01: 0x04})
+        self.assertEqual(servoctl._read_mode1(), 0x20)
+        self.assertEqual(servoctl._read_mode2(), 0x04)
+
+    def test_init_failure_clears_stale_pca_handle(self):
+        # F1: a failed re-init must not leave a stale non-None pca behind
+        servoctl.pca = _FakeMode1Pca(0x20)
+        with mock.patch.object(servoctl.busio, "I2C", side_effect=OSError(121, "Remote I/O error")):
+            result = servoctl.initialize_pca9685()
+        self.assertFalse(result)
+        self.assertIsNone(servoctl.pca)
+
+    def test_watchdog_tick_repairs_mode2_outputs_disabled(self):
+        # Live failure mode: MODE1 healthy (0x20) but MODE2=0x1E -> outputs hi-Z,
+        # no motor drive. Watchdog must re-init even though MODE1 passes.
+        servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time()
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_called_once()
 
 
 class TestWatchdog(ServoctlSelfHealingTestCase):

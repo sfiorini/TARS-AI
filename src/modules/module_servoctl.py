@@ -74,6 +74,7 @@ _i2c_error_count = 0
 _last_pwm_time = 0.0
 _last_pca_none_log = 0.0
 _watchdog_running = False
+_i2c = None  # raw I2C handle kept for register reads (fallback if driver attrs missing)
 _watchdog_thread = None
 _watchdog_interval = 15
 
@@ -89,11 +90,13 @@ def signal_servo_activity():
 
 def initialize_pca9685():
     
-    global pca, _last_init_attempt
+    global pca, _last_init_attempt, _i2c
     _last_init_attempt = time.time()
+    pca = None  # clear any stale handle first: a failed re-init must be honestly reported
     
     try:
         i2c = busio.I2C(board.SCL, board.SDA)
+        _i2c = i2c
         pca = PCA9685(i2c, address=0x40)
         pca.frequency = 50
         queue_message("LOAD: PCA9685 initialized successfully")
@@ -407,27 +410,63 @@ def _mode1_healthy(mode1):
         return False
     return (mode1 & 0x20) != 0
 
+def _read_register(reg):
+    """Read a raw PCA9685 register (0x00=MODE1, 0x01=MODE2); None if unreadable.
+    Uses the driver's struct attribute when present (adafruit-circuitpython-pca9685
+    3.4.22 verified on tars), else falls back to a raw writeto/readfrom on the
+    stored I2C handle — never depends on a single library internals."""
+    if pca is None:
+        return None
+    attr = {0x00: "mode1_reg", 0x01: "mode2_reg"}.get(reg)
+    try:
+        if attr is not None and hasattr(pca, attr):
+            return int(getattr(pca, attr))
+        if _i2c is not None:
+            _i2c.writeto(0x40, bytes([reg]))
+            return _i2c.readfrom(0x40, 1)[0]
+    except Exception as e:
+        queue_message(f"WARNING: PCA9685 register 0x{reg:02X} read failed: {e}")
+    return None
+
 def _read_mode1():
     """Read the PCA9685 MODE1 register; None if unreadable."""
-    try:
-        return int(pca.mode1_reg)
-    except Exception as e:
-        queue_message(f"WARNING: PCA9685 MODE1 read failed: {e}")
-        return None
+    return _read_register(0x00)
 
-def _repair_mode1_if_needed():
-    """If MODE1 lost bit 0x20, re-run driver init to restore it."""
+def _read_mode2():
+    """Read the PCA9685 MODE2 register; None if unreadable."""
+    return _read_register(0x01)
+
+def _mode2_healthy(mode2):
+    """Pure helper: MODE2 bit 0x08 (OUTNE[1]) must be clear = output drivers
+    enabled. Verified empirically on the robot: MODE2=0x00/0x01/0x04 drive the
+    servos; 0x0B and 0x1E (bit 0x08 set, seen after chip-logic glitches) put
+    ALL PWM output pins in high-impedance while the chip still ACKs on I2C —
+    servos get no signal at all (no movement, no motor noise) until the
+    driver state is restored."""
+    if mode2 is None:
+        return False
+    return (mode2 & 0x08) == 0
+
+def _chip_state_healthy(mode1, mode2):
+    return _mode1_healthy(mode1) and _mode2_healthy(mode2)
+
+def _repair_chip_state_if_needed():
+    """If MODE1/MODE2 lost their driver-set bits (chip-logic reset), re-run
+    driver init to restore them. Repairs the 'thinks it moves but doesn't'
+    state without a reboot."""
     mode1 = _read_mode1()
-    if _mode1_healthy(mode1):
+    mode2 = _read_mode2()
+    if _chip_state_healthy(mode1, mode2):
         return
-    if mode1 is None:
-        queue_message("SERVO: PCA9685 MODE1 unreadable - re-initializing")
-    else:
-        queue_message(f"SERVO: PCA9685 MODE1 unhealthy (0x{mode1:02X}) - re-initializing")
+    queue_message(f"SERVO: PCA9685 state unhealthy (MODE1={mode1}, MODE2={mode2}) - re-initializing")
     if initialize_pca9685():
-        queue_message("SERVO: PCA9685 MODE1 repair complete")
+        m1, m2 = _read_mode1(), _read_mode2()
+        if _chip_state_healthy(m1, m2):
+            queue_message("SERVO: PCA9685 state repair complete")
+        else:
+            queue_message(f"WARNING: servo watchdog - MODE1/MODE2 still unhealthy after re-init (MODE1={m1}, MODE2={m2})")
     else:
-        queue_message("WARNING: servo watchdog - MODE1 repair re-init failed")
+        queue_message("WARNING: servo watchdog - chip state repair re-init failed")
 
 def _watchdog_tick():
     """One watchdog pass: retry a dead PCA9685, repair an unhealthy MODE1,
@@ -442,7 +481,7 @@ def _watchdog_tick():
         else:
             queue_message("WARNING: servo watchdog - PCA9685 still unavailable")
     else:
-        _repair_mode1_if_needed()
+        _repair_chip_state_if_needed()
     
     if _is_moving_stuck(MOVING, _last_pwm_time, now):
         queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
@@ -478,6 +517,8 @@ def servo_status():
         "last_pwm_age_s": round(now - _last_pwm_time, 1) if _last_pwm_time else None,
         "i2c_error_count": _i2c_error_count,
         "watchdog_running": _watchdog_running,
+        "mode1": _read_mode1(),
+        "mode2": _read_mode2(),
     }
 
 def force_servo_recovery():
@@ -488,9 +529,9 @@ def force_servo_recovery():
     MOVING = False
     
     if initialize_pca9685():
-        mode1 = _read_mode1()
-        if not _mode1_healthy(mode1):
-            queue_message("WARNING: servo recovery - PCA9685 MODE1 still unhealthy after re-init")
+        mode1, mode2 = _read_mode1(), _read_mode2()
+        if not _chip_state_healthy(mode1, mode2):
+            queue_message(f"WARNING: servo recovery - MODE1/MODE2 still unhealthy after re-init (MODE1={mode1}, MODE2={mode2})")
         if servo_positions:
             for channel, value in servo_positions.items():
                 set_servo_pwm(int(channel), value)
