@@ -71,6 +71,23 @@ class TestSkillPrompt(unittest.TestCase):
         for mid in module_movement_registry.MOVEMENTS:
             self.assertIn(f'"{mid}"', prompt, f"registry id '{mid}' missing from prompt")
 
+    def test_prompt_includes_clarifying_leg_vs_arm_note(self):
+        prompt = skill_execute_movement.SKILL["prompt"]
+        self.assertIn(
+            "Note: wave_left and wave_right wave the LEGS", prompt)
+        self.assertIn(
+            "If the user asks to wave or say hi with a leg, use wave_left or wave_right",
+            prompt)
+
+    def test_prompt_shows_description_for_every_registry_entry(self):
+        prompt = skill_execute_movement.SKILL["prompt"]
+        for mid, entry in module_movement_registry.MOVEMENTS.items():
+            description = entry.get("description", "")
+            if description:
+                self.assertIn(
+                    description, prompt,
+                    f"description for '{mid}' missing from prompt")
+
     def test_prompt_groups_legs_and_arms(self):
         prompt = skill_execute_movement.SKILL["prompt"]
         self.assertIn("Legs (always available)", prompt)

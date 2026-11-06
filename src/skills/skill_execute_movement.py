@@ -11,11 +11,11 @@ def _build_prompt():
     Iterates MOVEMENTS so registry additions appear in the prompt automatically.
     """
     legs = [
-        f'     * "{mid}" - {entry["name"]}'
+        f'     * "{mid}" - {entry["name"]} ({entry.get("description", "")})'
         for mid, entry in MOVEMENTS.items() if entry["type"] == LEGS_ONLY
     ]
     arms = [
-        f'     * "{mid}" - {entry["name"]}'
+        f'     * "{mid}" - {entry["name"]} ({entry.get("description", "")})'
         for mid, entry in MOVEMENTS.items() if entry["type"] == HAS_ARMS
     ]
     return f"""execute_movement
@@ -29,6 +29,7 @@ def _build_prompt():
 {chr(10).join(legs)}
      Arms (only if arms installed):
 {chr(10).join(arms)}
+   Note: wave_left and wave_right wave the LEGS; left_hi, right_hi and the shy/open waves are ARM gestures. If the user asks to wave or say hi with a leg, use wave_left or wave_right.
    Do NOT infer or guess movement from suggestions or questions
    Parameters: {{"movements": ["<id>", ...]}}
    Example: {{"function": "execute_movement", "parameters": {{"movements": ["wave_left"]}}}}
