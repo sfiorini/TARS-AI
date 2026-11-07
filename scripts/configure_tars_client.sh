@@ -44,21 +44,57 @@ cp "$CONFIG" "$CONFIG_BACKUP"
 # Replaces KEY = ... inside [SECTION] (section-scoped: [LLM] also has a
 # base_url which must NOT change). Inserts after the section header if the
 # key is missing; appends a new section at EOF if the section is missing.
+# The rewrite runs in python3 with LITERAL string matching: keys and values
+# may contain sed/regex metacharacters (| & / \ .) that would corrupt a sed
+# s/// substitution or match the wrong lines. Values travel as argv, never
+# interpolated into a script.
 set_kv() {
     local section="$1" key="$2" value="$3"
-    if grep -q "^\[${section}\]" "$CONFIG"; then
-        if sed -n "/^\[${section}\]/,/^\[/p" "$CONFIG" | grep -qE "^[[:space:]]*${key}[[:space:]]*="; then
-            sed -i "/^\[${section}\]/,/^\[/{s|^[[:space:]]*${key}[[:space:]]*=.*|${key} = ${value}|}" "$CONFIG"
-        else
-            TMP="$(mktemp)"
-            awk -v sect="$section" -v kv="${key} = ${value}" '
-                $0 ~ "^\\[" sect "\\][[:space:]]*$" { print; print kv; next }
-                { print }
-            ' "$CONFIG" > "$TMP" && mv "$TMP" "$CONFIG"
-        fi
-    else
+    if ! grep -q "^\[${section}\]" "$CONFIG"; then
         printf '\n[%s]\n%s = %s\n' "$section" "$key" "$value" >> "$CONFIG"
+        return
     fi
+    python3 - "$CONFIG" "$section" "$key" "$value" <<'PYEOF'
+import os
+import sys
+
+path, section, key, value = sys.argv[1:5]
+with open(path, encoding="utf-8") as fh:
+    lines = fh.readlines()
+
+header = "[" + section + "]"
+out = []
+i = 0
+n = len(lines)
+while i < n:
+    line = lines[i]
+    if not line.startswith(header):
+        out.append(line)
+        i += 1
+        continue
+    # Section header found: rewrite its body (up to the next header or EOF).
+    out.append(line)
+    i += 1
+    body = []
+    replaced = False
+    while i < n and not lines[i].startswith("["):
+        body_line = lines[i]
+        lhs, sep, _ = body_line.partition("=")
+        if sep and lhs.strip() == key:  # literal key match, section-scoped
+            body.append(f"{key} = {value}\n")
+            replaced = True
+        else:
+            body.append(body_line)
+        i += 1
+    if not replaced:  # key missing in section: insert after the header
+        body.insert(0, f"{key} = {value}\n")
+    out.extend(body)
+
+tmp = path + ".set_kv.tmp"
+with open(tmp, "w", encoding="utf-8") as fh:
+    fh.writelines(out)
+os.replace(tmp, path)
+PYEOF
 }
 
 # --- [TTS]: Fish.audio primary; ordered fallback chain on the robot:
