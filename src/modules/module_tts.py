@@ -195,23 +195,48 @@ def _play_via_pwplay(data, samplerate):
     Used when PortAudio cannot open any device (USB card wedged by a dead sound
     server stream after servo power-on spikes). Writes a temp wav and plays it
     via pw-play, which talks to PipeWire directly and never touches the ALSA hw
-    PCM. Returns the Popen (poll it for completion / terminate for barge-in).
+    PCM. Returns the Popen (poll it for completion / terminate for barge-in);
+    the temp wav path is tracked on the proc as `tars_tmp_wav` so the caller
+    can unlink it in a finally. If anything fails after the temp file is
+    created, it is removed here — no leaks.
     """
     import subprocess, tempfile
     pwplay = shutil.which("pw-play")
     if not pwplay:
         queue_message("WARNING: pw-play not found — cannot use PipeWire-native fallback")
         return None
+    tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+    tmp_path = tmp.name
+    tmp.close()
     try:
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        sf.write(tmp.name, data, samplerate)
-        tmp.close()
-        proc = subprocess.Popen([pwplay, tmp.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        queue_message("INFO: playing chunk via pw-play (PipeWire native, bypasses wedged ALSA device)")
-        return proc
+        sf.write(tmp_path, data, samplerate)
+        proc = subprocess.Popen([pwplay, tmp_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as e:
+        _unlink_quiet(tmp_path)
         queue_message(f"WARNING: pw-play fallback failed: {e}")
         return None
+    # Playback is asynchronous — the caller unlinks the temp wav in a finally
+    # via _cleanup_pwplay_proc once the proc finishes (or dies).
+    proc.tars_tmp_wav = tmp_path
+    queue_message("INFO: playing chunk via pw-play (PipeWire native, bypasses wedged ALSA device)")
+    return proc
+
+
+def _unlink_quiet(path):
+    """Best-effort unlink; a missing file is fine."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _cleanup_pwplay_proc(proc):
+    """Remove the temp wav tracked on a pw-play proc (no-op without one)."""
+    if proc is None:
+        return
+    tmp_path = getattr(proc, "tars_tmp_wav", None)
+    if tmp_path:
+        _unlink_quiet(tmp_path)
 
 
 def init_audio_output():
@@ -924,32 +949,31 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                     import modules.module_speed as speed
                     speed.mark_first_audio()
 
-                    # Poll instead of sd.wait() so we can check for barge-in
-                    while True:
-                        if _tts_cancel_event.is_set():
+                    # Poll instead of sd.wait() so we can check for barge-in.
+                    # finally: the pw-play temp wav must go even if this loop
+                    # raises — it is unlinked exactly once, on every exit path.
+                    try:
+                        while True:
+                            if _tts_cancel_event.is_set():
+                                if pw_proc is not None:
+                                    pw_proc.terminate()
+                                else:
+                                    sd.stop()
+                                was_interrupted = True
+                                break
                             if pw_proc is not None:
-                                pw_proc.terminate()
-                            else:
-                                sd.stop()
-                            was_interrupted = True
-                            break
-                        if pw_proc is not None:
-                            if pw_proc.poll() is not None:
-                                break
-                        else:
-                            try:
-                                stream = sd.get_stream()
-                                if stream is None or not stream.active:
+                                if pw_proc.poll() is not None:
                                     break
-                            except Exception:
-                                break
-                        await asyncio.sleep(0.05)
-                    if pw_proc is not None:
-                        try:
-                            import os as _os
-                            _os.unlink(pw_proc.args[-1])
-                        except Exception:
-                            pass
+                            else:
+                                try:
+                                    stream = sd.get_stream()
+                                    if stream is None or not stream.active:
+                                        break
+                                except Exception:
+                                    break
+                            await asyncio.sleep(0.05)
+                    finally:
+                        _cleanup_pwplay_proc(pw_proc)
 
                     _tts_playing.clear()
                     if not is_wakeword:
