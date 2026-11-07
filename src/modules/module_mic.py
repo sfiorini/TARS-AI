@@ -36,8 +36,10 @@ MODEL_RATE = 16000
 
 # ── Singleton device info ──────────────────────────────────────────
 
-_device_info = None  # cached (device_idx, native_rate)
+_device_info = None  # cached (device_idx, native_rate) — only successful detections
 _device_lock = threading.Lock()
+_last_device_probe = 0.0  # time of the last FAILED detection attempt
+_DEVICE_RETRY_INTERVAL = 5.0  # min seconds between failed-detection re-probes
 
 
 def _is_real_hw_device(info):
@@ -95,11 +97,15 @@ def _find_input_device():
 
 
 def get_device_info(retries=4, backoff=1.0):
-    """Return (device_idx, native_sample_rate), cached after first call.
+    """Return (device_idx, native_sample_rate), cached after first success.
 
     Retries with backoff to handle USB audio devices that aren't ready at boot.
+    A failed detection is NOT cached forever: like servoctl's
+    _try_lazy_pca_init, later calls re-probe (rate-limited to once per
+    _DEVICE_RETRY_INTERVAL) so a mic that enumerates late is picked up
+    without a reboot. Callers see (None, MODEL_RATE) while unresolved.
     """
-    global _device_info
+    global _device_info, _last_device_probe
     if _device_info is not None:
         return _device_info
 
@@ -107,6 +113,12 @@ def get_device_info(retries=4, backoff=1.0):
         # Double-check under lock
         if _device_info is not None:
             return _device_info
+
+        # A previous detection failed: retry at most once per interval instead
+        # of spinning the whole retry ladder on every call (mirrors the 5s
+        # lazy-init rate limit in module_servoctl).
+        if _last_device_probe and time.time() - _last_device_probe < _DEVICE_RETRY_INTERVAL:
+            return (None, MODEL_RATE)
 
         for attempt in range(retries):
             try:
@@ -121,9 +133,9 @@ def get_device_info(retries=4, backoff=1.0):
             except Exception as e:
                 if attempt < retries - 1:
                     continue
-                print(f"WARNING: Could not detect mic after {retries} attempts ({e}), using defaults")
-                _device_info = (None, MODEL_RATE)
-    return _device_info
+                print(f"WARNING: Could not detect mic after {retries} attempts ({e}), using defaults — will retry later")
+                _last_device_probe = time.time()
+    return (None, MODEL_RATE)
 
 
 def get_native_rate():
