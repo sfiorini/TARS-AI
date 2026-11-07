@@ -10,6 +10,7 @@ on:
       - '.github/workflows/docs.yml'
       - 'src/tests/**'
       - 'pytest.ini'
+      - 'requirements-test.txt'
   workflow_dispatch:
 
 permissions:
@@ -36,8 +37,9 @@ jobs:
       # python-dotenv, module_llm/module_vision need requests, and
       # module_stt/module_mic/module_tts need numpy, sounddevice, soundfile,
       # soxr. Hardware libs (board/busio/adafruit_pca9685) are stubbed by the
-      # tests themselves, so they are not installed here.
-      - run: pip install pytest python-dotenv numpy requests sounddevice soundfile soxr
+      # tests themselves, so they are not installed here. Pinned (B9) so the
+      # CI gate cannot drift with unpinned latest releases.
+      - run: pip install -r requirements-test.txt
       - run: python -m pytest src/tests -q
 
   build:

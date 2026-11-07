@@ -1,0 +1,38 @@
+name: ci
+
+# B8: the docs workflow only ran pytest when docs/tests paths changed — a
+# push touching only src/modules/** (the bulk of the codebase) ran zero
+# tests. This workflow runs the suite on any src/ change.
+on:
+  push:
+    branches: [V3]
+    paths:
+      - 'src/**'
+      - 'pytest.ini'
+      - 'requirements-test.txt'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # sounddevice loads the system PortAudio shared library at import time and
+      # initializes a host API, so the headless runner needs libportaudio2 plus
+      # a running PulseAudio server (no audio hardware on CI runners).
+      - run: sudo apt-get update && sudo apt-get install -y libportaudio2 pulseaudio
+      - run: pulseaudio --start --exit-idle-time=-1
+      # Pinned test dependencies (B9) — the same file the docs workflow uses.
+      - run: pip install -r requirements-test.txt
+      - run: python -m pytest src/tests -q

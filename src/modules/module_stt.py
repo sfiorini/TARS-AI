@@ -997,7 +997,7 @@ class STTManager:
             if api_key:
                 headers["Authorization"] = f"Bearer {api_key}"
             # 30s: server-side whisper on shared CPU can take >10s (measured ~14s
-            # for short utterances on the mini's 4 cores) — see M10 runbook.
+            # for short utterances on the external server's 4 cores).
             response = requests.post(
                 f"{external_url}/save_audio",
                 files=files, headers=headers, timeout=30

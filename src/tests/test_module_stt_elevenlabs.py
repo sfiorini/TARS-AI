@@ -41,7 +41,7 @@ def _make_self(language="english", model=""):
     return types.SimpleNamespace(
         config={"STT": {
             "language": language,
-            "external_url": "http://mini:5678",
+            "external_url": "http://server.local:5678",
             "elevenlabs_stt_model": model,
         }},
         DEBUG=False,

@@ -1,0 +1,13 @@
+# Test dependencies for src/tests — installed by CI (.github/workflows/ci.yml
+# and the docs workflow's test job) and by developers running the suite.
+# Pins are the exact versions the suite passes with locally (Python 3.9,
+# macOS) and install on CI (Python 3.11, ubuntu). soxr is optional at
+# runtime (module_mic falls back to scipy.signal.resample_poly) but is
+# installed so CI exercises the primary resample path.
+pytest==8.4.2
+python-dotenv==1.2.1
+numpy==2.0.2
+requests==2.32.5
+sounddevice==0.5.6
+soundfile==0.13.1
+soxr==0.5.0.post1

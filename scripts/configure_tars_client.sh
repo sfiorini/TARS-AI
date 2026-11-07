@@ -1,8 +1,8 @@
 #!/bin/bash
 # Configure the TARS client (robot): Fish.audio cloud TTS primary with an
-# ordered fallback chain (speechify -> elevenlabs -> external mini server ->
+# ordered fallback chain (speechify -> elevenlabs -> external server ->
 # local piper -> espeak); ElevenLabs cloud STT primary; vision/embeddings
-# offloaded to mini.
+# offloaded to the external server.
 # Also sets the robot voice config: Fish.audio public "Tars" voice
 # (fishaudio_reference_id) and the local-Piper sox robot-FX chain.
 #
@@ -12,7 +12,7 @@ set -euo pipefail
 
 if [ "$#" -ne 1 ]; then
     echo "Usage: $0 <EXTERNAL_API_KEY>"
-    echo "  <EXTERNAL_API_KEY> is the api_key from the mini server's config-server.ini"
+    echo "  <EXTERNAL_API_KEY> is the api_key from the external server's config-server.ini"
     exit 1
 fi
 
@@ -26,6 +26,11 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="$ROOT/src/config.ini"
 ENV_FILE="$ROOT/.env"
+
+# Hostname of the external TTS/STT/vision/RAG server. Override per machine:
+#   SERVER_HOST=myserver.local ./scripts/configure_tars_client.sh <KEY>
+SERVER_HOST="${SERVER_HOST:-server.local}"
+SERVER_URL="http://${SERVER_HOST}:5678"
 
 if [ ! -f "$CONFIG" ]; then
     echo "ERROR: $CONFIG not found — run from a TARS-AI checkout with src/config.ini present"
@@ -57,10 +62,10 @@ set_kv() {
 }
 
 # --- [TTS]: Fish.audio primary; ordered fallback chain on the robot:
-# fishaudio -> speechify -> elevenlabs -> external (mini) -> piper (local) -> espeak ---
+# fishaudio -> speechify -> elevenlabs -> external -> piper (local) -> espeak ---
 set_kv TTS ttsoption fishaudio
 set_kv TTS tts_fallback_list speechify,elevenlabs,external,piper,espeak
-set_kv TTS ttsurl http://mini:5678
+set_kv TTS ttsurl "$SERVER_URL"
 
 # --- [TTS]: voice/model config ---
 # Fish.audio model: s2.1-pro-free = free developer tier. When the free offer ends
@@ -79,18 +84,18 @@ fi
 set_kv TTS piper_robot_fx True
 set_kv TTS piper_fx "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
 
-# --- [STT]: ElevenLabs Scribe (cloud) primary; external (mini) whisper fallback ---
+# --- [STT]: ElevenLabs Scribe (cloud) primary; external whisper fallback ---
 set_kv STT stt_processor elevenlabs
-set_kv STT external_url http://mini:5678
+set_kv STT external_url "$SERVER_URL"
 
-# --- [VISION]: external (mini) BLIP captioning ---
+# --- [VISION]: external BLIP captioning ---
 set_kv VISION vision_processor external
 set_kv VISION use_llm_backend False
-set_kv VISION base_url http://mini:5678
+set_kv VISION base_url "$SERVER_URL"
 
-# --- [RAG]: external (mini) embeddings ---
+# --- [RAG]: external embeddings ---
 set_kv RAG embedding_source external
-set_kv RAG embedding_url http://mini:5678
+set_kv RAG embedding_url "$SERVER_URL"
 
 # --- .env: upsert EXTERNAL_API_KEY (delete existing line, append new) ---
 touch "$ENV_FILE"
