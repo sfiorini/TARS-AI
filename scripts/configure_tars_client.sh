@@ -62,11 +62,19 @@ set_kv TTS ttsoption fishaudio
 set_kv TTS tts_fallback_list speechify,elevenlabs,external,piper,espeak
 set_kv TTS ttsurl http://mini:5678
 
-# --- [TTS]: voice config ---
-# Fish.audio public "Tars" voice by brenardspag:
-# https://fish.audio/m/6a57e35f5c8244dbb5d012a3c434ec16/
+# --- [TTS]: voice/model config ---
+# Fish.audio model: s2.1-pro-free = free developer tier. When the free offer ends
+# and requests start failing with HTTP 402, top up the account and change this to
+# s2.1-pro in src/config.ini (config-only change).
+set_kv TTS fishaudio_model s2.1-pro-free
+# Fish.audio latency mode: low (fastest) | balanced | normal (best quality)
+set_kv TTS fishaudio_latency low
+# Fish.audio voice: set only if empty, so a custom voice id in config.ini is kept.
+# Default: public "Tars" voice by brenardspag — https://fish.audio/m/6a57e35f5c8244dbb5d012a3c434ec16/
 # (API key comes from FISH_AUDIO_API_KEY in .env — never written here)
-set_kv TTS fishaudio_reference_id 6a57e35f5c8244dbb5d012a3c434ec16
+if ! sed -n "/^\[TTS\]/,/^\[/p" "$CONFIG" | grep -qE "^[[:space:]]*fishaudio_reference_id[[:space:]]*=[[:space:]]*[^[:space:]]"; then
+    set_kv TTS fishaudio_reference_id 6a57e35f5c8244dbb5d012a3c434ec16
+fi
 # Local-Piper robot voice: sox FX chain applied post-synthesis (needs sox installed)
 set_kv TTS piper_robot_fx True
 set_kv TTS piper_fx "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
