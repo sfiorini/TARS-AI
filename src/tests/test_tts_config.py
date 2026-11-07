@@ -235,6 +235,24 @@ class TestWebuiMetadata(unittest.TestCase):
             # webui save is template-driven: every schema key must exist in the template
             self.assertTrue(parser.has_option("TTS", key), f"template missing {key}")
 
+    def test_parsed_tts_keys_exposed_in_schema_and_template(self):
+        """B5: fishaudio_stream / fishaudio_latency / tts_volume are parsed by
+        load_config and used by the providers but were missing from the webui
+        schema — every parsed+used [TTS] key must be viewable/settable."""
+        schema = module_config.CONFIG_METADATA["TTS"]
+        parser = configparser.ConfigParser()
+        parser.read(os.path.join(_SRC, "config.ini.template"))
+        for key in ("fishaudio_stream", "fishaudio_latency", "tts_volume"):
+            self.assertIn(key, schema, f"webui schema missing {key}")
+            self.assertTrue(parser.has_option("TTS", key), f"template missing {key}")
+
+    def test_elevenlabs_model_options_include_v3(self):
+        """B5: the code special-cases v3 model ids ('v3' in model_id) — the
+        webui options list must offer a v3 model, not just v2-era ids."""
+        opts = module_config.CONFIG_METADATA["TTS"]["elevenlabs_model"]["options"]
+        self.assertIn("eleven_v3", opts)
+        self.assertIn("eleven_multilingual_v2", opts)  # existing options preserved
+
 
 class TestDeviceProfiles(unittest.TestCase):
     def test_all_profiles_allow_new_providers(self):

@@ -985,6 +985,14 @@ CONFIG_METADATA = {
             'label': 'Cloud TTS Timeout (s)',
             'description': 'Per-request HTTP timeout in seconds for cloud TTS providers (fishaudio, speechify, elevenlabs, openai). A slower request counts as a failure and the next provider in the Fallback Chain is tried. Default 30.'
         },
+        'tts_volume': {
+            'label': 'Playback Volume',
+            'type': 'slider',
+            'min': 0.0,
+            'max': 2.0,
+            'step': 0.1,
+            'description': 'Speaker volume for TTS playback. 1.0 is the voice model\'s natural level. Below 1.0 makes TARS quieter, above 1.0 louder (values above ~1.5 may distort).'
+        },
         'ttsurl': {
             'label': 'TTS Server URL',
             'depends_on': [{'field': 'ttsoption', 'values': ['other', 'external']}],
@@ -1001,8 +1009,8 @@ CONFIG_METADATA = {
         },
         'elevenlabs_model': {
             'depends_on': [{'field': 'ttsoption', 'values': ['elevenlabs']}],
-            'options': ['eleven_multilingual_v2', 'eleven_monolingual_v1', 'eleven_turbo_v2'],
-            'description': 'Only matters if you are using "elevenlabs" as your TTS engine. "eleven_multilingual_v2" can speak in 29 different languages and is the recommended choice. "eleven_monolingual_v1" only speaks English but is slightly faster. "eleven_turbo_v2" is the fastest but sounds slightly lower quality.'
+            'options': ['eleven_multilingual_v2', 'eleven_v3', 'eleven_monolingual_v1', 'eleven_turbo_v2'],
+            'description': 'Only matters if you are using "elevenlabs" as your TTS engine. "eleven_multilingual_v2" can speak in 29 different languages and is the recommended choice. "eleven_v3" is the newest generation with the most expressive voices (supports audio tags like [laughs]). "eleven_monolingual_v1" only speaks English but is slightly faster. "eleven_turbo_v2" is the fastest but sounds slightly lower quality.'
         },
         'fishaudio_model': {
             'label': 'Fish.audio Model',
@@ -1013,6 +1021,17 @@ CONFIG_METADATA = {
             'label': 'Fish.audio Voice ID',
             'depends_on': [{'field': 'ttsoption', 'values': ['fishaudio']}],
             'description': 'Fish.audio voice reference_id — a voice model id from https://fish.audio/m/<id> (e.g. the public "Tars" voice 6a57e35f5c8244dbb5d012a3c434ec16) or your own clone. Leave blank to use the Fish default voice.'
+        },
+        'fishaudio_stream': {
+            'label': 'Fish.audio Streaming',
+            'depends_on': [{'field': 'ttsoption', 'values': ['fishaudio']}],
+            'description': 'ON (recommended): stream raw PCM as it is generated — TARS starts speaking in a fraction of a second instead of waiting for the whole clip, playing it in ~0.4s slices. OFF: wait for the complete WAV clip per sentence (slower start, one chunk per sentence).'
+        },
+        'fishaudio_latency': {
+            'label': 'Fish.audio Latency',
+            'depends_on': [{'field': 'ttsoption', 'values': ['fishaudio']}],
+            'options': ['low', 'balanced', 'normal'],
+            'description': 'Fish.audio generation speed vs quality. "low" starts speaking fastest, "balanced" is a good middle ground, "normal" gives the best quality but the slowest start.'
         },
         'speechify_voice_id': {
             'label': 'Speechify Voice ID',
