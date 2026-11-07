@@ -796,8 +796,8 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 data, samplerate = sf.read(audio_chunk, dtype='float32')
 
                 # Resample to 16kHz if needed
-                if samplerate != 22050:
-                    ratio = 22050 / samplerate
+                if samplerate != 44100:
+                    ratio = 44100 / samplerate
                     new_len = int(len(data) * ratio)
                     if data.ndim == 1:
                         indices = np.linspace(0, len(data) - 1, new_len)
@@ -808,7 +808,7 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                             np.interp(indices, np.arange(len(data)), data[:, ch])
                             for ch in range(data.shape[1])
                         ])
-                    samplerate = 22050
+                    samplerate = 44100
 
                 max_val = np.max(np.abs(data))
                 if max_val > 0:
