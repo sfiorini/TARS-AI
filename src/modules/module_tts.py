@@ -796,6 +796,19 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
         nonlocal was_interrupted
         threading.Thread(target=_notify_talking_state, args=("start_talking",), daemon=True).start()
 
+        # Persistent output stream: one stream per utterance avoids the
+        # start/stop gap of sd.play() per chunk (audible stutter between
+        # streaming slices on long sentences). Falls back to per-chunk sd.play.
+        out_stream = None
+        try:
+            out_stream = sd.OutputStream(samplerate=44100, channels=1, dtype='float32',
+                                         device=_output_device, latency='low')
+            out_stream.start()
+        except Exception as e:
+            queue_message(f"WARNING: persistent output stream failed ({e}) — using per-chunk sd.play")
+            out_stream = None
+        first_audio_logged = False
+
         while True:
             if _tts_cancel_event.is_set():
                 was_interrupted = True
@@ -835,6 +848,24 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
 
                 gain = _playback_gain()
                 data = np.clip(data * gain, -1.0, 1.0)
+
+                if out_stream is not None:
+                    if data.ndim > 1:
+                        data = np.ascontiguousarray(data[:, 0])
+                    await asyncio.to_thread(out_stream.write, data)
+                    _tts_playing.set()
+                    if not first_audio_logged:
+                        import modules.module_speed as speed
+                        speed.mark_first_audio()
+                        first_audio_logged = True
+                    if _tts_cancel_event.is_set():
+                        out_stream.abort()
+                        was_interrupted = True
+                        break
+                    _tts_playing.clear()
+                    if not is_wakeword:
+                        _tts_needs_flush.set()
+                    continue
 
                 pw_proc = None
                 try:
@@ -916,6 +947,16 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 queue_message(f"ERROR: Failed to play chunk: {e}")
                 if synthesis_done.is_set() and audio_queue.empty():
                     break
+
+        if out_stream is not None:
+            try:
+                if was_interrupted:
+                    out_stream.abort()
+                else:
+                    out_stream.stop()  # drain remaining buffered audio
+                out_stream.close()
+            except Exception:
+                pass
 
         threading.Thread(target=_notify_talking_state, args=("stop_talking",), daemon=True).start()
 
