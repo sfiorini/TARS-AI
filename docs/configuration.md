@@ -14,6 +14,8 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 | `DEEPINFRA_API_KEY` | `llm_backend = deepinfra` |
 | `OTHER_API_KEY` | `llm_backend = other` — e.g. **Mistral**: `base_url = https://api.mistral.ai`, `other_model = zai-glm-5-3-flash` |
 | `ELEVENLABS_API_KEY` | Scribe STT (`module_stt.py`), ElevenLabs TTS (`module_elevenlabs.py`) |
+| `FISH_AUDIO_API_KEY` | Fish.audio TTS — chain provider `fishaudio` (`module_fishaudio.py`) |
+| `SPEECHIFY_API_KEY` | Speechify TTS — chain provider `speechify` (`module_speechify.py`) |
 | `EXTERNAL_API_KEY` | Bearer key for the companion companion server — sent as `Authorization: Bearer …` by the STT (`/save_audio`), TTS (`/tts/generate`) and vision clients |
 | `VISION_API_KEY` | dedicated vision API key (falls back to the LLM key) |
 | `DISCORD_TOKEN` | `skill_discord` |
@@ -32,8 +34,10 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 ### `[STT]` — wake word + speech-to-text
 `language`, `wake_word` (2–3 syllables works best), `wake_word_processor` (`sherpa-onnx | atomik | fastrtc` on Pi5), `atomik_mode` (`auto | model | template`), `sensitivity` (**1–10: 1 = strict, 10 = lenient** — corrected in this fork; see [Voice Pipeline](voice-pipeline.md)), wake gates (`vad_transcript_verify`, `vad_speaker_verify`, `vad_presence_gate`), `stt_processor` (`sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`), `external_url`, `elevenlabs_stt_model` (`scribe_v2`), `vad_method` (`smart-turn | sherpa-onnx | silero | rms`), `use_indicators` (beeps), `enable_bargein` / `bargein_mode` (`fuzzy | voiceprint`) / `bargein_sensitivity`, `speechdelay` (tenths of a second), `speaker_id_enabled` / `speaker_id_threshold`, `mic_amp_gain`, `silence_margin`, `sherpa_onnx_denoise`, `sherpa_onnx_punctuation`.
 
-### `[TTS]` — speech output
-`ttsoption` (`espeak | piper | silero | elevenlabs | openai | other | external`), `ttsurl` + `tts_voice` (external server), `toggle_charvoice` (use the character card's voice), `elevenlabs_voice_id`, `elevenlabs_model` (`eleven_multilingual_v2 | …`), `openai_voice`, `piper_multispeaker` + `piper_speaker_<emotion>` (0–7) mapping emotion to speaker id.
+### `[TTS]` — speech output (ordered provider chain)
+`ttsoption` (`espeak | piper | silero | elevenlabs | openai | fishaudio | speechify | other | external`) is the **primary** provider; `tts_fallback_list` (comma-separated, or a JSON array like `["speechify","piper"]`) holds the rest. The effective chain is `dedup([ttsoption] + tts_fallback_list)` with **`espeak` always appended last**; on any provider failure (quota exhausted, rate limited, auth error, timeout, empty audio) the chain fails over to the next provider with a logged reason (template default: `ttsoption = piper`, `tts_fallback_list = external,piper,espeak` — fully offline). `other` falls through to the fallback list, whose `external` entry uses `ttsurl` + `tts_voice` (external server). Cloud providers (`fishaudio`, `speechify`, `elevenlabs`, `openai`) and `external` all use the per-request HTTP timeout `tts_timeout` (seconds, default **30**).
+
+Per-provider keys: `toggle_charvoice` (use the character card's voice), `elevenlabs_voice_id`, `elevenlabs_model` (`eleven_multilingual_v2 | …`), `openai_voice`, `fishaudio_model` (**`s2.1-pro-free`** default — sent as the `model` HTTP header on *every* Fish request; omitting it silently bills the paid model. When the free tier starts returning 402, top up and set `fishaudio_model = s2.1-pro` — a config-only change, the chain's failover covers the gap), `fishaudio_reference_id` (Fish voice model id from `https://fish.audio/m/<id>`; empty = Fish's default voice), `speechify_voice_id` (`george` default — list the catalog with `GET https://api.speechify.ai/v1/voices` using `SPEECHIFY_API_KEY`), `speechify_model` (`simba-3.5`), `piper_multispeaker` + `piper_speaker_<emotion>` (0–7) mapping emotion to speaker id, and the local-Piper robot voice: `piper_robot_fx` (bool) + `piper_fx` (sox effect chain, default `chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100`) applied post-synthesis — needs `sox` installed, otherwise the raw Piper audio plays. Cloud API keys live in `.env` (`FISH_AUDIO_API_KEY`, `SPEECHIFY_API_KEY`), never in `config.ini`. See [Voice Pipeline](voice-pipeline.md) for the full chain semantics and error classification.
 
 ### `[EMOTION]`, `[VISION]`, `[RAG]`
 `[EMOTION]`: `enabled`, `emotion_method` (`llm` — zero extra RAM | `classifier` — local HF model ~500 MB), `emotion_model` (use the ONNX variant, e.g. `SamLowe/roberta-base-go_emotions-onnx`).
@@ -55,8 +59,9 @@ Per-skill config and enable flag, e.g. `[SKILL:discord] disabled = true`. The te
 `scripts/configure_tars_client.sh <EXTERNAL_API_KEY>` rewrites `src/config.ini` idempotently (section-scoped `sed`; **`[LLM]` is deliberately untouched**) and upserts `EXTERNAL_API_KEY` in `.env`:
 
 ```bash
-./scripts/configure_tars_client.sh "$API_KEY_FROM_MINI"
-# [TTS]    ttsoption = elevenlabs,  ttsurl = http://<server-host>:5678
+./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>
+# [TTS]    ttsoption = fishaudio,  tts_fallback_list = speechify,elevenlabs,external,piper,espeak
+#           ttsurl = http://<server-host>:5678,  fishaudio_reference_id = 6a57e35f…,  piper_robot_fx = True
 # [STT]    stt_processor = elevenlabs, external_url = http://<server-host>:5678
 # [VISION] vision_processor = external, use_llm_backend = False, base_url = http://<server-host>:5678
 # [RAG]    embedding_source = external, embedding_url = http://<server-host>:5678

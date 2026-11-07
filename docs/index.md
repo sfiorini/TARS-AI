@@ -14,6 +14,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | Fork web endpoints `GET /servo_status` and `POST /servo_reinit` (no-reboot recovery) | `src/modules/module_chatui.py`, [web-ui.md](web-ui.md) |
 | 33-entry movement registry (19 legs-only + 14 arm) exposed to the LLM via the `execute_movement` skill | `src/modules/module_movement_registry.py`, [movements.md](movements.md) |
 | ElevenLabs Scribe `scribe_v2` cloud STT with external-server fallback (30 s timeout) | `src/modules/module_stt.py`, [voice-pipeline.md](voice-pipeline.md) |
+| Configurable ordered TTS provider chain — Fish.audio → Speechify → ElevenLabs → external Piper → local Piper → espeak — with typed-error failover (quota / rate-limit / auth / timeout) and per-request timeouts | `src/modules/module_tts.py`, `module_fishaudio.py`, `module_speechify.py`, [voice-pipeline.md](voice-pipeline.md) |
 | `_delta_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
 | `App-Stop.py` TERM→KILL escalation (pygame/SDL swallows the first SIGTERM) | `App-Stop.py`, [running.md](running.md) |
 | Piper `./voices` bind mount in the server's docker-compose (voice weights are not in the repo) | `TARS-AI_Server/docker-compose.yml`, [server-mode.md](server-mode.md) |
@@ -25,7 +26,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 - [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; `scripts/configure_tars_client.sh` for pointing at the server host server.
 - [Running TARS](running.md) — `tars-launcher.sh`, `App-Start.py`/`App-Stop.py`, XDG autostart, logs, restart without reboot.
 - [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, motion tab, `/servo_status` + `/servo_reinit`.
-- [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, TTS fallback chain.
+- [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, the configurable TTS provider chain.
 - [Movements](movements.md) — the movement registry, arm gating, custom sequences, servo tester, how to add a movement.
 - [Server Mode](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/srv`.
 - [Servo Watchdog & Recovery](servo-watchdog.md) — self-healing design, reading MODE1/MODE2, manual `i2cset` recovery.
@@ -46,7 +47,7 @@ This documentation site is built with MkDocs Material (`mkdocs.yml`, pages in `d
 
 - **Raspberry Pi 5** recommended for the full install (all local STT/TTS options, on-device UI, `lgpio` GPIO). Pi 4 / 3 / Zero 2 work with reduced local processing — `Install.sh` picks per-model requirements.
 - **64-bit Raspberry Pi OS** (Debian 13 "Trixie" aarch64 is what this fork's robot runs), I2C enabled (`sudo raspi-config` → Interface Options → I2C).
-- **API keys** in `.env` — at minimum one LLM key (`OTHER_API_KEY` for Mistral/OpenAI-compatible `base_url`, `OPENAI_API_KEY`, `GROK_API_KEY`, or `DEEPINFRA_API_KEY`); `ELEVENLABS_API_KEY` for Scribe STT / ElevenLabs TTS.
+- **API keys** in `.env` — at minimum one LLM key (`OTHER_API_KEY` for Mistral/OpenAI-compatible `base_url`, `OPENAI_API_KEY`, `GROK_API_KEY`, or `DEEPINFRA_API_KEY`); `ELEVENLABS_API_KEY` for Scribe STT / ElevenLabs TTS; optional `FISH_AUDIO_API_KEY` / `SPEECHIFY_API_KEY` for the Fish.audio / Speechify providers in the TTS chain.
 - **Hardware** for the moving robot: PCA9685 servo driver (I2C `0x40`), buck converter + battery, optional INA260 (`0x41`), 10 servos, 3D-printed chassis, display/camera/mic/speaker — details in [Hardware & Wiring](hardware.md).
 - Optional **companion server** (companion server) for whisper STT, Piper TTS, BLIP vision, embeddings — [Server Mode](server-mode.md).
 
@@ -72,7 +73,7 @@ Two machines, one robot:
 
 ## How a conversation flows
 
-Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 15 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
+Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (configurable chain, e.g. Fish.audio → Speechify → ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 15 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
 
 ## Hardware at a glance
 

@@ -18,7 +18,8 @@ TARS-AI/
 ├── 3d Printer Files/                # STL for the motorized build (A. Required/, B. Mods/, Tools/)
 ├── Static Version (no motors)/      # display-only statue files
 ├── Documentation/                   # wiring SVGs (copied into docs/assets/)
-├── scripts/configure_tars_client.sh # point the robot at the server host server
+├── scripts/configure_tars_client.sh # robot client config: STT/TTS/vision/embeddings + the TTS chain
+├── scripts/setup_tts_voice.sh       # optional: clone your own Fish.audio voice (CC BY 4.0 sample)
 ├── src/
 │   ├── .venv/                       # virtualenv created by Install.sh
 │   ├── app.py                       # entrypoint: python app.py show_ui=true [key=value …]
@@ -41,14 +42,21 @@ TARS-AI/
 python3 -m pytest src/tests -q
 ```
 
-On V3 this reports **62 passed** in about a second. `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests inject fake `board`/`busio` modules and bootstrap `src/config.ini` from the template, so no Pi and no hardware deps are needed — only `pip install pytest`. On the robot use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
+On V3 this reports **238 passed** in about a second. `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests inject fake `board`/`busio` modules and bootstrap `src/config.ini` from the template, so no Pi and no hardware deps are needed — only `pip install pytest`. On the robot use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
 
-Suite breakdown (5 files):
+Suite breakdown (12 files):
 
 | File | Tests | Covers |
 |---|---|---|
 | `test_servo_watchdog.py` | 31 | MODE1/MODE2 health, stuck-MOVING, lazy re-init, repair + position re-apply, fake-I2C register IO |
 | `test_execute_movement.py` | 13 | registry-driven skill prompt (all 33 ids), registry-only resolver, arm gating, `voicemovement` gate |
+| `test_tts_config.py` | 24 | `[TTS]` plumbing: `tts_fallback_list` parsing (comma-separated + JSON array), `tts_timeout` validation, env keys, web-UI `ttsoption` options |
+| `test_module_fishaudio.py` | 28 | Fish.audio provider: `model` header always sent, raw-wav response, 402→QuotaExhausted / 429→retry→RateLimited / 4xx→AuthFailed / 5xx+timeout→TransientError, no key ⇒ no request |
+| `test_module_speechify.py` | 34 | Speechify provider: base64 `audio_data` decode, `error.code` mapping (quota/rate/auth), `Retry-After` honored + capped, no key ⇒ no request |
+| `test_module_tts_chain.py` | 30 | ordered chain runner in `module_tts.py`: chain order, failover with logged reason, dedup, unknown names skipped, missing-key skip, empty text, per-utterance deadline, mid-stream behavior |
+| `test_module_piper_fx.py` | 24 | local-Piper sox robot FX (`piper_robot_fx` + `piper_fx`) applied post-synthesis; raw audio on sox missing/failure |
+| `test_module_tts_elevenlabs.py` | 21 | ElevenLabs TTS: per-request timeout, 429/401-quota ⇒ QuotaExhausted, other typed errors |
+| `test_module_tts_openai.py` | 15 | OpenAI TTS: per-request timeout, 429 quota body ⇒ QuotaExhausted, typed errors |
 | `test_module_llm_delta.py` | 8 | `_delta_text()` GLM list-block normalization |
 | `test_module_stt_elevenlabs.py` | 8 | Scribe STT request + external-server fallback |
 | `test_module_vision_glm.py` | 2 | vision `message.content` list-block fix |

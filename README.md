@@ -30,7 +30,7 @@
 - **Full movement registry exposed to the LLM** via the `execute_movement` skill.
 - **ElevenLabs Scribe (`scribe_v2`) STT support** (set `stt_processor = elevenlabs`), with automatic fallback to the external server.
 - **Mistral streaming fix** — `delta.content` sent as a list of content blocks no longer produces empty replies.
-- **TTS fallback chain** (ElevenLabs → external server Piper → local → espeak).
+- **Configurable TTS provider chain** — Fish.audio → Speechify → ElevenLabs → external server Piper → local Piper → espeak, with automatic failover on quota / rate-limit / auth / timeout (`ttsoption` + `tts_fallback_list` in `[TTS]`; see the [voice pipeline docs](https://sfiorini.github.io/TARS-AI/voice-pipeline/)).
 - **App-Stop TERM-to-KILL escalation** — a surviving process gets SIGKILL, so the app actually exits.
 - **Docker server mode** (`TARS-AI_Server/`) with a `voices` bind mount.
 - **Wake-word sensitivity doc correction** (1 = strict, 10 = lenient).

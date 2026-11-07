@@ -28,16 +28,39 @@ Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay
 !!! note "Fork fix: GLM/Mistral list-block content"
     Mistral's GLM models stream `delta.content` as a **list of blocks** (`[{"type":"thinking",…},{"type":"text","text":…}]`). Upstream joined the blocks as strings → `TypeError` → the reply was silently discarded (empty answers in `tars-ai.log`). This fork normalizes it in `_delta_text()` (`module_llm.py`), keeping only `type == "text"` blocks; the same fix is applied to vision reads in `module_vision.py`. Regression tests: `src/tests/test_module_llm_delta.py` (8), `test_module_vision_glm.py` (2).
 
-## 4. Text-to-speech — fallback chain
+## 4. Text-to-speech — configurable ordered provider chain
 
-`generate_tts_audio()` in `module_tts.py` tries, in order:
+`generate_tts_audio()` in `module_tts.py` walks an **ordered provider chain** built at call time:
 
-1. **`elevenlabs`** (`ttsoption = elevenlabs`; `elevenlabs_voice_id`, `elevenlabs_model = eleven_multilingual_v2`) — or the character-card voice when `toggle_charvoice = True`.
-2. **External Piper on the server host** — `POST {ttsurl}/tts/generate` (Bearer `EXTERNAL_API_KEY`, 30 s timeout) — used when ElevenLabs yields no audio.
-3. **Local piper** (`module_piper.py`) — with `piper_multispeaker`, the detected emotion selects `piper_speaker_<emotion>`.
-4. **espeak** (`module_espeak.py`) — final fallback.
+```
+chain = dedup([ttsoption] + [TTS] tts_fallback_list) + ["espeak"]   # espeak always last
+```
 
-`ttsoption` may also be set directly to `piper | espeak | silero | openai | other | external`.
+- `ttsoption` is still the primary selector (web UI unchanged): `espeak | piper | silero | elevenlabs | openai | fishaudio | speechify | other | external`.
+- `tts_fallback_list` (comma-separated; a JSON array like `["speechify","piper"]` also works) holds the rest of the chain. Template default: `ttsoption = piper`, `tts_fallback_list = external,piper,espeak` (fully offline).
+- On the robot, `scripts/configure_tars_client.sh` sets the cloud-first chain: `ttsoption = fishaudio`, `tts_fallback_list = speechify,elevenlabs,external,piper,espeak` → **fishaudio → speechify → elevenlabs → external → piper → espeak**.
+- Duplicates are tried once (first occurrence wins); unknown names are skipped with a warning; `other` is not a chain entry itself — it falls through to `tts_fallback_list`, whose `external` entry uses `ttsurl`.
+
+The first provider that yields ≥ 1 audio chunk wins and its chunks are streamed; the chain then stops. Failures are **typed** (hierarchy defined in `module_fishaudio.py`, shared by all providers): `QuotaExhausted` (no credit), `RateLimited`, `AuthFailed`, `TransientError`. Every failover is logged with the reason, e.g. `WARNING: TTS provider 'fishaudio' failed (QuotaExhausted: …) — failing over to 'speechify'`. 429 / 5xx / timeout get exactly **one backoff retry** inside the provider, then fail over — no infinite loops — and a per-utterance deadline (`tts_timeout` × chain length) bounds the whole chain so TARS never hangs. A provider that already yielded audio and then dies mid-stream keeps what was spoken (no voice switch mid-utterance). A missing API key skips the provider **before any HTTP request** (the key is never logged); empty text short-circuits the whole chain.
+
+### Providers
+
+| Provider | Module | Request | Error classification |
+|---|---|---|---|
+| `fishaudio` | `module_fishaudio.py` | `POST https://api.fish.audio/v1/tts` — `Authorization: Bearer $FISH_AUDIO_API_KEY` **plus a `model` header sent on every request** (`fishaudio_model`, default `s2.1-pro-free`; omitting it silently bills the paid model), body `{text, reference_id, format: "wav", latency: "normal"}` → raw wav bytes | 402 → `QuotaExhausted`; 429 (concurrency, no `Retry-After`) → one retry → `RateLimited`; 4xx → `AuthFailed`; 5xx/timeout → one retry → `TransientError` |
+| `speechify` | `module_speechify.py` | `POST https://api.speechify.ai/v1/audio/speech` — Bearer `$SPEECHIFY_API_KEY`, body `{input, voice_id, audio_format: "wav", model}` (`speechify_voice_id` = `george`, `speechify_model` = `simba-3.5`) → JSON `{audio_data: base64}` | branches on body `error.code`: `payment_required` / `spend_cap_exceeded` / `spend_budget_exceeded` / `spend_limit_exceeded` → `QuotaExhausted`; `rate_limited` / `concurrency_limit_reached` → `RateLimited` (HTTP 429 honors `Retry-After`, capped at 60 s); 401/4xx → `AuthFailed`; 5xx/timeout → one retry → `TransientError` |
+| `elevenlabs` | `module_elevenlabs.py` | `POST https://api.elevenlabs.io/v1/text-to-speech/{elevenlabs_voice_id}/stream` — Bearer `ELEVENLABS_API_KEY`, `elevenlabs_model = eleven_multilingual_v2` (or the character-card voice when `toggle_charvoice = True`) | 429/401 with a quota body → `QuotaExhausted`; 429 otherwise → one retry → `RateLimited`; 401/4xx → `AuthFailed`; 5xx/timeout → one retry → `TransientError` |
+| `openai` | `module_openai.py` | OpenAI TTS SDK — `openai_voice`, Bearer `OPENAI_API_KEY` | 429 with quota body (`insufficient_quota`) → `QuotaExhausted`; 429 → `RateLimited`; 401/4xx → `AuthFailed`; timeout/5xx → `TransientError` |
+| `external` | `module_tts.py` (`_external_tts_chunks`) | `POST {ttsurl}/tts/generate` — Bearer `EXTERNAL_API_KEY`, optional `voice` = `tts_voice` → raw audio | server-side Piper on the server host |
+| `piper` | `module_piper.py` | local, offline; model kept resident (`PiperVoice.load()` once at startup) | no chunks when the model is not loaded ⇒ chain moves on; with `piper_multispeaker`, the detected emotion selects `piper_speaker_<emotion>` |
+| `silero` | `module_silero.py` | local, offline | — |
+| `espeak` | `module_espeak.py` | local, offline | always the guaranteed final fallback |
+
+All cloud providers (`fishaudio`, `speechify`, `elevenlabs`, `openai`) and `external` use the per-request HTTP timeout `[TTS] tts_timeout` (default **30 s**), read from config at call time.
+
+### Is local Piper fast enough on a Pi 5?
+
+Yes. With the model kept resident (no per-utterance CLI reload), Piper on a Pi 5 runs at **RTF ≈ 0.10–0.13** (≈ 8–10× realtime) for low/medium voices — roughly **0.3–0.6 s to first audio** for a typical 10-word sentence (RPi5 edge-TTS benchmark). High-quality voices sit around RTF 0.66, still fine as a fallback. So the local chain (`piper` → `espeak`) is a realistic no-cloud path, not a last-ditch whisper.
 
 ### Voice sources & attribution
 
@@ -66,7 +89,8 @@ mic ──► wake word (atomik, sensitivity 1-10) ──► record until EOS (v
                                                             │
                                           LLM: {base_url}/v1/chat/completions (streamed SSE, _delta_text fix)
                                                             │
-                                          reply text ──► TTS: elevenlabs ──► external /tts/generate ──► local piper ──► espeak
+                                          reply text ──► TTS chain: ttsoption ──► tts_fallback_list ──► … ──► espeak
+                                          (robot: fishaudio ──► speechify ──► elevenlabs ──► external /tts/generate ──► piper ──► espeak)
                                                             │
                                           speaker + on-device avatar (emotion) + web UI chat
 ```
@@ -94,7 +118,7 @@ From the `[STT]` template comments (mix wake-word and STT engines freely — the
 |---|---|
 | Wake word / VAD / STT / barge-in | `src/modules/module_stt.py`, `module_atomik.py`, `module_silero.py` |
 | LLM (streaming, prompt building, memories) | `src/modules/module_llm.py`, `module_prompt.py`, `module_memory.py`, `module_hyperdb.py` |
-| TTS chain | `src/modules/module_tts.py`, `module_elevenlabs.py`, `module_piper.py`, `module_espeak.py`, `module_silero.py` |
+| TTS chain | `src/modules/module_tts.py` (chain runner `_effective_chain` / `generate_tts_audio`), `module_fishaudio.py`, `module_speechify.py`, `module_elevenlabs.py`, `module_openai.py`, `module_piper.py`, `module_espeak.py`, `module_silero.py` |
 | Emotion | `src/modules/module_emotion` path via `[EMOTION]` (`classifier` HF model or `llm`) |
 | Vision | `src/modules/module_vision.py` |
 | Orchestration / state / queue | `src/modules/module_main.py`, `module_state.py`, `module_messageQue.py`, `module_router.py` |

@@ -43,9 +43,11 @@ Edit **`.env`** (hidden — `ls -la` to see it) with at least:
 ```bash
 ELEVENLABS_API_KEY="..."   # Scribe STT + ElevenLabs TTS
 OTHER_API_KEY="..."        # LLM key for [LLM] llm_backend = other (e.g. Mistral)
+FISH_AUDIO_API_KEY="..."   # optional: Fish.audio TTS (cloud chain primary on the robot)
+SPEECHIFY_API_KEY="..."    # optional: Speechify TTS (second in the cloud chain)
 ```
 
-Full key list: `OPENAI_API_KEY`, `GROK_API_KEY`, `DEEPINFRA_API_KEY`, `OTHER_API_KEY`, `ELEVENLABS_API_KEY`, `EXTERNAL_API_KEY` (companion server Bearer key), `VISION_API_KEY`, `DISCORD_TOKEN`, `HA_TOKEN` — see [Configuration](configuration.md).
+Full key list: `OPENAI_API_KEY`, `GROK_API_KEY`, `DEEPINFRA_API_KEY`, `OTHER_API_KEY`, `ELEVENLABS_API_KEY`, `FISH_AUDIO_API_KEY`, `SPEECHIFY_API_KEY`, `EXTERNAL_API_KEY` (companion server Bearer key), `VISION_API_KEY`, `DISCORD_TOKEN`, `HA_TOKEN` — see [Configuration](configuration.md).
 
 !!! warning "Never commit secrets"
     `.env` and `src/config.ini` are gitignored. Do not add them to git, issues, or chat.
@@ -70,6 +72,8 @@ If you run the companion server on a server machine, point the robot at it after
 ```bash
 ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>   # api_key from the server host's config-server.ini
 ```
+
+TTS works out of the box with the template default (`ttsoption = piper`, `tts_fallback_list = external,piper,espeak` — fully offline). To use the cloud chain instead (Fish.audio → Speechify → ElevenLabs → external → local Piper → espeak, the order `configure_tars_client.sh` sets on the robot), add `FISH_AUDIO_API_KEY` / `SPEECHIFY_API_KEY` to `.env` and set `ttsoption = fishaudio` — see [Voice Pipeline](voice-pipeline.md).
 
 ## 5. Launch
 
@@ -105,7 +109,7 @@ Say the wake word (`hey tars` by default) and talk to TARS.
 python3 -m pytest src/tests -q
 ```
 
-Expected on V3: **62 passed** in ~1 s. `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests fake the GPIO/I2C modules and bootstrap `src/config.ini` from the template, so they run on any machine. On the robot, use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
+Expected on V3: **238 passed** in ~1–2 s. `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests fake the GPIO/I2C modules and bootstrap `src/config.ini` from the template, so they run on any machine. On the robot, use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
 
 ## Next steps
 
