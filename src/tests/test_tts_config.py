@@ -14,22 +14,17 @@ import sys
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Bootstrap gitignored src/config.ini from the template so module imports
 # (load_config at import time) succeed on a fresh clone.
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-_CONFIG_INI = os.path.join(_SRC, "config.ini")
-if not os.path.exists(_CONFIG_INI):
-    _TEMPLATE = os.path.join(_SRC, "config.ini.template")
-    try:
-        import shutil
-        shutil.copyfile(_TEMPLATE, _CONFIG_INI)
-    except OSError as exc:
-        raise RuntimeError(
-            "Cannot bootstrap src/config.ini from src/config.ini.template "
-            f"(required for module imports): {exc}"
-        ) from exc
+# Bootstrap a config.ini from the template into a TEMP dir (never the working
+# tree) and point the config loader at it, so tests work on read-only checkouts.
+import tempfile, shutil
+_TMP = tempfile.mkdtemp(prefix="tars-test-config-")
+_CONFIG_INI = os.path.join(_TMP, "config.ini")
+shutil.copyfile(os.path.join(_SRC, "config.ini.template"), _CONFIG_INI)
+os.environ["TARS_CONFIG_PATH"] = _CONFIG_INI
 
 _REPO = os.path.abspath(os.path.join(_SRC, ".."))
 

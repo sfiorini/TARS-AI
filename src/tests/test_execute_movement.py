@@ -5,7 +5,6 @@ import types
 import unittest
 from unittest import mock
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Bootstrap gitignored src/config.ini from the template so module imports
 # (load_config at import time) succeed on a fresh clone.

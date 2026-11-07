@@ -3,7 +3,6 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Bootstrap the gitignored src/config.ini from the template: module_llm runs
 # load_config() at import time, so a fresh clone without config.ini would

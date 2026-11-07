@@ -432,7 +432,7 @@ def load_config():
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     config = configparser.ConfigParser()
-    config_path = os.path.join(base_dir, 'config.ini')
+    config_path = os.environ.get('TARS_CONFIG_PATH') or os.path.join(base_dir, 'config.ini')
     config.read(config_path)
 
     character_path = config.get("CHAR", "character_card_path")
