@@ -367,3 +367,28 @@ class TestFishAudioGuards(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestNonBlockingHTTP(unittest.TestCase):
+    """Regression: requests.post must run in a worker thread (asyncio.to_thread),
+    not on the event loop thread — a blocking call froze the whole app during TTS."""
+
+    def test_http_runs_off_event_loop(self):
+        import threading
+        main_thread = threading.current_thread()
+        seen = {}
+
+        def fake_post(*a, **k):
+            seen["thread"] = threading.current_thread()
+            return _FakeResponse(200, content=b"RIFF-x")
+
+        cfg = _fake_config()
+        with mock.patch.object(fa, "CONFIG", cfg), \
+             mock.patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "k"}), \
+             mock.patch.object(fa.requests, "post", side_effect=fake_post):
+            async def run():
+                agen = fa.text_to_speech_with_fishaudio("Hi.")
+                return [c async for c in agen]
+            asyncio.run(run())
+        self.assertIn("thread", seen)
+        self.assertIsNot(seen["thread"], main_thread)

@@ -189,8 +189,9 @@ async def _synthesize_sentence(sentence, headers, body, timeout):
     while True:
         attempt += 1
         try:
-            response = requests.post(
-                SPEECHIFY_TTS_URL, headers=headers, json=payload, timeout=timeout
+            # to_thread: never block the event loop on HTTP (app would freeze)
+            response = await asyncio.to_thread(
+                requests.post, SPEECHIFY_TTS_URL, headers=headers, json=payload, timeout=timeout
             )
         except requests.exceptions.RequestException as exc:
             if attempt < _MAX_ATTEMPTS:

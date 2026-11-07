@@ -495,7 +495,10 @@ async def _external_tts_chunks(text, timeout=None):
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        response = requests.post(f"{external_url}/tts/generate", json=payload, headers=headers, timeout=timeout)
+        # to_thread: never block the event loop on HTTP (app would freeze)
+        response = await asyncio.to_thread(
+            requests.post, f"{external_url}/tts/generate", json=payload, headers=headers, timeout=timeout
+        )
         if response.status_code == 200:
             audio_buffer = BytesIO(response.content)
             audio_buffer.seek(0)
