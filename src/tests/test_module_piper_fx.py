@@ -243,7 +243,7 @@ class TestApplyPiperFx(unittest.TestCase):
             out = module_piper.apply_piper_fx(buf)
         self.assertEqual(out.getvalue(), b"PROCESSED-WAV")
         cmd = popen.call_args.args[0]
-        self.assertEqual(cmd[3:], shlex.split(DEFAULT_FX))
+        self.assertEqual(cmd[7:], shlex.split(DEFAULT_FX))
 
     def test_empty_chain_falls_back_to_default_recipe(self):
         buf = io.BytesIO(b"RIFF-raw-wav")
@@ -254,7 +254,7 @@ class TestApplyPiperFx(unittest.TestCase):
              mock.patch.object(module_piper.subprocess, "Popen", popen):
             module_piper.apply_piper_fx(buf)
         cmd = popen.call_args.args[0]
-        self.assertEqual(cmd[3:], shlex.split(DEFAULT_FX))
+        self.assertEqual(cmd[7:], shlex.split(DEFAULT_FX))
 
     def test_custom_chain_used_verbatim(self):
         buf = io.BytesIO(b"RIFF-raw-wav")
@@ -264,7 +264,7 @@ class TestApplyPiperFx(unittest.TestCase):
              mock.patch.object(module_piper.shutil, "which", return_value="/usr/bin/sox"), \
              mock.patch.object(module_piper.subprocess, "Popen", popen):
             module_piper.apply_piper_fx(buf)
-        self.assertEqual(popen.call_args.args[0][3:], ["pitch", "300"])
+        self.assertEqual(popen.call_args.args[0][7:], ["pitch", "300"])
 
     def test_sox_missing_returns_original_buffer(self):
         buf = io.BytesIO(b"RIFF-raw-wav")
