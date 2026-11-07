@@ -18,7 +18,8 @@ classification branches on error.code FIRST, then falls back to the status:
   rate_limited / concurrency_limit_reached -> RateLimited; HTTP 429 carries a
       Retry-After header which is honored for the single backoff retry
   401/403 and other 4xx -> AuthFailed      (no retry)
-  5xx / timeout         -> one backoff retry, then TransientError
+  408 / 5xx / timeout   -> one backoff retry, then TransientError
+                          (408 request-timeout is transient, not an auth failure)
 
 The typed error classes are IMPORTED from module_fishaudio (not redefined) so
 the fallback chain in module_tts.py catches a single exception hierarchy.
@@ -232,8 +233,10 @@ async def _synthesize_sentence(sentence, headers, body, timeout):
                 f"Speechify returned {status}{label} after retry: {message}",
                 status_code=status,
             )
-        if 400 <= status < 500:
+        if 400 <= status < 500 and status != 408:
             # 401/403 auth and other client errors: no retry, fail over now.
+            # 408 (request timeout) is transient: it falls through to the
+            # backoff-retry path below instead of the permanent AuthFailed bucket.
             label = f" [{code}]" if code else ""
             raise AuthFailed(
                 f"Speechify returned {status}{label}: {message}",

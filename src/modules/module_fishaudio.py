@@ -15,7 +15,8 @@ Error classification (typed exceptions consumed by the TTS fallback chain):
   402            -> QuotaExhausted  (no credit; no retry)
   429            -> one backoff retry, then RateLimited (concurrency, no Retry-After)
   400/401/403/.. -> AuthFailed      (no retry)
-  5xx / timeout  -> one backoff retry, then TransientError
+  408 / 5xx / timeout -> one backoff retry, then TransientError
+                     (408 request-timeout is transient, not an auth failure)
 
 Public interface: text_to_speech_with_fishaudio(text, ...) — async generator
 yielding io.BytesIO wav chunks (one per sentence), same shape as the other
@@ -123,9 +124,11 @@ def _classify(status_code):
         return QuotaExhausted
     if status_code == 429:
         return RateLimited
-    if 400 <= status_code < 500:
+    if 400 <= status_code < 500 and status_code != 408:
+        # 408 (request timeout) is a transient server-side condition, not an
+        # auth failure — it must reach the backoff-retry path, not AuthFailed.
         return AuthFailed
-    return None  # 5xx and anything else -> transient
+    return None  # 5xx, 408 and anything else -> transient
 
 
 async def _synthesize_sentence(sentence, headers, timeout, reference_id, latency="balanced"):

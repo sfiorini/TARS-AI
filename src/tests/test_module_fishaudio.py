@@ -281,6 +281,37 @@ class TestFishAudioErrorClassification(unittest.TestCase):
         post.assert_called_once()
         backoff.assert_not_awaited()
 
+    def test_408_retried_once_then_transient(self):
+        # B4: HTTP 408 (request timeout) is a transient server-side condition,
+        # not an auth failure — one backoff retry, then TransientError.
+        responses = [
+            _FakeResponse(408, payload={"message": "request timeout", "status": 408}),
+            _FakeResponse(408, payload={"message": "request timeout", "status": 408}),
+        ]
+        chunks, exc, post, _, backoff = _run(responses=responses)
+        self.assertEqual(chunks, [])
+        self.assertIsInstance(exc, module_fishaudio.TransientError)
+        self.assertEqual(exc.status_code, 408)
+        self.assertEqual(post.call_count, 2)   # exactly one backoff retry
+        backoff.assert_awaited_once()
+
+    def test_408_then_success_yields_chunk(self):
+        responses = [
+            _FakeResponse(408, payload={"message": "request timeout", "status": 408}),
+            _FakeResponse(200, content=b"RIFF-after-408"),
+        ]
+        chunks, exc, post, _, backoff = _run(responses=responses)
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].read(), b"RIFF-after-408")
+        self.assertEqual(post.call_count, 2)
+        backoff.assert_awaited_once()
+
+    def test_classify_maps_408_to_transient(self):
+        self.assertIsNone(module_fishaudio._classify(408))  # None = transient
+        self.assertIs(module_fishaudio._classify(401), module_fishaudio.AuthFailed)
+        self.assertIs(module_fishaudio._classify(402), module_fishaudio.QuotaExhausted)
+
     def test_timeout_retried_once_then_transient(self):
         exc_in = module_fishaudio.requests.exceptions.Timeout("timed out")
         chunks, exc, post, _, backoff = _run(exc=exc_in)

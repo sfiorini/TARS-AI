@@ -350,6 +350,27 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
                 post.assert_called_once()
                 backoff.assert_not_awaited()
 
+    def test_408_retried_once_then_transient(self):
+        # B4: HTTP 408 (request timeout) is transient, not an auth failure —
+        # one backoff retry, then TransientError (never AuthFailed).
+        responses = [
+            _FakeResponse(408, payload={"error": {"code": "request_timeout", "message": "too slow"}}),
+            _FakeResponse(408, payload={"error": {"code": "request_timeout", "message": "too slow"}}),
+        ]
+        chunks, exc, post, _, backoff = _run(responses=responses)
+        self.assertEqual(chunks, [])
+        self.assertIsInstance(exc, module_speechify.TransientError)
+        self.assertEqual(exc.status_code, 408)
+        self.assertEqual(post.call_count, 2)   # exactly one backoff retry
+        backoff.assert_awaited_once()
+
+    def test_408_without_error_code_retried_once_then_transient(self):
+        responses = [_FakeResponse(408, text="request timeout")] * 2
+        _, exc, post, _, backoff = _run(responses=responses)
+        self.assertIsInstance(exc, module_speechify.TransientError)
+        self.assertEqual(post.call_count, 2)
+        backoff.assert_awaited_once()
+
     def test_timeout_retried_once_then_transient(self):
         exc_in = module_speechify.requests.exceptions.Timeout("timed out")
         chunks, exc, post, _, backoff = _run(exc=exc_in)
