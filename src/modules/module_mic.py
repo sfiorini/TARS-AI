@@ -25,6 +25,8 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import sounddevice as sd
 
+from modules import module_audio_devices
+
 try:
     import soxr as _soxr
     _HAS_SOXR = True
@@ -42,58 +44,19 @@ _last_device_probe = 0.0  # time of the last FAILED detection attempt
 _DEVICE_RETRY_INTERVAL = 5.0  # min seconds between failed-detection re-probes
 
 
-def _is_real_hw_device(info):
-    """Return True if the device looks like real hardware, not an ALSA plugin.
-
-    ALSA plugin devices (default, dmix, etc.) report 128 channels which is
-    a dead giveaway. Real USB mics report 1-2 channels.
-    """
-    return 1 <= info.get("max_input_channels", 0) <= 32
-
-
 def _find_input_device():
-    """Try to find a working input device. Returns (idx, rate) or raises."""
-    # 1. Try the system default — but only if it looks like real hardware.
-    #    ALSA plugin devices (e.g. "default") report 128 channels and may
-    #    hide the actual hardware rate, causing wrong device selection.
-    idx = sd.default.device[0]
-    if idx is not None and idx >= 0:
-        info = sd.query_devices(idx, kind="input")
-        if _is_real_hw_device(info):
-            return idx, int(info.get("default_samplerate", MODEL_RATE))
+    """Try to find a working input device. Returns (idx, rate) or raises.
 
-    # 2. Default failed or is a plugin — if a sound server (PipeWire/PulseAudio)
-    #    is present, prefer its device: in a desktop session the server owns the
-    #    raw USB card, and opening the hw PCM directly fails (device unavailable).
-    devices = sd.query_devices()
-    for i, dev in enumerate(devices):
-        if dev.get("max_input_channels", 0) >= 1 and "pulse" in dev.get("name", "").lower():
-            rate = int(dev.get("default_samplerate", MODEL_RATE))
-            return i, rate
-
-    # 3. Scan for real hardware devices
-    for i, dev in enumerate(devices):
-        if _is_real_hw_device(dev):
-            rate = int(dev.get("default_samplerate", MODEL_RATE))
-            return i, rate
-
-    # 4. Fall back to any device with input channels (including plugins)
-    for i, dev in enumerate(devices):
-        if dev.get("max_input_channels", 0) >= 1:
-            rate = int(dev.get("default_samplerate", MODEL_RATE))
-            return i, rate
-
-    # 5. Last resort: ask PortAudio C-level for the default input
-    try:
-        from sounddevice import _lib
-        pa_idx = _lib.Pa_GetDefaultInputDevice()
-        if pa_idx >= 0:
-            info = sd.query_devices(pa_idx, kind="input")
-            return pa_idx, int(info.get("default_samplerate", MODEL_RATE))
-    except Exception:
-        pass
-
-    raise RuntimeError("No input audio device found")
+    Delegates the candidate scan to module_audio_devices.find_device
+    (shared with module_tts): system default if real hardware, else pulse,
+    else real hardware, else any input, else the PortAudio C default.
+    Input candidates are never stream-validated — opening the mic would
+    race the audio hub's exclusive InputStream.
+    """
+    idx, info, _label = module_audio_devices.find_device(kind="input")
+    if idx is None:
+        raise RuntimeError("No input audio device found")
+    return idx, int(info.get("default_samplerate", MODEL_RATE))
 
 
 def get_device_info(retries=4, backoff=1.0):

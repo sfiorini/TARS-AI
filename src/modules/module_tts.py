@@ -28,6 +28,7 @@ import asyncio
 
 from modules.module_messageQue import queue_message
 from modules.module_config import load_config, DEFAULT_TTS_TIMEOUT
+from modules import module_audio_devices
 
 CONFIG = load_config()
 
@@ -76,58 +77,22 @@ def _resolve_output_device():
 def _scan_output_device():
     """Scan and cache the best output device into _output_device.
 
-    Callers hold _output_device_lock. Prefers real hardware (USB audio,
-    headphones, I2S DACs) over virtual ALSA devices like 'default' or 'dmix'
-    which may route to HDMI/null.
+    Callers hold _output_device_lock. Delegates the candidate scan to
+    module_audio_devices.find_device (shared with module_mic), passing our
+    own _device_opens as the validator and queue_message as the logger so
+    the user-facing messages are unchanged. Prefers the sound server (pulse)
+    > USB > hardware > virtual ALSA devices; HDMI outputs are skipped.
     """
     global _output_device
 
     try:
-        devices = sd.query_devices()
+        idx, _dev, _label = module_audio_devices.find_device(
+            kind="output", log=queue_message, validator=_device_opens)
     except Exception:
         queue_message("WARNING: Could not query audio devices — using system default")
         _output_device = None
         return
-
-    # Categorize output devices by priority
-    pulse_devices = []    # Sound-server devices (PipeWire/PulseAudio "pulse"/"default")
-    usb_devices = []      # USB audio — most likely the external speaker
-    hw_devices = []       # Hardware devices (headphones, I2S DACs, bcm2835)
-    virtual_devices = []  # Other virtual/default ALSA devices
-
-    for i, dev in enumerate(devices):
-        if dev.get("max_output_channels", 0) < 1:
-            continue
-        name = dev.get("name", "").lower()
-        # Skip HDMI outputs — they typically don't support standard PCM formats
-        if "hdmi" in name:
-            continue
-        if "pulse" in name:
-            pulse_devices.append((i, dev))
-        elif "usb" in name:
-            usb_devices.append((i, dev))
-        elif "default" in name or "dmix" in name or "sysdefault" in name:
-            virtual_devices.append((i, dev))
-        else:
-            hw_devices.append((i, dev))
-
-    # Pick best device: sound-server (pulse) > USB > hardware > virtual.
-    # In a desktop session PipeWire owns the raw USB card; opening the hw PCM
-    # directly then fails with PaErrorCode -9985 (device unavailable), so the
-    # pulse route must win. Every candidate is validated by actually opening
-    # a stream; unopenable devices are skipped, and the final fallback is the
-    # system default (None), which also routes through the sound server.
-    for label, candidates in [("pulse", pulse_devices), ("USB", usb_devices), ("hardware", hw_devices), ("virtual", virtual_devices)]:
-        for idx, dev in candidates:
-            if _device_opens(idx):
-                _output_device = idx
-                queue_message(f"INFO: Audio output: {dev['name']} (device {idx}, {label})")
-                return
-            queue_message(f"WARNING: Audio device {dev['name']} (device {idx}) unavailable — trying next")
-
-    queue_message("WARNING: No directly-openable audio output device found — using system default (sound server)")
-    _output_device = None
-
+    _output_device = idx
 
 
 def _device_opens(idx):
