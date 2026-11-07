@@ -65,5 +65,17 @@ class TestElevenLabsImportSafety(unittest.TestCase):
                 sys.modules["modules.module_elevenlabs"] = saved_mod
 
 
+class TestClassifyDocstringMatchesBehavior(unittest.TestCase):
+    """C5: docstring drift — _classify_el must document the 402 bucket:
+    ElevenLabs signals quota exhaustion via 429/401 with a quota body, so a
+    bare 402 falls into the generic 4xx -> AuthFailed bucket."""
+
+    def test_classify_docstring_documents_402_bucket(self):
+        from modules import module_elevenlabs
+        doc = module_elevenlabs._classify_el.__doc__ or ""
+        self.assertIn("402", doc)
+        self.assertIn("AuthFailed", doc)
+
+
 if __name__ == "__main__":
     unittest.main()

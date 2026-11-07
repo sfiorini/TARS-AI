@@ -424,6 +424,22 @@ class TestFishAudioGuards(unittest.TestCase):
         post.assert_not_called()
 
 
+class TestModuleDocstringMatchesBehavior(unittest.TestCase):
+    """C5: docstring drift — the module header must describe the actual
+    request body. The code default latency is "balanced" ([TTS]
+    fishaudio_latency), NOT "normal"; the streaming path sends pcm/44100."""
+
+    def test_header_latency_default_is_balanced_not_normal(self):
+        doc = module_fishaudio.__doc__ or ""
+        self.assertIn('"balanced"', doc)
+        self.assertNotIn('latency: "normal"', doc)
+
+    def test_header_documents_streaming_pcm_path(self):
+        doc = module_fishaudio.__doc__ or ""
+        self.assertIn("pcm", doc)
+        self.assertIn("44100", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
 

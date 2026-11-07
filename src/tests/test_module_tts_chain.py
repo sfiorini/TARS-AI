@@ -480,5 +480,16 @@ class TestPublicSignaturesUnchanged(unittest.TestCase):
             self.assertTrue(issubclass(cls, module_tts.TTSProviderError))
 
 
+class TestModuleDocstringDocumentsFallbackChain(unittest.TestCase):
+    """C5: docstring drift — the module header must mention the multi-provider
+    fallback chain ([ttsoption] + tts_fallback_list + espeak, first-wins)."""
+
+    def test_header_mentions_chain_and_espeak_last_resort(self):
+        doc = module_tts.__doc__ or ""
+        self.assertIn("tts_fallback_list", doc)
+        self.assertIn("espeak", doc.lower())
+        self.assertIn("chain", doc.lower())
+
+
 if __name__ == "__main__":
     unittest.main()

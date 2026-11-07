@@ -3,9 +3,13 @@ module_tts.py
 
 Text-to-Speech (TTS) module for TARS-AI application.
 
-Handles TTS functionality to convert text into audio using:
-- Local tools (e.g., espeak-ng)
-- Server-based TTS systems
+Handles TTS functionality to convert text into audio using a multi-provider
+fallback chain: [ttsoption] + [TTS] tts_fallback_list + espeak (always the
+guaranteed last resort), deduplicated with first occurrence winning.
+Providers: fishaudio, elevenlabs, speechify, openai, piper and espeak-ng
+(local). The first provider that yields audio wins; a per-utterance deadline
+(tts_timeout x len(chain)) bounds the whole chain so TARS cannot hang on a
+dead provider.
 
 """
 

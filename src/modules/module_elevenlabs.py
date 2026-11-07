@@ -81,7 +81,13 @@ def _parse_el_error(error_text):
 
 
 def _classify_el(status, status_token, message):
-    """Map an EL HTTP status + body to a typed error class (None = transient)."""
+    """Map an EL HTTP status + body to a typed error class (None = transient).
+
+    429/401 with a "quota" body -> QuotaExhausted (EL signals credit
+    exhaustion this way, NOT via 402); 429 otherwise -> RateLimited; any
+    other 4xx (401 auth, 402 payment-required, ...) -> AuthFailed (no retry);
+    5xx / None -> transient (one backoff retry, then TransientError).
+    """
     text = "%s %s" % (status_token or "", message or "")
     if status in (429, 401) and "quota" in text.lower():
         return QuotaExhausted  # 429/401 with a quota body: no credit left

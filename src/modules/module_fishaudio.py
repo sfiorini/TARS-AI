@@ -8,8 +8,14 @@ Auth:     Authorization: Bearer $FISH_AUDIO_API_KEY  (key from .env, never logge
 Model:    sent as the "model" HTTP header on EVERY request — omitting it makes
           Fish silently bill the paid model, so the header is always sent
           (default "s2.1-pro-free", configurable via [TTS] fishaudio_model).
-Body:     {text, reference_id (optional), format: "wav", latency: "normal"}
-Response: raw audio bytes (wav) on HTTP 200.
+Body:     {text, reference_id (optional), format: "wav"|"pcm",
+          latency: "low"|"balanced"|"normal" — default "balanced",
+          from [TTS] fishaudio_latency}
+          Streaming (default, fishaudio_stream=True): format "pcm",
+          sample_rate 44100, yielded as WAV-wrapped ~1s PCM slices.
+          Non-streaming (fishaudio_stream=False): format "wav", whole clip.
+Response: raw audio bytes (wav) on HTTP 200, or a 44.1kHz 16-bit mono PCM
+          HTTP stream when streaming.
 
 Error classification (typed exceptions consumed by the TTS fallback chain):
   402            -> QuotaExhausted  (no credit; no retry)
