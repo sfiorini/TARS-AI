@@ -7,6 +7,7 @@
 """
 import os
 import sys
+import threading
 import time
 import types
 import unittest
@@ -112,7 +113,7 @@ class ServoctlSelfHealingTestCase(unittest.TestCase):
         "_last_pwm_time", "_on_movement_start", "_on_movement_end",
         "servo_positions", "_is_ventilate_operation",
         "_watchdog_running", "_watchdog_thread", "_watchdog_interval",
-        "battery_module", "_i2c",
+        "battery_module", "_i2c", "_unhealthy_chip_reads", "_last_pca_none_log",
     )
 
     def setUp(self):
@@ -343,21 +344,29 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
 
     def test_watchdog_tick_repairs_mode2_outputs_disabled(self):
         # Live failure mode: MODE1 healthy (0x20) but MODE2=0x1E -> outputs hi-Z,
-        # no motor drive. Watchdog must re-init even though MODE1 passes.
+        # no motor drive. Watchdog must re-init even though MODE1 passes
+        # (after TWO consecutive unhealthy reads — B7).
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
         servoctl.MOVING = False
-        servoctl._last_pwm_time = time.time()
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 0
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
             servoctl._watchdog_tick()
-            init.assert_called_once()
+            init.assert_not_called()  # first unhealthy read: no repair yet
+            servoctl._watchdog_tick()
+            init.assert_called_once()  # second consecutive: repair
 
     def test_watchdog_tick_repairs_silent_mode2_default(self):
         # 0x01 is the driver default after init but is SILENT on this board
         # (user-confirmed: no movement, no motor noise) -> must trigger repair
+        # (after TWO consecutive unhealthy reads — B7).
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x01)
         servoctl.MOVING = False
-        servoctl._last_pwm_time = time.time()
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 0
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
             servoctl._watchdog_tick()
             init.assert_called_once()
 
@@ -380,17 +389,22 @@ class TestWatchdog(ServoctlSelfHealingTestCase):
 
     def test_watchdog_tick_retries_pca_init_when_dead(self):
         servoctl.pca = None
+        servoctl._last_init_attempt = 0.0  # lazy-init rate limit expired
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
             servoctl._watchdog_tick()
             init.assert_called_once()
 
     def test_watchdog_tick_repairs_unhealthy_mode1(self):
         # RC-1b: chip ACKs on I2C but MODE1 lost bit 0x20 -> PWM writes
-        # land on wrong registers, servos frozen. Watchdog must re-init.
+        # land on wrong registers, servos frozen. Watchdog must re-init
+        # (after TWO consecutive unhealthy reads — B7).
         servoctl.pca = _FakeMode1Pca(0x01)
         servoctl.MOVING = False
-        servoctl._last_pwm_time = time.time()
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 0
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
             servoctl._watchdog_tick()
             init.assert_called_once()
 
@@ -405,10 +419,183 @@ class TestWatchdog(ServoctlSelfHealingTestCase):
     def test_watchdog_tick_repairs_unreadable_mode1(self):
         servoctl.pca = _FakeMode1Pca(exc=OSError(121, "Remote I/O error"))
         servoctl.MOVING = False
-        servoctl._last_pwm_time = time.time()
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 0
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+
+class TestWatchdogConsecutiveUnhealthyReads(ServoctlSelfHealingTestCase):
+    """B7(a): a single transient bad read must NOT trigger re-init; two
+    consecutive unhealthy reads (with no healthy read between) must."""
+
+    def _make_idle(self):
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time() - 60  # no PWM in the last 5s
+        servoctl._unhealthy_chip_reads = 0
+
+    def test_single_unhealthy_read_does_not_repair(self):
+        servoctl.pca = _FakeMode1Pca(0x01)  # MODE1 lost bit 0x20
+        self._make_idle()
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_single_transient_nack_does_not_repair(self):
+        # unreadable register (I2C NACK) is unhealthy, but ONE is transient
+        servoctl.pca = _FakeMode1Pca(exc=OSError(121, "Remote I/O error"))
+        self._make_idle()
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_two_consecutive_unhealthy_reads_repair(self):
+        servoctl.pca = _FakeMode1Pca(0x01)
+        self._make_idle()
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+
+    def test_healthy_read_resets_consecutive_counter(self):
+        servoctl.pca = _FakeMode1Pca(0x01)
+        self._make_idle()
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            servoctl._watchdog_tick()  # strike 1
+            servoctl.pca = _FakeMode1Pca(0x20)  # healthy read resets the streak
+            servoctl._watchdog_tick()
+            servoctl.pca = _FakeMode1Pca(0x01)  # unhealthy again: strike 1, not 2
+            servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_repair_skipped_while_moving(self):
+        # B7(b): never re-init mid-walk (re-init clears PWM output registers
+        # and can abort a movement)
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = True
+        servoctl._last_pwm_time = time.time()  # active movement
+        servoctl._unhealthy_chip_reads = 0
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            for _ in range(3):
+                servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_repair_skipped_when_pwm_recent_even_if_not_moving(self):
+        # B7(b): recent PWM activity (<5s) also gates the repair
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time() - 1
+        servoctl._unhealthy_chip_reads = 0
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            for _ in range(3):
+                servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_stuck_moving_reset_is_unconditional(self):
+        # B7(b): the stuck-MOVING check must still run while MOVING is True
+        # (repair is skipped, the flag reset is not)
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = True
+        servoctl._last_pwm_time = time.time() - 200  # stuck for >180s
+        servoctl._unhealthy_chip_reads = 0
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            servoctl._watchdog_tick()
+            init.assert_not_called()  # repair skipped while MOVING
+        self.assertFalse(servoctl.MOVING)  # but the stuck flag was reset
+
+
+class TestWatchdogLazyInit(ServoctlSelfHealingTestCase):
+    """B7(c): watchdog must reuse the 5s rate-limited lazy init instead of
+    hammering initialize_pca9685() every tick, and must not spam the
+    unavailable warning when the board is absent."""
+
+    def test_watchdog_respects_lazy_init_rate_limit(self):
+        servoctl.pca = None
+        servoctl._last_init_attempt = time.time()  # attempted just now
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            for _ in range(3):
+                servoctl._watchdog_tick()
+            init.assert_not_called()
+
+    def test_watchdog_retries_when_rate_limit_expired(self):
+        servoctl.pca = None
+        servoctl._last_init_attempt = 0.0
         with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
             servoctl._watchdog_tick()
             init.assert_called_once()
+
+    def test_watchdog_none_pca_no_log_spam_when_throttled(self):
+        # board absent + recent init attempt + recent warning -> total silence
+        servoctl.pca = None
+        servoctl._last_init_attempt = time.time()
+        servoctl._last_pca_none_log = time.time()
+        with mock.patch.object(servoctl, "queue_message") as qm:
+            for _ in range(5):
+                servoctl._watchdog_tick()
+        qm.assert_not_called()
+
+    def test_watchdog_none_pca_warning_throttled_to_30s(self):
+        # throttle expired -> exactly ONE warning across repeated ticks
+        servoctl.pca = None
+        servoctl._last_init_attempt = time.time()
+        servoctl._last_pca_none_log = 0.0
+        with mock.patch.object(servoctl, "queue_message") as qm:
+            for _ in range(5):
+                servoctl._watchdog_tick()
+        warnings = [
+            c for c in qm.call_args_list
+            if c.args and "unavailable" in str(c.args[0])
+        ]
+        self.assertEqual(len(warnings), 1)
+
+
+class TestStateLock(ServoctlSelfHealingTestCase):
+    """B7(d): one lock around PCA handle swaps and MOVING transitions so
+    watchdog / movement / servo_status do not race."""
+
+    def test_state_lock_exists_and_is_usable(self):
+        lock = servoctl._state_lock
+        self.assertTrue(callable(getattr(lock, "acquire", None)))
+        self.assertTrue(callable(getattr(lock, "release", None)))
+        self.assertTrue(lock.acquire(blocking=False))
+        lock.release()
+
+    def test_servo_status_is_reentrant_under_held_lock(self):
+        # the watchdog holds the lock across the whole tick and calls into
+        # helpers (initialize_pca9685, servo reads) that also lock — same-thread
+        # re-entrance must not deadlock
+        servoctl.pca = None
+        servoctl.MOVING = False
+        with servoctl._state_lock:
+            status = servoctl.servo_status()  # must return, not hang
+        self.assertFalse(status["pca_alive"])
+        self.assertFalse(status["moving"])
+
+    def test_watchdog_tick_repair_holds_the_lock(self):
+        # repair runs under the lock: another thread holding it blocks the
+        # tick (serialized, no mid-swap race)
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 1  # next unhealthy read repairs
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            with servoctl._state_lock:
+                # run the tick from ANOTHER thread while we hold the lock
+                result = {}
+                def _tick():
+                    servoctl._watchdog_tick()
+                    result["done"] = True
+                t = threading.Thread(target=_tick)
+                t.start()
+                t.join(timeout=0.5)
+                locked_out = "done" not in result
+            t.join(timeout=5)  # lock released: tick must finish now
+        self.assertTrue(result.get("done"), "watchdog tick did not run after the lock was released")
+        if locked_out:
+            init.assert_called_once()  # repair happened only after we released
+
 
     def test_start_servo_watchdog_sets_running_flag(self):
         servoctl._watchdog_running = False
@@ -418,6 +605,17 @@ class TestWatchdog(ServoctlSelfHealingTestCase):
             self.assertTrue(servoctl.servo_status()["watchdog_running"])
         finally:
             servoctl._watchdog_running = False  # stops the loop
+
+
+class TestSlopCleanup(ServoctlSelfHealingTestCase):
+    """C6: redundant except tuple + unused `e` in _load_servo_positions."""
+
+    def test_load_positions_uses_plain_except(self):
+        src = open(os.path.join(os.path.dirname(servoctl.__file__),
+                                "module_servoctl.py")).read()
+        self.assertNotIn(
+            "except (FileNotFoundError, json.JSONDecodeError, Exception)", src
+        )
 
 
 if __name__ == "__main__":

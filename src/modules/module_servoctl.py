@@ -47,7 +47,7 @@ def _load_servo_positions():
         with open(SERVO_POSITIONS_FILE, 'r') as f:
             positions = json.load(f)
             return {int(k): v for k, v in positions.items()}
-    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+    except Exception:
         print(f"[SERVO] No saved positions found, starting fresh")
         return {}
 
@@ -78,6 +78,13 @@ _watchdog_running = False
 _i2c = None  # raw I2C handle kept for register reads (fallback if driver attrs missing)
 _watchdog_thread = None
 _watchdog_interval = 15
+_unhealthy_chip_reads = 0  # consecutive unhealthy MODE1/MODE2 reads (repair needs 2)
+
+# One lock around PCA handle swaps and MOVING transitions so the watchdog,
+# movement threads and servo_status never race on shared state. RLock (not
+# Lock): the watchdog holds it across a whole tick and calls helpers
+# (initialize_pca9685, servo reads) that acquire it again on the same thread.
+_state_lock = threading.RLock()
 
 battery_module = None
 
@@ -108,28 +115,29 @@ def _write_register(reg, value):
 def initialize_pca9685():
     
     global pca, _last_init_attempt, _i2c
-    _last_init_attempt = time.time()
-    pca = None  # clear any stale handle first: a failed re-init must be honestly reported
-    
-    try:
-        i2c = busio.I2C(board.SCL, board.SDA)
-        _i2c = i2c
-        pca = PCA9685(i2c, address=0x40)
-        pca.frequency = 50
-        _write_register(0x01, 0x04)  # MODE2: output-drive state verified working on this board (0x01 = silent, no motor drive)
-        queue_message("LOAD: PCA9685 initialized successfully")
-        return True
+    with _state_lock:
+        _last_init_attempt = time.time()
+        pca = None  # clear any stale handle first: a failed re-init must be honestly reported
         
-    except OSError as e:
-        if e.errno == 121:
-            queue_message(f"ERROR: I2C Remote I/O error - Check connections and power!")
-        else:
-            queue_message(f"ERROR: I2C error {e.errno}: {e}")
-        return False
-        
-    except Exception as e:
-        queue_message(f"ERROR: Failed to initialize PCA9685: {e}")
-        return False
+        try:
+            i2c = busio.I2C(board.SCL, board.SDA)
+            _i2c = i2c
+            pca = PCA9685(i2c, address=0x40)
+            pca.frequency = 50
+            _write_register(0x01, 0x04)  # MODE2: output-drive state verified working on this board (0x01 = silent, no motor drive)
+            queue_message("LOAD: PCA9685 initialized successfully")
+            return True
+            
+        except OSError as e:
+            if e.errno == 121:
+                queue_message(f"ERROR: I2C Remote I/O error - Check connections and power!")
+            else:
+                queue_message(f"ERROR: I2C error {e.errno}: {e}")
+            return False
+            
+        except Exception as e:
+            queue_message(f"ERROR: Failed to initialize PCA9685: {e}")
+            return False
 
 def _try_lazy_pca_init():
     """Attempt to re-create the PCA9685 device object, at most once per 5s.
@@ -157,8 +165,9 @@ def _invalidate_pca():
     bus (bus recovery without a reboot)."""
     global pca, _i2c_error_count
     
-    _i2c_error_count += 1
-    pca = None
+    with _state_lock:
+        _i2c_error_count += 1
+        pca = None
 
 controls = config.get('CONTROLS', {})
 _movement_enabled = controls.get('enabled', False) or controls.get('voicemovement', False)
@@ -388,10 +397,15 @@ def set_servo_pwm(channel, pwm_value):
     
     duty_cycle = pulse_to_duty_cycle(pwm_value)
 
+    # Snapshot the handle: the watchdog may swap the global mid-write; writing
+    # to the old handle is harmless, a None-dereference crash is not.
+    pca_handle = pca
+
     for attempt in range(MAX_RETRIES):
         try:
-            pca.channels[channel].duty_cycle = duty_cycle
-            _last_pwm_time = time.time()
+            pca_handle.channels[channel].duty_cycle = duty_cycle
+            with _state_lock:
+                _last_pwm_time = time.time()
             return True
             
         except OSError as e:
@@ -474,11 +488,22 @@ def _chip_state_healthy(mode1, mode2):
 def _repair_chip_state_if_needed():
     """If MODE1/MODE2 lost their driver-set bits (chip-logic reset), re-run
     driver init to restore them. Repairs the 'thinks it moves but doesn't'
-    state without a reboot."""
+    state without a reboot.
+    A repair requires TWO CONSECUTIVE unhealthy reads: a single transient
+    I2C NACK must never abort a movement with a mid-walk re-init (which
+    clears the PWM output registers). A healthy read resets the streak."""
+    global _unhealthy_chip_reads
+    
     mode1 = _read_mode1()
     mode2 = _read_mode2()
     if _chip_state_healthy(mode1, mode2):
+        _unhealthy_chip_reads = 0
         return
+    _unhealthy_chip_reads += 1
+    if _unhealthy_chip_reads < 2:
+        queue_message(f"SERVO: PCA9685 state unhealthy (MODE1={mode1}, MODE2={mode2}) - waiting for a second consecutive unhealthy read before repair")
+        return
+    _unhealthy_chip_reads = 0
     queue_message(f"SERVO: PCA9685 state unhealthy (MODE1={mode1}, MODE2={mode2}) - re-initializing")
     if initialize_pca9685():
         m1, m2 = _read_mode1(), _read_mode2()
@@ -494,23 +519,33 @@ def _repair_chip_state_if_needed():
         queue_message("WARNING: servo watchdog - chip state repair re-init failed")
 
 def _watchdog_tick():
-    """One watchdog pass: retry a dead PCA9685, repair an unhealthy MODE1,
-    reset a stuck MOVING flag."""
+    """One watchdog pass: retry a dead PCA9685 (rate-limited), repair an
+    unhealthy MODE1/MODE2 (only when idle, after two consecutive unhealthy
+    reads), reset a stuck MOVING flag (unconditionally)."""
     global MOVING
     
-    now = time.time()
-    
-    if pca is None:
-        if initialize_pca9685():
-            queue_message("SERVO: watchdog recovered PCA9685 I2C bus")
+    with _state_lock:
+        now = time.time()
+        
+        if pca is None:
+            # Reuse the 5s rate-limited lazy init — never hammer the I2C bus
+            # every tick when the board is absent.
+            _try_lazy_pca_init()
+            if pca is None:
+                _log_pca_unavailable()  # 30s-throttled warning
         else:
-            queue_message("WARNING: servo watchdog - PCA9685 still unavailable")
-    else:
-        _repair_chip_state_if_needed()
-    
-    if _is_moving_stuck(MOVING, _last_pwm_time, now):
-        queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
-        MOVING = False
+            # Never touch the chip mid-movement: a re-init clears the PWM
+            # output registers and can abort a walk. Only health-check when
+            # idle (not MOVING, no PWM activity in the last 5s).
+            pwm_recent = _last_pwm_time and (now - _last_pwm_time) < 5.0
+            if not MOVING and not pwm_recent:
+                _repair_chip_state_if_needed()
+        
+        # Unconditional: a stuck MOVING flag (an exception left it set)
+        # blocks ALL future movement until reboot — always check it.
+        if _is_moving_stuck(MOVING, _last_pwm_time, now):
+            queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
+            MOVING = False
 
 def _watchdog_loop():
     while _watchdog_running:
@@ -534,33 +569,35 @@ def start_servo_watchdog(interval=15):
     queue_message(f"SERVO: watchdog started ({interval}s interval)")
 
 def servo_status():
-    """Live servo controller health snapshot."""
-    now = time.time()
-    return {
-        "pca_alive": pca is not None,
-        "moving": MOVING,
-        "last_pwm_age_s": round(now - _last_pwm_time, 1) if _last_pwm_time else None,
-        "i2c_error_count": _i2c_error_count,
-        "watchdog_running": _watchdog_running,
-        "mode1": _read_mode1(),
-        "mode2": _read_mode2(),
-    }
+    """Live servo controller health snapshot (consistent under _state_lock)."""
+    with _state_lock:
+        now = time.time()
+        return {
+            "pca_alive": pca is not None,
+            "moving": MOVING,
+            "last_pwm_age_s": round(now - _last_pwm_time, 1) if _last_pwm_time else None,
+            "i2c_error_count": _i2c_error_count,
+            "watchdog_running": _watchdog_running,
+            "mode1": _read_mode1(),
+            "mode2": _read_mode2(),
+        }
 
 def force_servo_recovery():
     """No-reboot recovery: clear a stuck MOVING flag, re-create the I2C/PCA9685
     device, then gently re-apply the saved servo positions (no neutral jerk)."""
     global MOVING
     
-    MOVING = False
-    
-    if initialize_pca9685():
-        mode1, mode2 = _read_mode1(), _read_mode2()
-        if not _chip_state_healthy(mode1, mode2):
-            queue_message(f"WARNING: servo recovery - MODE1/MODE2 still unhealthy after re-init (MODE1={mode1}, MODE2={mode2})")
-        if servo_positions:
-            for channel, value in servo_positions.items():
-                set_servo_pwm(int(channel), value)
-                time.sleep(0.02)
+    with _state_lock:
+        MOVING = False
+        
+        if initialize_pca9685():
+            mode1, mode2 = _read_mode1(), _read_mode2()
+            if not _chip_state_healthy(mode1, mode2):
+                queue_message(f"WARNING: servo recovery - MODE1/MODE2 still unhealthy after re-init (MODE1={mode1}, MODE2={mode2})")
+            if servo_positions:
+                for channel, value in servo_positions.items():
+                    set_servo_pwm(int(channel), value)
+                    time.sleep(0.02)
     
     return servo_status()
 
