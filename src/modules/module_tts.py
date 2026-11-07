@@ -12,6 +12,7 @@ Handles TTS functionality to convert text into audio using:
 
 import requests
 import os
+import shutil
 import time
 import threading
 from datetime import datetime
@@ -137,6 +138,31 @@ def _reset_output_device_resolution():
     global _output_device, _output_device_resolved
     _output_device = None
     _output_device_resolved = False
+
+
+def _play_via_pwplay(data, samplerate):
+    """Last-resort playback through PipeWire's native API (pw-play subprocess).
+
+    Used when PortAudio cannot open any device (USB card wedged by a dead sound
+    server stream after servo power-on spikes). Writes a temp wav and plays it
+    via pw-play, which talks to PipeWire directly and never touches the ALSA hw
+    PCM. Returns the Popen (poll it for completion / terminate for barge-in).
+    """
+    import subprocess, tempfile
+    pwplay = shutil.which("pw-play")
+    if not pwplay:
+        queue_message("WARNING: pw-play not found — cannot use PipeWire-native fallback")
+        return None
+    try:
+        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        sf.write(tmp.name, data, samplerate)
+        tmp.close()
+        proc = subprocess.Popen([pwplay, tmp.name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        queue_message("INFO: playing chunk via pw-play (PipeWire native, bypasses wedged ALSA device)")
+        return proc
+    except Exception as e:
+        queue_message(f"WARNING: pw-play fallback failed: {e}")
+        return None
 
 
 def init_audio_output():
@@ -770,6 +796,7 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 gain = 1.5
                 data = np.clip(data * gain, -1.0, 1.0)
 
+                pw_proc = None
                 try:
                     sd.play(data, samplerate, device=_output_device)
                 except sd.PortAudioError as e:
@@ -788,7 +815,8 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         try:
                             sd.play(data, samplerate, device=None)
                         except sd.PortAudioError as e3:
-                            queue_message(f"ERROR: audio playback failed on all devices: {e3}") 
+                            queue_message(f"WARNING: all PortAudio devices failed ({e3}) — falling back to pw-play")
+                            pw_proc = _play_via_pwplay(data, samplerate)
                 _tts_playing.set()
 
                 # Log time-to-first-audio on the first chunk
@@ -798,16 +826,29 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 # Poll instead of sd.wait() so we can check for barge-in
                 while True:
                     if _tts_cancel_event.is_set():
-                        sd.stop()
+                        if pw_proc is not None:
+                            pw_proc.terminate()
+                        else:
+                            sd.stop()
                         was_interrupted = True
                         break
-                    try:
-                        stream = sd.get_stream()
-                        if stream is None or not stream.active:
+                    if pw_proc is not None:
+                        if pw_proc.poll() is not None:
                             break
-                    except Exception:
-                        break
+                    else:
+                        try:
+                            stream = sd.get_stream()
+                            if stream is None or not stream.active:
+                                break
+                        except Exception:
+                            break
                     await asyncio.sleep(0.05)
+                if pw_proc is not None:
+                    try:
+                        import os as _os
+                        _os.unlink(pw_proc.args[-1])
+                    except Exception:
+                        pass
 
                 _tts_playing.clear()
                 if not is_wakeword:

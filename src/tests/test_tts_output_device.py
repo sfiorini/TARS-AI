@@ -119,5 +119,27 @@ class TestPlayFallback(unittest.TestCase):
         self.assertIsNone(tts._output_device)
 
 
+class TestPwPlayFallback(unittest.TestCase):
+    """When every PortAudio device fails, playback falls back to pw-play."""
+
+    def test_pwplay_used_as_last_resort(self):
+        proc = mock.MagicMock()
+        proc.args = ["pw-play", "/tmp/x.wav"]
+        with mock.patch.object(tts.shutil, "which", return_value="/usr/bin/pw-play"), \
+             mock.patch("subprocess.Popen", return_value=proc) as popen, \
+             mock.patch.object(tts.sf, "write") as sf_write, \
+             mock.patch("tempfile.NamedTemporaryFile") as ntf:
+            ntf.return_value.name = "/tmp/x.wav"
+            ntf.return_value.close = lambda: None
+            out = tts._play_via_pwplay([0.0] * 100, 16000)
+        self.assertIs(out, proc)
+        popen.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][0], "/usr/bin/pw-play")
+
+    def test_pwplay_returns_none_without_binary(self):
+        with mock.patch.object(tts.shutil, "which", return_value=None):
+            self.assertIsNone(tts._play_via_pwplay([0.0] * 100, 16000))
+
+
 if __name__ == "__main__":
     unittest.main()
