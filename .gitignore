@@ -145,8 +145,10 @@ cython_debug/
 # PyCharm
 .idea/
 
-# Notes
-*.md
+# Notes — explicit entries only (a blanket *.md silently untracked
+# every new docs page; see CLAUDE.md / todo*.md entries below and the
+# ai_plan/ entry at the bottom of this file)
+ai_plan/**/*.md
 
 # LLM and Vision Files
 llm/
@@ -177,9 +179,10 @@ scheduled_tasks.json
 src/modules/UI/ui_settings.json
 src/memory/terminal_log_*.json
 
-# Character Data & Personas
-*persona.ini
-persona*
+# Character Data & Personas — the actual persona paths (tracked
+# persona.ini.template files stay tracked; a blanket persona* rule used
+# to ignore any persona-prefixed file anywhere in the tree)
+src/character/*/persona.ini
 
 # Claude & To-Do files
 .claude

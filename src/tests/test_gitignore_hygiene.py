@@ -1,0 +1,55 @@
+"""C10: .gitignore must not blanket-ignore markdown or persona-prefixed files.
+
+The old `*.md` rule silently untracked every new docs page (each needed a
+forced `git add -f`), and the broad `persona*` rule ignored any file whose
+name starts with "persona" anywhere in the tree. Ignore rules must be
+explicit: CLAUDE.md, todo*.md, ai_plan/**/*.md and the actual persona
+paths — while README.md and docs/*.md stay normally trackable.
+"""
+import os
+import subprocess
+import unittest
+
+_REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+
+
+def _ignored(path):
+    """True if git ignores the (possibly nonexistent) path in the repo."""
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", path],
+        cwd=_REPO, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    return result.returncode == 0
+
+
+class TestGitignoreMarkdown(unittest.TestCase):
+    def test_docs_markdown_not_ignored(self):
+        self.assertFalse(_ignored("docs/some-new-page.md"),
+                         "docs/*.md must be trackable without git add -f")
+
+    def test_readme_not_ignored(self):
+        self.assertFalse(_ignored("README.md"))
+
+    def test_claude_md_ignored(self):
+        self.assertTrue(_ignored("CLAUDE.md"))
+
+    def test_todo_markdown_ignored(self):
+        self.assertTrue(_ignored("todo.md"))
+        self.assertTrue(_ignored("todo-phase-b.md"))
+
+    def test_ai_plan_markdown_ignored(self):
+        # local planning artifacts, never committed
+        self.assertTrue(_ignored("ai_plan/2026-11-07-code-docs-audit/plan.md"))
+
+
+class TestGitignorePersona(unittest.TestCase):
+    def test_character_persona_ini_ignored(self):
+        self.assertTrue(_ignored("src/character/NEWCHARACTER/persona.ini"))
+
+    def test_arbitrary_persona_prefixed_file_not_ignored(self):
+        # the old broad `persona*` rule ignored any such file anywhere
+        self.assertFalse(_ignored("personal-notes.txt"))
+
+
+if __name__ == "__main__":
+    unittest.main()
