@@ -37,8 +37,7 @@ def get_swap_turn_directions() -> bool:
 
 
 def step_forward():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
 
@@ -64,13 +63,12 @@ def step_forward():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def walk_forward():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
 
@@ -116,13 +114,12 @@ def walk_forward():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def step_backward():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
 
@@ -150,13 +147,12 @@ def step_backward():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def walk_backward():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
 
@@ -202,14 +198,13 @@ def walk_backward():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def _turn_right_impl():
     """Internal implementation of turn right"""
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -221,14 +216,13 @@ def _turn_right_impl():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def _turn_right_slow_impl():
     """Internal implementation of turn right slow"""
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -240,14 +234,13 @@ def _turn_right_slow_impl():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def _turn_left_impl():
     """Internal implementation of turn left"""
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -259,14 +252,13 @@ def _turn_left_impl():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def _turn_left_slow_impl():
     """Internal implementation of turn left slow"""
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -278,7 +270,7 @@ def _turn_left_slow_impl():
             time.sleep(0.1)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
@@ -315,8 +307,7 @@ def turn_left_slow():
 
 
 def right_hi():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(None, 50, None, 50, 0.8)
@@ -348,13 +339,12 @@ def right_hi():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_hi():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, None, 50, None, 0.8)
@@ -386,13 +376,12 @@ def left_hi():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def laugh():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             for _ in range(5):
@@ -404,12 +393,11 @@ def laugh():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 def excited():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -419,13 +407,12 @@ def excited():
             move_legs(50, 50, 50, 50, 0.9)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def swing_legs():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 1)
@@ -443,13 +430,12 @@ def swing_legs():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_pezz_dispenser():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.4)            
@@ -475,13 +461,12 @@ def left_pezz_dispenser():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def right_pezz_dispenser():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)            
@@ -507,13 +492,12 @@ def right_pezz_dispenser():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def monster():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.4)
@@ -559,13 +543,12 @@ def monster():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def pose():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.6)
@@ -578,13 +561,12 @@ def pose():
             move_legs(50, 50, 50, 50, 0.6)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def bow():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.4)
@@ -597,13 +579,12 @@ def bow():
             move_legs(50, 50, 50, 50, 0.4)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def tilt_right():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -612,13 +593,12 @@ def tilt_right():
             move_legs(50, 50, 50, 50, 0.9)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def tilt_left():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.9)
@@ -627,13 +607,12 @@ def tilt_left():
             move_legs(50, 50, 50, 50, 0.9)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def side_side():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -646,13 +625,12 @@ def side_side():
             move_legs(50, 50, 50, 50, 0.9)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def wave_right():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -672,13 +650,12 @@ def wave_right():
             move_legs(50, 50, 50, 50, 0.8)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def wave_left():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -698,13 +675,12 @@ def wave_left():
             move_legs(50, 50, 50, 50, 0.8)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def neutral_legs():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(90, 90, None, None, 0.8)
@@ -712,13 +688,12 @@ def neutral_legs():
             move_legs(50, 50, 50, 50, 0.8)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_point():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -740,13 +715,12 @@ def left_point():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def right_point():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -768,13 +742,12 @@ def right_point():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_poke():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -804,13 +777,12 @@ def left_poke():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def right_poke():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -840,13 +812,12 @@ def right_poke():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_wave_open():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -880,13 +851,12 @@ def left_wave_open():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def right_wave_open():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -920,13 +890,12 @@ def right_wave_open():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def left_shy_wave():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -970,13 +939,12 @@ def left_shy_wave():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def right_shy_wave():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -1020,13 +988,12 @@ def right_shy_wave():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
 def happy_dance():
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._notify_movement_start()
         try:
             move_legs(50, 50, 50, 50, 0.8)
@@ -1098,7 +1065,7 @@ def happy_dance():
             time.sleep(0.2)
             disable_all_servos()
         finally:
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
@@ -1106,8 +1073,7 @@ def ventilate_on():
     """
     Position tars for better airflow
     """
-    if not servoctl.MOVING:
-        servoctl.MOVING = True
+    if servoctl.acquire_moving():
         servoctl._is_ventilate_operation = True
         
         servoctl._notify_movement_start()
@@ -1125,7 +1091,7 @@ def ventilate_on():
             disable_all_servos()
         finally:
             servoctl._is_ventilate_operation = False
-            servoctl.MOVING = False
+            servoctl.set_moving(False)
             servoctl._notify_movement_end()
 
 
@@ -1135,7 +1101,7 @@ def ventilate_off():
     if is_ventilating():
         was_moving = servoctl.MOVING
 
-        servoctl.MOVING = True
+        servoctl.set_moving(True)
         servoctl._is_ventilate_operation = True
         
         if not was_moving:
@@ -1153,6 +1119,6 @@ def ventilate_off():
             disable_all_servos()
         finally:
             servoctl._is_ventilate_operation = False
-            servoctl.MOVING = was_moving
+            servoctl.set_moving(was_moving)
             if not was_moving:
                 servoctl._notify_movement_end()

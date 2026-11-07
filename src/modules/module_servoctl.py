@@ -84,6 +84,8 @@ _unhealthy_chip_reads = 0  # consecutive unhealthy MODE1/MODE2 reads (repair nee
 # movement threads and servo_status never race on shared state. RLock (not
 # Lock): the watchdog holds it across a whole tick and calls helpers
 # (initialize_pca9685, servo reads) that acquire it again on the same thread.
+# Movement threads reach this lock through the set_moving()/acquire_moving()
+# helpers — never with bare MOVING assignments (F1).
 _state_lock = threading.RLock()
 
 battery_module = None
@@ -237,6 +239,31 @@ neutralRightLeg = NEUTRAL_RIGHT_LEG + perfectRightLegOffset
 backRightLeg = int(config["SERVO"]["backRightLeg"]) + perfectRightLegOffset
 
 MOVING = False
+
+def set_moving(value):
+    """F1: locked MOVING write for code outside this module (movement
+    threads). The watchdog reads MOVING / _last_pwm_time under _state_lock;
+    a bare `servoctl.MOVING = ...` races those checks — e.g. the watchdog
+    could see a movement as idle in the window before its first MOVING=True
+    write and re-init the chip mid-walk. Every MOVING transition in
+    module_movements.py goes through this helper (or acquire_moving)."""
+    global MOVING
+    with _state_lock:
+        MOVING = value
+
+def acquire_moving():
+    """F1: atomic test-and-set of MOVING under _state_lock. Replaces the
+    bare `if not servoctl.MOVING: servoctl.MOVING = True` pattern, whose
+    check-then-set window let two movements start concurrently (or the
+    watchdog see a just-starting movement as idle). Returns False — and
+    leaves the flag untouched — when a movement is already in progress."""
+    global MOVING
+    with _state_lock:
+        if MOVING:
+            return False
+        MOVING = True
+        return True
+
 HOLD = -1
 ARMS_PRESENT = config["SERVO"]["arms_present"]
 
