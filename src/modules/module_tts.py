@@ -27,8 +27,14 @@ from modules.module_config import load_config, DEFAULT_TTS_TIMEOUT
 
 CONFIG = load_config()
 
-# Barge-in: TTS cancellation event (thread-safe)
+# Barge-in: TTS cancellation event (thread-safe). B2: every stop request bumps
+# _tts_cancel_generation; a request stays pending until an utterance honors it
+# (_tts_cancel_consumed_gen catches up), so a barge-in landing between
+# utterances is not silently discarded by the next utterance's start.
 _tts_cancel_event = threading.Event()
+_tts_cancel_lock = threading.Lock()
+_tts_cancel_generation = 0
+_tts_cancel_consumed_gen = 0
 _tts_playing = threading.Event()  # Set while sd.play() is actively outputting audio
 _tts_needs_flush = threading.Event()  # Set after TTS finishes; cleared by STT after flushing
 
@@ -244,9 +250,30 @@ def init_audio_output():
     _resolve_output_device()
 
 
+def _consume_pending_cancel():
+    """Mark the pending cancel request as honored (B2).
+
+    Called when an utterance returns interrupted: the barge-in has been
+    honored, so later utterances (e.g. the reply to the barge-in) start with
+    a clean slate instead of inheriting a stale cancellation.
+    """
+    global _tts_cancel_consumed_gen
+    with _tts_cancel_lock:
+        _tts_cancel_consumed_gen = _tts_cancel_generation
+        _tts_cancel_event.clear()
+
+
 def stop_tts_playback():
-    """Signal TTS to stop immediately. Safe to call from any thread."""
-    _tts_cancel_event.set()
+    """Signal TTS to stop immediately. Safe to call from any thread.
+
+    B2: each request bumps a cancel generation instead of relying on the
+    next utterance noticing a bare global event — the request stays pending
+    until an utterance honors it.
+    """
+    global _tts_cancel_generation
+    with _tts_cancel_lock:
+        _tts_cancel_generation += 1
+        _tts_cancel_event.set()
     try:
         sd.stop()
     except Exception:
@@ -788,7 +815,14 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
     _resolve_output_device()
     if not is_wakeword:
         queue_message(f"DEBUG: TTS speaking (direct): {text}")
-    _tts_cancel_event.clear()
+    # B2: do NOT erase a pending barge-in with a bare clear() — a cancel that
+    # landed between utterances must be honored by this utterance (the first
+    # cancel check in play_chunks interrupts it, and play_audio_chunks then
+    # consumes the request). Only a cancel that was already honored (consumed)
+    # is stale and cleared here.
+    with _tts_cancel_lock:
+        if _tts_cancel_generation <= _tts_cancel_consumed_gen:
+            _tts_cancel_event.clear()
     audio_queue = asyncio.Queue(maxsize=3)
     synthesis_done = asyncio.Event()
     was_interrupted = False
@@ -896,6 +930,13 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         except Exception as write_err:
                             write_error = write_err
                         finally:
+                            # F8 (accepted residual): cleared when write() returns,
+                            # while the stream's ring buffer may still be draining
+                            # the slice tail — a brief window where is_tts_playing()
+                            # is False during audible output. Accepted: latency='low'
+                            # keeps the buffered tail tiny, and holding the flag
+                            # until full drain would block the between-chunk
+                            # barge-in window this path relies on.
                             _tts_playing.clear()
                         if write_error is not None:
                             # The persistent stream is dead (e.g. wedged USB
@@ -920,6 +961,21 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                                 break
                             if not is_wakeword:
                                 _tts_needs_flush.set()
+                            # B1: same sentence-level barge-in window as the
+                            # sd.play path below — whole-clip chunks (>=3s,
+                            # fishaudio_stream=False) get a 300ms mic-check
+                            # window between sentences; streaming slices
+                            # (<3s) get none (window only between sentences).
+                            chunk_seconds = len(data) / max(samplerate, 1)
+                            window = 6 if chunk_seconds >= 3.0 else 0
+                            for _ in range(window):  # 300ms window (6 x 50ms)
+                                if _tts_cancel_event.is_set():
+                                    out_stream.abort()
+                                    was_interrupted = True
+                                    break
+                                await asyncio.sleep(0.05)
+                            if was_interrupted:
+                                break
                             continue
 
                     pw_proc = None
@@ -930,7 +986,10 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         # wedged by a dead PipeWire stream after servo power-on spikes.
                         # Restart the user sound server, re-resolve the device, retry once.
                         queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — recovering sound server and retrying")
-                        _recover_sound_server()
+                        # A4: recovery blocks up to ~22s (subprocess + sleep) — run it
+                        # in a worker thread so the event loop (barge-in, STT) keeps
+                        # servicing instead of freezing.
+                        await asyncio.to_thread(_recover_sound_server)
                         _reset_output_device_resolution()
                         _resolve_output_device()
                         try:
@@ -1021,4 +1080,9 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
         synthesize_chunks(),
         play_chunks()
     )
+    if was_interrupted:
+        # B2: the barge-in was honored by this utterance — consume it so the
+        # next utterance (e.g. the reply to the barge-in) is not cancelled by
+        # a stale request.
+        _consume_pending_cancel()
     return was_interrupted

@@ -9,15 +9,15 @@ Covers the audit findings (ai_plan/2026-11-07-code-docs-audit/plan.md):
        through to the existing sd.play recovery ladder (-9985 recovery,
        sound-server restart, pw-play fallback); _recover_sound_server must
        invalidate the mic hub's dangling InputStream after PortAudio re-init.
-  A4 — _recover_sound_server must run via asyncio.to_thread so a concurrent
-       asyncio task keeps progressing while recovery runs.
+  A4 — _recover_sound_server must run via asyncio.to_thread so the event
+       loop keeps servicing other tasks (barge-in stays responsive) while
+       recovery blocks.
   B1 — the 300ms barge-in window (chunks >= 3s) applies on the persistent
-       path as well as the sd.play path.
+       path as well as the sd.play path; streaming slices (<3s) get none.
   B2 — a barge-in landing between utterances is honored (not erased by the
-       utterance-start clear) and overlapping utterances do not clear each
-       other's cancellation.
-  C4 — mark_first_audio is guarded by the shared first_audio_logged flag on
-       both playback paths (once per utterance, not once per chunk).
+       utterance start) and an honored cancel is consumed so it does not
+       leak into the next utterance.
+  B3 — play_audio_stream (dead code) stays deleted.
 
 Conventions follow test_tts_output_device.py / test_module_tts_chain.py:
 unittest + mock, sys.path bootstrap, config.ini bootstrapped from the
@@ -107,7 +107,7 @@ def _reset_cancel_state():
     tts._output_device_resolved = True
     # Generation state exists only after the B2 fix — guard so the same
     # helper works before and after.
-    lock = getattr(tts, "_cancel_lock", None)
+    lock = getattr(tts, "_tts_cancel_lock", None)
     if lock is not None:
         with lock:
             tts._tts_cancel_generation = 0
@@ -212,6 +212,128 @@ class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
                             stream_factory=mock.Mock(return_value=fake)):
             asyncio.run(tts.play_audio_chunks("hello", {}))
         self.assertFalse(tts.is_tts_playing())
+
+
+class TestRecoverRunsOffEventLoop(PlayTestCase):
+    """A4: _recover_sound_server must run via asyncio.to_thread — the event
+    loop must keep servicing other tasks while recovery blocks."""
+
+    def test_event_loop_progresses_while_recovery_blocks(self):
+        recover_started = threading.Event()
+        recover_finished = threading.Event()
+        release = threading.Event()
+        ticks = []
+
+        def blocking_recover():
+            recover_started.set()
+            release.wait(timeout=5)
+            recover_finished.set()
+
+        # First sd.play fails with -9985 (triggers recovery), retry succeeds.
+        sd_play = mock.Mock(side_effect=[
+            tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]"),
+            None,
+        ])
+
+        async def watcher():
+            while not release.is_set():
+                ticks.append(1)
+                await asyncio.sleep(0.01)
+
+        async def scenario():
+            watcher_task = asyncio.create_task(watcher())
+            play_task = asyncio.create_task(tts.play_audio_chunks("hi", {}))
+            # Wait until the recovery call is actually inside blocking_recover.
+            await asyncio.to_thread(recover_started.wait, 5)
+            # This sleep only yields if the loop is NOT frozen inside recovery.
+            await asyncio.sleep(0.15)
+            ticks_during_recovery = len(ticks)
+            recovery_done_at_sample = recover_finished.is_set()
+            release.set()
+            was_int = await play_task
+            watcher_task.cancel()
+            return ticks_during_recovery, recovery_done_at_sample, was_int
+
+        with self._play_ctx([_wav_chunk(0.05)], sd_play=sd_play,
+                            recover=blocking_recover):
+            ticks_during, recovery_done, was_int = asyncio.run(scenario())
+
+        # The watcher kept progressing while recovery was still blocked —
+        # i.e. the loop was free, not frozen inside the recovery call.
+        self.assertGreaterEqual(ticks_during, 3)
+        self.assertFalse(recovery_done)
+        self.assertFalse(was_int)
+
+
+class TestPersistentPathBargeInWindow(PlayTestCase):
+    """B1: the 300ms barge-in window (chunks >= 3s) must also run on the
+    persistent-stream path, not only in the sd.play branch."""
+
+    def _run_with_fake_sleep(self, seconds, cancel_after=None):
+        """Run one chunk through the persistent path, counting asyncio.sleep
+        calls from the barge-in window (everything else here is instant)."""
+        sleeps = []
+
+        async def fake_sleep(delay):
+            sleeps.append(delay)
+            if cancel_after is not None and len(sleeps) >= cancel_after:
+                tts._tts_cancel_event.set()
+
+        fake = _FakeOutputStream()
+        with self._play_ctx([_wav_chunk(seconds)],
+                            stream_factory=mock.Mock(return_value=fake)):
+            with mock.patch("asyncio.sleep", side_effect=fake_sleep):
+                result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        return result, fake, sleeps
+
+    def test_long_chunk_gets_300ms_window(self):
+        result, fake, sleeps = self._run_with_fake_sleep(4.0)
+        self.assertFalse(result)
+        self.assertEqual(sleeps, [0.05] * 6)  # 6 x 50ms window ran
+
+    def test_streaming_slice_skips_window(self):
+        result, fake, sleeps = self._run_with_fake_sleep(0.4)
+        self.assertFalse(result)
+        self.assertEqual(sleeps, [])  # <3s slices: no window
+
+    def test_cancel_during_window_interrupts(self):
+        result, fake, sleeps = self._run_with_fake_sleep(4.0, cancel_after=3)
+        self.assertTrue(result)
+        self.assertTrue(fake.aborted)
+        self.assertEqual(len(sleeps), 3)  # broke out mid-window
+
+
+class TestPerUtteranceCancelToken(PlayTestCase):
+    """B2: a bare _tts_cancel_event.clear() at utterance start must not
+    discard a barge-in that landed between utterances; an honored cancel
+    must be consumed so it does not leak into the next utterance."""
+
+    def test_bargein_between_utterances_is_honored(self):
+        fake = _FakeOutputStream()
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake)):
+            # Barge-in lands before the utterance starts (between utterances).
+            tts.stop_tts_playback()
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertTrue(result)                             # honored, not discarded
+        self.assertEqual(fake.writes, [])                   # nothing was spoken
+        self.assertFalse(tts._tts_cancel_event.is_set())    # consumed once honored
+
+    def test_honored_cancel_does_not_leak_into_next_utterance(self):
+        fake = _FakeOutputStream()
+        fake.on_write = lambda stream: tts.stop_tts_playback()  # barge-in mid-write
+        with self._play_ctx([_wav_chunk(0.05), _wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake)):
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertTrue(result)
+
+        # The reply to the barge-in must start with a clean slate.
+        fake2 = _FakeOutputStream()
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake2)):
+            result2 = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertFalse(result2)
+        self.assertEqual(len(fake2.writes), 1)
 
 
 class TestDeadCodeRemoval(unittest.TestCase):
