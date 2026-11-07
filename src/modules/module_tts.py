@@ -22,7 +22,7 @@ from io import BytesIO
 import asyncio
 
 from modules.module_messageQue import queue_message
-from modules.module_config import load_config
+from modules.module_config import load_config, DEFAULT_TTS_TIMEOUT
 
 CONFIG = load_config()
 
@@ -164,6 +164,143 @@ except Exception as e:
     queue_message(f"[TTS] Speechify module failed to load: {e}")
     pass
 
+# ── Typed provider errors + ordered fallback chain (single exception hierarchy) ──
+try:
+    from modules.module_fishaudio import (
+        TTSProviderError,
+        QuotaExhausted,
+        RateLimited,
+        AuthFailed,
+        TransientError,
+    )
+except Exception:  # pragma: no cover — module_fishaudio has no optional deps
+    class TTSProviderError(Exception):
+        def __init__(self, message, status_code=None):
+            super().__init__(message)
+            self.status_code = status_code
+
+    class QuotaExhausted(TTSProviderError):
+        pass
+
+    class RateLimited(TTSProviderError):
+        pass
+
+    class AuthFailed(TTSProviderError):
+        pass
+
+    class TransientError(TTSProviderError):
+        pass
+
+
+def _tts_cfg(key, default=None):
+    """Read a [TTS] config value at call time (tolerates dict or attr sections)."""
+    try:
+        section = CONFIG["TTS"]
+    except Exception:
+        return default
+    getter = getattr(section, "get", None)
+    if callable(getter):
+        try:
+            value = getter(key, default)
+        except Exception:
+            value = default
+    else:
+        value = getattr(section, key, default)
+    return default if value is None else value
+
+
+def _tts_timeout():
+    """Per-provider HTTP timeout from [TTS] tts_timeout (seconds, float)."""
+    try:
+        return float(_tts_cfg("tts_timeout", DEFAULT_TTS_TIMEOUT))
+    except (TypeError, ValueError):
+        return float(DEFAULT_TTS_TIMEOUT)
+
+
+def _effective_chain(ttsoption):
+    """Ordered, deduped provider chain: [ttsoption] + tts_fallback_list + 'espeak'.
+
+    'espeak' is always the guaranteed last resort; duplicates (e.g. ttsoption
+    also present in the fallback list) are tried only once, first occurrence wins.
+    """
+    names = []
+    primary = str(ttsoption or "").strip().lower()
+    if primary:
+        names.append(primary)
+    raw = _tts_cfg("tts_fallback_list", [])
+    if isinstance(raw, str):
+        raw = [item.strip() for item in raw.split(",") if item.strip()]
+    for item in (raw or []):
+        name = str(item).strip().lower()
+        if name:
+            names.append(name)
+    names.append("espeak")
+    seen = set()
+    chain = []
+    for name in names:
+        if name not in seen:
+            seen.add(name)
+            chain.append(name)
+    return chain
+
+
+# Provider adapters: normalize the differing per-provider signatures into
+# (text, is_wakeword, emotion) -> async generator (or None when the module is
+# not available on this device). Module globals are read at call time so tests
+# can swap providers. Cloud providers get the configured per-provider timeout.
+def _prov_espeak(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_espeak
+    return fn(text) if fn is not None else None
+
+
+def _prov_piper(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_piper
+    return fn(text, emotion=emotion) if fn is not None else None
+
+
+def _prov_silero(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_silero
+    return fn(text) if fn is not None else None
+
+
+def _prov_elevenlabs(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_elevenlabs
+    return fn(text, is_wakeword) if fn is not None else None
+
+
+def _prov_openai(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_openai
+    return fn(text, is_wakeword) if fn is not None else None
+
+
+def _prov_fishaudio(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_fishaudio
+    return fn(text, timeout=_tts_timeout()) if fn is not None else None
+
+
+def _prov_speechify(text, is_wakeword, emotion):
+    fn = text_to_speech_with_pipelining_speechify
+    return fn(text, timeout=_tts_timeout()) if fn is not None else None
+
+
+def _prov_external(text, is_wakeword, emotion):
+    return _external_tts_chunks(text, timeout=_tts_timeout())
+
+
+# Registry of chain providers: name -> adapter. Unknown names are skipped with
+# a warning by the chain runner; "other" simply isn't here and falls through
+# to whatever tts_fallback_list contains.
+_PROVIDERS = {
+    "espeak": _prov_espeak,
+    "piper": _prov_piper,
+    "silero": _prov_silero,
+    "elevenlabs": _prov_elevenlabs,
+    "openai": _prov_openai,
+    "fishaudio": _prov_fishaudio,
+    "speechify": _prov_speechify,
+    "external": _prov_external,
+}
+
 
 def update_tts_settings(ttsurl):
     url = f"{ttsurl}/set_tts_settings"
@@ -221,11 +358,17 @@ def play_audio_stream(tts_stream, samplerate=22050, channels=1, gain=1.0, normal
         queue_message(f"ERROR: Error during audio playback: {e}")
 
 
-async def _external_tts_chunks(text):
+async def _external_tts_chunks(text, timeout=None):
     """Fetch audio from the external TTS server (POST {ttsurl}/tts/generate).
 
     Yields one BytesIO on HTTP 200; yields nothing (logs the error) on failure.
+    timeout defaults to [TTS] tts_timeout when not given.
     """
+    if not timeout:
+        try:
+            timeout = float(_tts_cfg("tts_timeout", DEFAULT_TTS_TIMEOUT))
+        except (TypeError, ValueError):
+            timeout = float(DEFAULT_TTS_TIMEOUT)
     external_url = (CONFIG["TTS"].ttsurl or "").rstrip("/")
     if not external_url:
         queue_message("ERROR: External TTS URL (ttsurl) is not configured")
@@ -239,7 +382,7 @@ async def _external_tts_chunks(text):
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
     try:
-        response = requests.post(f"{external_url}/tts/generate", json=payload, headers=headers, timeout=30)
+        response = requests.post(f"{external_url}/tts/generate", json=payload, headers=headers, timeout=timeout)
         if response.status_code == 200:
             audio_buffer = BytesIO(response.content)
             audio_buffer.seek(0)
@@ -253,82 +396,69 @@ async def _external_tts_chunks(text):
 
 
 async def generate_tts_audio(text, ttsoption, is_wakeword=False, ttsurl=None, toggle_charvoice=True, tts_voice=None, emotion=None):
+    """Synthesize `text` by walking the ordered provider chain.
+
+    Chain = dedup([ttsoption] + [TTS] tts_fallback_list) with 'espeak' appended
+    last. The first provider that yields >= 1 audio chunk wins; typed provider
+    failures (QuotaExhausted / RateLimited / AuthFailed / TransientError) and
+    empty results log the reason and fail over to the next provider. Once a
+    provider has yielded audio, a later error ends the utterance (the chunks
+    already produced are kept — no mid-utterance voice switch). A per-utterance
+    deadline (tts_timeout * len(chain)) bounds the whole chain so TARS cannot
+    hang on a stuck provider. Signature is unchanged for existing callers.
+    """
     try:
-        if ttsoption == "espeak" and text_to_speech_with_pipelining_espeak:
-            async for chunk in text_to_speech_with_pipelining_espeak(text):
-                yield chunk
+        if not text or not str(text).strip():
+            queue_message("WARNING: TTS called with empty text — nothing to synthesize")
+            return
 
-        elif ttsoption == "piper" and text_to_speech_with_pipelining_piper:
-            async for chunk in text_to_speech_with_pipelining_piper(text, emotion=emotion):
-                yield chunk
+        chain = _effective_chain(ttsoption)
+        timeout = _tts_timeout()
+        deadline = time.monotonic() + timeout * max(1, len(chain))
 
-        elif ttsoption == "elevenlabs" and text_to_speech_with_pipelining_elevenlabs:
-            _yielded = False
-            async for chunk in text_to_speech_with_pipelining_elevenlabs(text, is_wakeword):
-                _yielded = True
-                yield chunk
-            if _yielded:
+        for index, name in enumerate(chain):
+            if time.monotonic() > deadline:
+                queue_message(f"ERROR: TTS per-utterance deadline exceeded before provider '{name}' — giving up")
                 return
-            queue_message("WARNING: ElevenLabs TTS produced no audio, falling back to external TTS")
-            async for chunk in _external_tts_chunks(text):
-                _yielded = True
-                yield chunk
-            if _yielded:
+            adapter = _PROVIDERS.get(name)
+            if adapter is None:
+                queue_message(f"WARNING: TTS provider '{name}' in chain is unknown — skipping")
+                continue
+            gen = adapter(text, is_wakeword, emotion)
+            if gen is None:
+                queue_message(f"WARNING: TTS provider '{name}' is not available on this device — skipping")
+                continue
+            yielded = 0
+            try:
+                async for chunk in gen:
+                    yielded += 1
+                    yield chunk
+                    if time.monotonic() > deadline:
+                        queue_message(f"ERROR: TTS per-utterance deadline exceeded during '{name}' — stopping")
+                        return
+            except Exception as e:
+                if yielded > 0:
+                    # Mid-stream failure after audio was already produced: keep
+                    # what was spoken, do not switch voice mid-utterance.
+                    queue_message(f"ERROR: TTS provider '{name}' failed mid-stream after {yielded} chunk(s): {type(e).__name__}: {e}")
+                    return
+                reason = f"{type(e).__name__}: {e}"
+                next_name = next((n for n in chain[index + 1:] if n in _PROVIDERS), None)
+                if next_name:
+                    queue_message(f"WARNING: TTS provider '{name}' failed ({reason}) — failing over to '{next_name}'")
+                else:
+                    queue_message(f"WARNING: TTS provider '{name}' failed ({reason}) — no further providers available")
+                continue
+            finally:
+                try:
+                    await gen.aclose()
+                except Exception:
+                    pass
+            if yielded > 0:
                 return
-            if text_to_speech_with_pipelining_piper:
-                queue_message("WARNING: External TTS fallback failed, falling back to local piper")
-                _piper_yielded = False
-                async for chunk in text_to_speech_with_pipelining_piper(text, emotion=emotion):
-                    _piper_yielded = True
-                    _yielded = True
-                    yield chunk
-                if _piper_yielded:
-                    return
-                queue_message("WARNING: Piper produced no audio, falling back to espeak")
-            if text_to_speech_with_pipelining_espeak:
-                if not text_to_speech_with_pipelining_piper:
-                    queue_message("WARNING: Piper unavailable, falling back to espeak")
-                _espeak_yielded = False
-                async for chunk in text_to_speech_with_pipelining_espeak(text):
-                    _espeak_yielded = True
-                    yield chunk
-                if _espeak_yielded:
-                    return
-            queue_message("ERROR: No TTS backend available for ElevenLabs fallback")
+            queue_message(f"WARNING: TTS provider '{name}' produced no audio — trying next provider in chain")
 
-        elif ttsoption == "silero" and text_to_speech_with_pipelining_silero:
-            async for chunk in text_to_speech_with_pipelining_silero(text):
-                yield chunk 
-
-        elif ttsoption == "openai" and text_to_speech_with_pipelining_openai:
-            async for chunk in text_to_speech_with_pipelining_openai(text, is_wakeword):
-                yield chunk
-
-        elif ttsoption == "external":
-            async for chunk in _external_tts_chunks(text):
-                yield chunk
-
-        else:
-            # Try fallback TTS options
-            fallback_order = [
-                ("openai", text_to_speech_with_pipelining_openai),
-                ("elevenlabs", text_to_speech_with_pipelining_elevenlabs),
-                ("espeak", text_to_speech_with_pipelining_espeak),
-                ("piper", text_to_speech_with_pipelining_piper),
-            ]
-            
-            for name, func in fallback_order:
-                if func is not None:
-                    queue_message(f"WARNING: TTS '{ttsoption}' not available, falling back to '{name}'")
-                    if name in ["openai", "elevenlabs"]:
-                        async for chunk in func(text, is_wakeword):
-                            yield chunk
-                    else:
-                        async for chunk in func(text):
-                            yield chunk
-                    return
-            
-            queue_message(f"ERROR: No TTS backend available for '{ttsoption}'")
+        queue_message(f"ERROR: No TTS provider in chain {chain} produced audio (ttsoption='{ttsoption}')")
 
     except Exception as e:
         queue_message(f"ERROR: Text-to-speech generation failed: {e}")
