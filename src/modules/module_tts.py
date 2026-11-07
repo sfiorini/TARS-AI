@@ -117,6 +117,7 @@ text_to_speech_with_pipelining_silero = None
 text_to_speech_with_pipelining_espeak = None
 text_to_speech_with_pipelining_elevenlabs = None
 text_to_speech_with_pipelining_openai = None
+text_to_speech_with_pipelining_fishaudio = None
 try:
     from modules.module_piper import text_to_speech_with_pipelining_piper as _piper
     text_to_speech_with_pipelining_piper = _piper
@@ -146,6 +147,13 @@ try:
     from modules.module_openai import text_to_speech_with_pipelining_openai as _openai
     text_to_speech_with_pipelining_openai = _openai
 except ImportError:
+    pass
+
+try:
+    from modules.module_fishaudio import text_to_speech_with_fishaudio as _fishaudio
+    text_to_speech_with_pipelining_fishaudio = _fishaudio
+except Exception as e:
+    queue_message(f"[TTS] Fish.audio module failed to load: {e}")
     pass
 
 
