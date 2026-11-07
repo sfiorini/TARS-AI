@@ -319,6 +319,7 @@ class TTSConfig:
     fishaudio_model: Optional[str] = None
     fishaudio_reference_id: Optional[str] = None
     fishaudio_latency: Optional[str] = None
+    fishaudio_stream: bool = True
     speechify_api_key: Optional[str] = None
     speechify_voice_id: Optional[str] = None
     speechify_model: Optional[str] = None
@@ -376,6 +377,7 @@ class TTSConfig:
             fishaudio_model=config_dict.get('fishaudio_model') or DEFAULT_FISHAUDIO_MODEL,
             fishaudio_reference_id=config_dict.get('fishaudio_reference_id'),
             fishaudio_latency=config_dict.get('fishaudio_latency'),
+            fishaudio_stream=_as_bool(config_dict.get('fishaudio_stream', True), True),
             speechify_api_key=config_dict.get('speechify_api_key'),
             speechify_voice_id=config_dict.get('speechify_voice_id') or DEFAULT_SPEECHIFY_VOICE_ID,
             speechify_model=config_dict.get('speechify_model') or DEFAULT_SPEECHIFY_MODEL,
@@ -575,6 +577,7 @@ def load_config():
             "fishaudio_model": config.get('TTS', 'fishaudio_model', fallback=DEFAULT_FISHAUDIO_MODEL),
             "fishaudio_reference_id": config.get('TTS', 'fishaudio_reference_id', fallback=''),
             "fishaudio_latency": config.get('TTS', 'fishaudio_latency', fallback='balanced'),
+            "fishaudio_stream": config.getboolean('TTS', 'fishaudio_stream', fallback=True),
             "speechify_api_key": os.getenv('SPEECHIFY_API_KEY'),
             "speechify_voice_id": config.get('TTS', 'speechify_voice_id', fallback=DEFAULT_SPEECHIFY_VOICE_ID),
             "speechify_model": config.get('TTS', 'speechify_model', fallback=DEFAULT_SPEECHIFY_MODEL),

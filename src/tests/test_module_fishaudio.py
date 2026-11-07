@@ -61,6 +61,7 @@ def _fake_config(**overrides):
         "fishaudio_model": "s2.1-pro-free",
         "fishaudio_reference_id": "",
         "tts_timeout": 30.0,
+        "fishaudio_stream": False,
     }
     cfg.update(overrides)
     return {"TTS": types.SimpleNamespace(**cfg)}
@@ -392,3 +393,57 @@ class TestNonBlockingHTTP(unittest.TestCase):
             asyncio.run(run())
         self.assertIn("thread", seen)
         self.assertIsNot(seen["thread"], main_thread)
+
+
+class TestFishAudioStreaming(unittest.TestCase):
+    """fishaudio_stream=True must POST with stream=True, format pcm 44100, and
+    yield each network chunk as a valid WAV buffer as it arrives."""
+
+    def _cfg_stream(self):
+        return _fake_config(fishaudio_stream=True, fishaudio_latency="low")
+
+    def test_streaming_yields_wav_chunks_per_network_piece(self):
+        import wave as _wave
+        pieces = [b"\x01\x00" * 4096, b"\x02\x00" * 4096, b"\x03\x00" * 100]
+
+        class _StreamResp:
+            status_code = 200
+            def iter_content(self, chunk_size=8192):
+                yield from pieces
+
+        with mock.patch.object(fa, "CONFIG", self._cfg_stream()), \
+             mock.patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "k"}), \
+             mock.patch.object(fa.requests, "post", return_value=_StreamResp()) as post:
+            async def run():
+                agen = fa.text_to_speech_with_fishaudio("One sentence.")
+                return [c async for c in agen]
+            chunks = asyncio.run(run())
+        kw = post.call_args.kwargs
+        self.assertTrue(kw.get("stream"))
+        self.assertEqual(kw["json"]["format"], "pcm")
+        self.assertEqual(kw["json"]["sample_rate"], 44100)
+        self.assertEqual(kw["json"]["latency"], "low")
+        self.assertEqual(len(chunks), 3)
+        for c, piece in zip(chunks, pieces):
+            with _wave.open(c, "rb") as wf:
+                self.assertEqual(wf.getframerate(), 44100)
+                self.assertEqual(wf.readframes(10**9), piece)
+
+    def test_streaming_error_classified(self):
+        class _ErrResp:
+            status_code = 402
+            content = b'{"message":"no credit","status":402}'
+        with mock.patch.object(fa, "CONFIG", self._cfg_stream()), \
+             mock.patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "k"}), \
+             mock.patch.object(fa.requests, "post", return_value=_ErrResp()):
+            async def run():
+                agen = fa.text_to_speech_with_fishaudio("Hi.")
+                exc = None
+                try:
+                    async for _ in agen:
+                        pass
+                except Exception as e:
+                    exc = e
+                return exc
+            exc = asyncio.run(run())
+        self.assertIsInstance(exc, fa.QuotaExhausted)

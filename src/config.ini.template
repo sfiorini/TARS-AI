@@ -143,6 +143,10 @@ elevenlabs_model = eleven_multilingual_v2
 # returning 402, top up and set fishaudio_model = s2.1-pro here (config-only change).
 # API key comes from FISH_AUDIO_API_KEY in .env — never stored here.
 fishaudio_model = s2.1-pro-free
+# Fish.audio latency mode: low (fastest) | balanced | normal (best quality)
+fishaudio_latency = low
+# Stream audio chunks as they generate (HTTP stream, pcm 44100) — much lower time-to-first-audio
+fishaudio_stream = True
 # Fish.audio voice reference_id — a voice model id from https://fish.audio/m/<id>
 # (or your own clone). Leave empty to use Fish's default voice.
 fishaudio_reference_id =

@@ -23,6 +23,7 @@ provider modules in module_tts.py.
 """
 
 import asyncio
+import wave
 import os
 import re
 from io import BytesIO
@@ -188,6 +189,73 @@ async def _synthesize_sentence(sentence, headers, timeout, reference_id, latency
         )
 
 
+def _pcm_to_wav_buffer(pcm_bytes, sample_rate=44100):
+    """Wrap raw 16-bit mono PCM in a WAV header so soundfile can read the chunk."""
+    buf = BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+    buf.seek(0)
+    return buf
+
+
+async def _synthesize_sentence_streaming(sentence, headers, timeout, reference_id, latency="balanced"):
+    """POST one sentence with stream=True (format pcm 44100) and yield each
+    network chunk as a WAV-wrapped BytesIO as it arrives — first audio in a
+    fraction of a second instead of waiting for the whole clip.
+
+    Raises the same typed errors as _synthesize_sentence.
+    """
+    body = {
+        "text": sentence,
+        "format": "pcm",
+        "sample_rate": 44100,
+        "latency": latency if latency in ("low", "normal", "balanced") else "balanced",
+    }
+    if reference_id:
+        body["reference_id"] = reference_id
+
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = await asyncio.to_thread(
+                requests.post, FISH_AUDIO_TTS_URL, headers=headers, json=body,
+                timeout=timeout, stream=True,
+            )
+        except requests.exceptions.RequestException as exc:
+            if attempt < _MAX_ATTEMPTS:
+                await _backoff()
+                continue
+            raise TransientError(f"Fish.audio stream request failed: {exc}") from exc
+
+        status = response.status_code
+        if status != 200:
+            # drain body for the error message, then classify like the non-streaming path
+            err_body = await asyncio.to_thread(lambda: response.content)
+            exc_class = _classify(status)
+            if exc_class is not None and exc_class is not RateLimited:
+                raise exc_class(f"Fish.audio returned {status}: {err_body[:200]!r}", status_code=status)
+            if attempt < _MAX_ATTEMPTS:
+                await _backoff()
+                continue
+            raise (RateLimited if exc_class is RateLimited else TransientError)(
+                f"Fish.audio returned {status} after retry", status_code=status,
+            )
+
+        # 200: stream chunks; each iter_content step runs in a worker thread
+        iterator = response.iter_content(chunk_size=8192)
+        while True:
+            piece = await asyncio.to_thread(next, iterator, None)
+            if piece is None:
+                break
+            if piece:
+                yield _pcm_to_wav_buffer(piece)
+        return
+
+
 async def text_to_speech_with_fishaudio(text, reference_id=None, model=None,
                                         timeout=None, **_ignored):
     """Synthesize text with Fish.audio; yield one BytesIO wav chunk per sentence.
@@ -232,7 +300,17 @@ async def text_to_speech_with_fishaudio(text, reference_id=None, model=None,
         "model": model,
     }
 
+    # None-safe read: _cfg uses `or default`, which would turn an explicit
+    # False into the default — so read the raw attribute here.
+    stream_raw = getattr(CONFIG["TTS"], "fishaudio_stream", None)
+    if stream_raw is None:
+        stream_raw = "true"
+    stream = str(stream_raw).strip().lower() in ("1", "true", "yes", "on")
     for sentence in _split_into_sentences(str(text)):
+        if stream:
+            async for buffer in _synthesize_sentence_streaming(sentence, headers, timeout, reference_id, latency):
+                yield buffer
+            continue
         buffer = await _synthesize_sentence(sentence, headers, timeout, reference_id, latency)
         if buffer is not None:
             yield buffer
