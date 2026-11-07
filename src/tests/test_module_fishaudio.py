@@ -2,7 +2,7 @@
 
 Covers: success path (raw wav bytes -> BytesIO chunk), request shape
 (POST https://api.fish.audio/v1/tts, Authorization Bearer + ALWAYS-present
-"model" header, body {text, reference_id, format:"wav", latency:"normal"}),
+"model" header, body {text, reference_id, format:"wav", latency from [TTS] fishaudio_latency (default balanced), sample_rate 22050}),
 error classification (402 -> QuotaExhausted no retry; 429 -> one backoff
 retry then RateLimited; 400/401 -> AuthFailed no retry; 5xx/timeout -> one
 backoff retry then TransientError), model/reference_id/timeout read from
@@ -35,6 +35,7 @@ if not os.path.exists(_CONFIG_INI):
         ) from exc
 
 from modules import module_fishaudio  # noqa: E402
+fa = module_fishaudio
 
 FISH_URL = "https://api.fish.audio/v1/tts"
 FISH_TARS_REF = "6a57e35f5c8244dbb5d012a3c434ec16"
@@ -132,9 +133,34 @@ class TestFishAudioSuccess(unittest.TestCase):
         self.assertEqual(kwargs["json"], {
             "text": "Hello there.",
             "format": "wav",
-            "latency": "normal",
+            "latency": "balanced",
+            "sample_rate": 22050,
         })
         self.assertEqual(kwargs["timeout"], 30.0)
+
+    def test_latency_override_from_config(self):
+        cfg = _fake_config()
+        cfg = _fake_config(fishaudio_latency="low")
+        with mock.patch.object(fa, "CONFIG", cfg), \
+             mock.patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "k"}), \
+             mock.patch.object(fa.requests, "post", return_value=_FakeResponse(200, content=b"RIFF-x")) as post:
+            async def run():
+                agen = fa.text_to_speech_with_fishaudio("Hi.")
+                return [c async for c in agen]
+            asyncio.run(run())
+        self.assertEqual(post.call_args.kwargs["json"]["latency"], "low")
+
+    def test_invalid_latency_falls_back_to_balanced(self):
+        cfg = _fake_config()
+        cfg = _fake_config(fishaudio_latency="turbo")
+        with mock.patch.object(fa, "CONFIG", cfg), \
+             mock.patch.dict(os.environ, {"FISH_AUDIO_API_KEY": "k"}), \
+             mock.patch.object(fa.requests, "post", return_value=_FakeResponse(200, content=b"RIFF-x")) as post:
+            async def run():
+                agen = fa.text_to_speech_with_fishaudio("Hi.")
+                return [c async for c in agen]
+            asyncio.run(run())
+        self.assertEqual(post.call_args.kwargs["json"]["latency"], "balanced")
 
     def test_model_header_always_sent_even_when_config_missing(self):
         cfg = _fake_config()

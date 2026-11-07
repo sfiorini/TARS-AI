@@ -296,6 +296,23 @@ def _tts_timeout():
         return float(DEFAULT_TTS_TIMEOUT)
 
 
+def _warmup_piper_if_in_chain():
+    """Pre-load the Piper voice model in a daemon thread when piper is in the
+    fallback chain, so the first failover doesn't pay the multi-second load."""
+    try:
+        chain = _effective_chain(str(CONFIG["TTS"].get("ttsoption", "") or ""))
+        if "piper" in chain:
+            def _load():
+                try:
+                    import modules.module_piper as _mp
+                    _mp._ensure_voice_loaded()
+                except Exception:
+                    pass
+            threading.Thread(target=_load, daemon=True, name="piper-warmup").start()
+    except Exception:
+        pass
+
+
 def _effective_chain(ttsoption):
     """Ordered, deduped provider chain: [ttsoption] + tts_fallback_list + 'espeak'.
 
@@ -321,6 +338,10 @@ def _effective_chain(ttsoption):
             seen.add(name)
             chain.append(name)
     return chain
+
+# Pre-load the local Piper voice in the background when it is part of the
+# fallback chain (avoids a multi-second model load on first failover).
+_warmup_piper_if_in_chain()
 
 
 # Provider adapters: normalize the differing per-provider signatures into
@@ -775,8 +796,8 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 data, samplerate = sf.read(audio_chunk, dtype='float32')
 
                 # Resample to 16kHz if needed
-                if samplerate != 16000:
-                    ratio = 16000 / samplerate
+                if samplerate != 22050:
+                    ratio = 22050 / samplerate
                     new_len = int(len(data) * ratio)
                     if data.ndim == 1:
                         indices = np.linspace(0, len(data) - 1, new_len)
@@ -787,7 +808,7 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                             np.interp(indices, np.arange(len(data)), data[:, ch])
                             for ch in range(data.shape[1])
                         ])
-                    samplerate = 16000
+                    samplerate = 22050
 
                 max_val = np.max(np.abs(data))
                 if max_val > 0:

@@ -127,7 +127,7 @@ def _classify(status_code):
     return None  # 5xx and anything else -> transient
 
 
-async def _synthesize_sentence(sentence, headers, timeout, reference_id):
+async def _synthesize_sentence(sentence, headers, timeout, reference_id, latency="balanced"):
     """POST one sentence to Fish.audio; return BytesIO wav or None (empty audio).
 
     Raises typed TTSProviderError subclasses on failure so the chain runner can
@@ -136,7 +136,8 @@ async def _synthesize_sentence(sentence, headers, timeout, reference_id):
     body = {
         "text": sentence,
         "format": "wav",
-        "latency": "normal",
+        "latency": latency if latency in ("low", "normal", "balanced") else "balanced",
+        "sample_rate": 22050,
     }
     if reference_id:
         body["reference_id"] = reference_id
@@ -218,6 +219,7 @@ async def text_to_speech_with_fishaudio(text, reference_id=None, model=None,
         reference_id = _cfg("fishaudio_reference_id", "") or ""
     if not timeout:
         timeout = _cfg("tts_timeout", DEFAULT_TTS_TIMEOUT)
+    latency = _cfg("fishaudio_latency", "balanced") or "balanced"
     try:
         timeout = float(timeout)
     except (TypeError, ValueError):
@@ -231,6 +233,6 @@ async def text_to_speech_with_fishaudio(text, reference_id=None, model=None,
     }
 
     for sentence in _split_into_sentences(str(text)):
-        buffer = await _synthesize_sentence(sentence, headers, timeout, reference_id)
+        buffer = await _synthesize_sentence(sentence, headers, timeout, reference_id, latency)
         if buffer is not None:
             yield buffer
