@@ -10,6 +10,7 @@ sounddevice / soundfile / piper, which load libasound at import time and
 don't exist on CI runners — stub them and patch load_config.
 """
 import asyncio
+import ctypes
 import io
 import os
 import sys
@@ -54,8 +55,14 @@ from modules import module_config  # noqa: E402
 
 sys.modules.pop("modules.module_piper", None)
 with mock.patch.dict(sys.modules, _STUBS), \
-     mock.patch.object(module_config, "load_config", return_value=_FAKE_CONFIG):
+     mock.patch.object(module_config, "load_config", return_value=_FAKE_CONFIG), \
+     mock.patch.object(ctypes.cdll, "LoadLibrary", return_value=mock.MagicMock()):
     import modules.module_piper as mp
+
+
+def tearDownModule():
+    # Do not leak the stub-imported module into other test files.
+    sys.modules.pop("modules.module_piper", None)
 
 
 class TestPiperLazyLoad(unittest.TestCase):
