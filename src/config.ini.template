@@ -125,6 +125,9 @@ ttsoption = piper
 # Comma-separated (a JSON array like ["speechify","piper"] also works).
 # "espeak" is always appended automatically as the final fallback.
 tts_fallback_list = external,piper,espeak
+# Playback volume for TTS output (0.0 = mute, 1.0 = normal, 2.0 = max; clipped to avoid distortion)
+tts_volume = 1.0
+
 # Per-request HTTP timeout in seconds for cloud TTS providers (fishaudio, speechify, elevenlabs, openai)
 tts_timeout = 30
 # External TTS server URL (ttsoption = other or external)

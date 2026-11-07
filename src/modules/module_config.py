@@ -323,6 +323,7 @@ class TTSConfig:
     speechify_voice_id: Optional[str] = None
     speechify_model: Optional[str] = None
     tts_timeout: float = DEFAULT_TTS_TIMEOUT
+    tts_volume: float = 1.0
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -379,6 +380,7 @@ class TTSConfig:
             speechify_voice_id=config_dict.get('speechify_voice_id') or DEFAULT_SPEECHIFY_VOICE_ID,
             speechify_model=config_dict.get('speechify_model') or DEFAULT_SPEECHIFY_MODEL,
             tts_timeout=_parse_tts_timeout(config_dict.get('tts_timeout', DEFAULT_TTS_TIMEOUT)),
+            tts_volume=config_dict.get('tts_volume', 1.0),
         )
 
 
@@ -577,6 +579,7 @@ def load_config():
             "speechify_voice_id": config.get('TTS', 'speechify_voice_id', fallback=DEFAULT_SPEECHIFY_VOICE_ID),
             "speechify_model": config.get('TTS', 'speechify_model', fallback=DEFAULT_SPEECHIFY_MODEL),
             "tts_timeout": config.get('TTS', 'tts_timeout', fallback=DEFAULT_TTS_TIMEOUT),
+            "tts_volume": config.getfloat('TTS', 'tts_volume', fallback=1.0),
         }),
         "RAG": {
             "enabled": config.getboolean('RAG', 'enabled', fallback=True),

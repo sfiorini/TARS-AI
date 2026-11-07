@@ -140,6 +140,19 @@ def _reset_output_device_resolution():
     _output_device_resolved = False
 
 
+def _playback_gain():
+    """Playback volume from [TTS] tts_volume (0.0-2.0, default 1.0); 1.5 was the old hardcoded gain."""
+    try:
+        v = float(CONFIG["TTS"].get("tts_volume", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+    if v < 0.0:
+        return 0.0
+    if v > 2.0:
+        return 2.0
+    return v
+
+
 def _play_via_pwplay(data, samplerate):
     """Last-resort playback through PipeWire's native API (pw-play subprocess).
 
@@ -814,7 +827,7 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 if max_val > 0:
                     data = data / max_val
 
-                gain = 1.5
+                gain = _playback_gain()
                 data = np.clip(data * gain, -1.0, 1.0)
 
                 pw_proc = None

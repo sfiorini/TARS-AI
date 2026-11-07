@@ -143,3 +143,23 @@ class TestPwPlayFallback(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestPlaybackVolume(unittest.TestCase):
+    def test_default_gain_1(self):
+        tts.CONFIG = {"TTS": type("S", (), {"get": lambda self, k, d=None: d})()}
+        self.assertEqual(tts._playback_gain(), 1.0)
+
+    def test_configured_gain(self):
+        tts.CONFIG = {"TTS": type("S", (), {"get": lambda self, k, d=None: 0.5 if k == "tts_volume" else d})()}
+        self.assertEqual(tts._playback_gain(), 0.5)
+
+    def test_gain_clamped(self):
+        tts.CONFIG = {"TTS": type("S", (), {"get": lambda self, k, d=None: 9.0 if k == "tts_volume" else d})()}
+        self.assertEqual(tts._playback_gain(), 2.0)
+        tts.CONFIG = {"TTS": type("S", (), {"get": lambda self, k, d=None: -1.0 if k == "tts_volume" else d})()}
+        self.assertEqual(tts._playback_gain(), 0.0)
+
+    def test_invalid_gain_falls_back_to_1(self):
+        tts.CONFIG = {"TTS": type("S", (), {"get": lambda self, k, d=None: "loud" if k == "tts_volume" else d})()}
+        self.assertEqual(tts._playback_gain(), 1.0)
