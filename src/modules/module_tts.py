@@ -56,9 +56,10 @@ def _resolve_output_device():
         return
 
     # Categorize output devices by priority
+    pulse_devices = []    # Sound-server devices (PipeWire/PulseAudio "pulse"/"default")
     usb_devices = []      # USB audio — most likely the external speaker
     hw_devices = []       # Hardware devices (headphones, I2S DACs, bcm2835)
-    virtual_devices = []  # Virtual/default ALSA devices
+    virtual_devices = []  # Other virtual/default ALSA devices
 
     for i, dev in enumerate(devices):
         if dev.get("max_output_channels", 0) < 1:
@@ -67,20 +68,22 @@ def _resolve_output_device():
         # Skip HDMI outputs — they typically don't support standard PCM formats
         if "hdmi" in name:
             continue
-        if "usb" in name:
+        if "pulse" in name:
+            pulse_devices.append((i, dev))
+        elif "usb" in name:
             usb_devices.append((i, dev))
-        elif "default" in name or "dmix" in name or "pulse" in name or "sysdefault" in name:
+        elif "default" in name or "dmix" in name or "sysdefault" in name:
             virtual_devices.append((i, dev))
         else:
             hw_devices.append((i, dev))
 
-    # Pick best device: USB > hardware > virtual.
-    # Validate each candidate by actually opening a stream: after a reboot the
-    # sound server (PipeWire/PulseAudio) may already hold the raw hw PCM, in
-    # which case a direct hw open fails with PaErrorCode -9985 (device
-    # unavailable). Skip such devices and finally fall back to the system
-    # default (None), which routes through the sound server.
-    for label, candidates in [("USB", usb_devices), ("hardware", hw_devices), ("virtual", virtual_devices)]:
+    # Pick best device: sound-server (pulse) > USB > hardware > virtual.
+    # In a desktop session PipeWire owns the raw USB card; opening the hw PCM
+    # directly then fails with PaErrorCode -9985 (device unavailable), so the
+    # pulse route must win. Every candidate is validated by actually opening
+    # a stream; unopenable devices are skipped, and the final fallback is the
+    # system default (None), which also routes through the sound server.
+    for label, candidates in [("pulse", pulse_devices), ("USB", usb_devices), ("hardware", hw_devices), ("virtual", virtual_devices)]:
         for idx, dev in candidates:
             if _device_opens(idx):
                 _output_device = idx

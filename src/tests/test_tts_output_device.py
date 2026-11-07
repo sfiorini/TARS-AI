@@ -49,6 +49,15 @@ class TestResolveOutputDevice(unittest.TestCase):
         devices = [_dev("vc4-hdmi-0 HDMI"), _dev("Speaker")]
         self.assertEqual(self._run(devices, {0, 1}), 1)
 
+    def test_prefers_pulse_sound_server_over_usb(self):
+        # Desktop session: PipeWire owns the raw USB card; the pulse route must win.
+        devices = [_dev("USB PnP Audio Device"), _dev("PulseAudio Sound Server")]
+        self.assertEqual(self._run(devices, {0, 1}), 1)
+
+    def test_pulse_skipped_when_unopenable_falls_back_to_usb(self):
+        devices = [_dev("PulseAudio Sound Server"), _dev("USB PnP Audio Device")]
+        self.assertEqual(self._run(devices, {1}), 1)
+
 
 class TestPlayFallback(unittest.TestCase):
     """sd.play raising PortAudioError on the cached device must retry with None."""

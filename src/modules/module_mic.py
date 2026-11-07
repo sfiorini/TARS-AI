@@ -60,20 +60,28 @@ def _find_input_device():
         if _is_real_hw_device(info):
             return idx, int(info.get("default_samplerate", MODEL_RATE))
 
-    # 2. Default failed or is a plugin — scan for real hardware devices
+    # 2. Default failed or is a plugin — if a sound server (PipeWire/PulseAudio)
+    #    is present, prefer its device: in a desktop session the server owns the
+    #    raw USB card, and opening the hw PCM directly fails (device unavailable).
     devices = sd.query_devices()
+    for i, dev in enumerate(devices):
+        if dev.get("max_input_channels", 0) >= 1 and "pulse" in dev.get("name", "").lower():
+            rate = int(dev.get("default_samplerate", MODEL_RATE))
+            return i, rate
+
+    # 3. Scan for real hardware devices
     for i, dev in enumerate(devices):
         if _is_real_hw_device(dev):
             rate = int(dev.get("default_samplerate", MODEL_RATE))
             return i, rate
 
-    # 3. Fall back to any device with input channels (including plugins)
+    # 4. Fall back to any device with input channels (including plugins)
     for i, dev in enumerate(devices):
         if dev.get("max_input_channels", 0) >= 1:
             rate = int(dev.get("default_samplerate", MODEL_RATE))
             return i, rate
 
-    # 4. Last resort: ask PortAudio C-level for the default input
+    # 5. Last resort: ask PortAudio C-level for the default input
     try:
         from sounddevice import _lib
         pa_idx = _lib.Pa_GetDefaultInputDevice()
