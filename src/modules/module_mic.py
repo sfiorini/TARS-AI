@@ -248,6 +248,29 @@ class _AudioHub:
         self._stream = sd.InputStream(**kwargs)
         self._stream.start()
 
+    def invalidate(self):
+        """Stop and close the stream immediately; re-created lazily on next use.
+
+        Called after PortAudio is re-initialized (sd._terminate/_initialize in
+        TTS sound-server recovery): the live InputStream is dangling after that
+        and must not be reused. Safe to call from any thread, with or without a
+        live stream.
+        """
+        with self._lock:
+            if self._grace_timer is not None:
+                self._grace_timer.cancel()
+                self._grace_timer = None
+            if self._stream is not None:
+                try:
+                    self._stream.stop()
+                except Exception:
+                    pass
+                try:
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
+
     def _maybe_stop(self):
         """Schedule stream shutdown if no consumers remain. Called under lock."""
         if self._callbacks or self._readers:
@@ -409,6 +432,16 @@ class _AudioHub:
 
 # Global singleton
 _hub = _AudioHub()
+
+
+def invalidate_audio_hub():
+    """Close the shared mic InputStream; re-created lazily on the next read.
+
+    Called from module_tts._recover_sound_server after PortAudio re-init
+    (sd._terminate/_initialize) — the hub's live InputStream is dangling after
+    that and must not be reused, or the mic stays deaf until reboot.
+    """
+    _hub.invalidate()
 
 
 # ── Public stream helpers ──────────────────────────────────────────

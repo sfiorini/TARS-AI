@@ -150,6 +150,49 @@ class PlayTestCase(unittest.TestCase):
                 mark_first_audio=mark_first, sd_play=sd_play, recover=recover)
 
 
+class TestPersistentWriteFailureRecovery(PlayTestCase):
+    """A3: a dead persistent stream must fall through to the sd.play ladder."""
+
+    def test_write_failure_aborts_stream_and_falls_back_to_sd_play(self):
+        fake = _FakeOutputStream()
+        fake.write_error = tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")
+        sd_play = mock.Mock()
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake),
+                            sd_play=sd_play):
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertTrue(fake.aborted)          # dead stream aborted, not retried
+        self.assertTrue(sd_play.called)        # audio still played via sd.play
+        self.assertFalse(result)              # not interrupted
+
+    def test_write_failure_runs_full_recovery_ladder(self):
+        fake = _FakeOutputStream()
+        fake.write_error = tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")
+        sd_play = mock.Mock(side_effect=[
+            tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]"), None])
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake),
+                            sd_play=sd_play) as ctx:
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        ctx.recover.assert_called_once()      # -9985 recovery ran
+        self.assertEqual(sd_play.call_count, 2)  # retried after recovery
+        self.assertFalse(result)
+
+
+class TestRecoverSoundServerInvalidatesMicHub(PlayTestCase):
+    """A3: PortAudio re-init must invalidate the mic hub's dangling stream."""
+
+    def test_recover_sound_server_signals_mic_hub(self):
+        fake_mic = mock.MagicMock()
+        with mock.patch("subprocess.run"), \
+             mock.patch.object(tts.time, "sleep"), \
+             mock.patch.object(tts.sd, "_terminate"), \
+             mock.patch.object(tts.sd, "_initialize"), \
+             mock.patch.dict(sys.modules, {"modules.module_mic": fake_mic}):
+            tts._recover_sound_server()
+        fake_mic.invalidate_audio_hub.assert_called_once()
+
+
 class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
     """A1: _tts_playing must be set while the persistent stream writes."""
 

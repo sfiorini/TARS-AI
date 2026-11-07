@@ -129,6 +129,15 @@ def _recover_sound_server():
         time.sleep(2)
         sd._terminate()
         sd._initialize()
+        # PortAudio re-init invalidates every live stream — including the mic
+        # hub's shared InputStream (module_mic). Signal the hub so it closes its
+        # now-dangling stream and lazily re-creates it on the next read;
+        # without this a TTS self-heal deafens the mic until reboot.
+        try:
+            from modules.module_mic import invalidate_audio_hub
+            invalidate_audio_hub()
+        except Exception as e:
+            queue_message(f"WARNING: could not invalidate mic stream after sound server recovery: {e}")
         queue_message("INFO: sound server restarted after audio device failure — re-resolving output device")
     except Exception as e:
         queue_message(f"WARNING: sound server recovery failed: {e}")
@@ -858,21 +867,37 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         # barge-in / self-hearing checks treat TTS as over
                         # mid-utterance (false barge-in on the default path).
                         _tts_playing.set()
+                        write_error = None
                         try:
                             await asyncio.to_thread(out_stream.write, data)
+                        except Exception as write_err:
+                            write_error = write_err
                         finally:
                             _tts_playing.clear()
-                        if not first_audio_logged:
-                            import modules.module_speed as speed
-                            speed.mark_first_audio()
-                            first_audio_logged = True
-                        if _tts_cancel_event.is_set():
-                            out_stream.abort()
-                            was_interrupted = True
-                            break
-                        if not is_wakeword:
-                            _tts_needs_flush.set()
-                        continue
+                        if write_error is not None:
+                            # The persistent stream is dead (e.g. wedged USB
+                            # card) — abort it and fall through to the sd.play
+                            # recovery ladder below (-9985 recovery, sound-server
+                            # restart, pw-play fallback) instead of retrying
+                            # the dead stream forever.
+                            queue_message(f"WARNING: persistent output stream write failed ({write_error}) — falling back to sd.play recovery")
+                            try:
+                                out_stream.abort()
+                            except Exception:
+                                pass
+                            out_stream = None
+                        else:
+                            if not first_audio_logged:
+                                import modules.module_speed as speed
+                                speed.mark_first_audio()
+                                first_audio_logged = True
+                            if _tts_cancel_event.is_set():
+                                out_stream.abort()
+                                was_interrupted = True
+                                break
+                            if not is_wakeword:
+                                _tts_needs_flush.set()
+                            continue
 
                     pw_proc = None
                     try:
