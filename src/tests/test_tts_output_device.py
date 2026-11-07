@@ -60,26 +60,59 @@ class TestResolveOutputDevice(unittest.TestCase):
 
 
 class TestPlayFallback(unittest.TestCase):
-    """sd.play raising PortAudioError on the cached device must retry with None."""
+    """sd.play raising PortAudioError must trigger sound-server recovery and retry."""
 
-    def test_play_retries_on_default_device(self):
+    def test_play_recovers_and_retries(self):
         calls = []
 
         def fake_play(data, samplerate, device=None):
             calls.append(device)
-            if device is not None:
+            if len(calls) == 1:
                 raise tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")
 
         tts._output_device = 2
         tts._output_device_resolved = True
-        with mock.patch.object(tts.sd, "play", side_effect=fake_play):
-            # emulate the play path in play_chunks
+        with mock.patch.object(tts.sd, "play", side_effect=fake_play), \
+             mock.patch.object(tts, "_recover_sound_server") as recover, \
+             mock.patch.object(tts, "_resolve_output_device") as resolve, \
+             mock.patch.object(tts.sd, "query_devices", return_value=[_dev("USB PnP")]), \
+             mock.patch.object(tts, "_device_opens", return_value=True):
             try:
                 tts.sd.play(b"x", 16000, device=tts._output_device)
             except tts.sd.PortAudioError:
-                tts._fallback_to_default_output()
-                tts.sd.play(b"x", 16000, device=None)
-        self.assertEqual(calls, [2, None])
+                tts._recover_sound_server()
+                tts._reset_output_device_resolution()
+                tts._resolve_output_device()
+                tts.sd.play(b"x", 16000, device=tts._output_device)
+        recover.assert_called_once()
+        self.assertEqual(len(calls), 2)  # failed on 2, succeeded on re-resolved device
+        self.assertEqual(calls[0], 2)
+
+    def test_final_fallback_to_default_when_retry_also_fails(self):
+        calls = []
+
+        def fake_play(data, samplerate, device=None):
+            calls.append(device)
+            raise tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")
+
+        tts._output_device = 2
+        tts._output_device_resolved = True
+        with mock.patch.object(tts.sd, "play", side_effect=fake_play), \
+             mock.patch.object(tts, "_recover_sound_server"), \
+             mock.patch.object(tts.sd, "query_devices", return_value=[]), \
+             mock.patch.object(tts, "_resolve_output_device", side_effect=lambda: setattr(tts, "_output_device", None) or setattr(tts, "_output_device_resolved", True)):
+            try:
+                tts.sd.play(b"x", 16000, device=tts._output_device)
+            except tts.sd.PortAudioError:
+                tts._recover_sound_server()
+                tts._reset_output_device_resolution()
+                tts._resolve_output_device()
+                try:
+                    tts.sd.play(b"x", 16000, device=tts._output_device)
+                except tts.sd.PortAudioError:
+                    tts._fallback_to_default_output()
+                    tts.sd.play(b"x", 16000, device=None)
+        self.assertEqual(calls, [2, None, None])
         self.assertIsNone(tts._output_device)
 
 

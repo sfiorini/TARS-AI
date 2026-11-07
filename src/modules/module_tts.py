@@ -111,6 +111,34 @@ def _fallback_to_default_output():
     _output_device_resolved = True
 
 
+def _recover_sound_server():
+    """Best-effort restart of the user sound server and PortAudio re-init.
+
+    Servo power-on spikes can wedge the USB audio card: PipeWire keeps a dead
+    stream on the PCM (subdevices 0/1), after which BOTH direct hw opens and
+    the pulse default fail with PaErrorCode -9985. Restarting the user sound
+    services releases the card. No sudo needed — these are --user services.
+    """
+    import subprocess, time
+    try:
+        subprocess.run(
+            ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"],
+            timeout=20, capture_output=True,
+        )
+        time.sleep(2)
+        sd._terminate()
+        sd._initialize()
+        queue_message("INFO: sound server restarted after audio device failure — re-resolving output device")
+    except Exception as e:
+        queue_message(f"WARNING: sound server recovery failed: {e}")
+
+
+def _reset_output_device_resolution():
+    global _output_device, _output_device_resolved
+    _output_device = None
+    _output_device_resolved = False
+
+
 def init_audio_output():
     """Resolve and log the audio output device at startup."""
     _resolve_output_device()
@@ -745,11 +773,19 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 try:
                     sd.play(data, samplerate, device=_output_device)
                 except sd.PortAudioError as e:
-                    # Device may have become unavailable (e.g. sound server took
-                    # it over after a reboot): retry once on the system default.
-                    queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — retrying on system default")
-                    _fallback_to_default_output()
-                    sd.play(data, samplerate, device=None)
+                    # Device unavailable (PaErrorCode -9985): the USB card can be
+                    # wedged by a dead PipeWire stream after servo power-on spikes.
+                    # Restart the user sound server, re-resolve the device, retry once.
+                    queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — recovering sound server and retrying")
+                    _recover_sound_server()
+                    _reset_output_device_resolution()
+                    _resolve_output_device()
+                    try:
+                        sd.play(data, samplerate, device=_output_device)
+                    except sd.PortAudioError as e2:
+                        queue_message(f"WARNING: retry on resolved device failed ({e2}) — final retry on system default")
+                        _fallback_to_default_output()
+                        sd.play(data, samplerate, device=None)
                 _tts_playing.set()
 
                 # Log time-to-first-audio on the first chunk
