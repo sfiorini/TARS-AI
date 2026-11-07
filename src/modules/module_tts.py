@@ -809,144 +809,154 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
             out_stream = None
         first_audio_logged = False
 
-        while True:
-            if _tts_cancel_event.is_set():
-                was_interrupted = True
-                break
+        try:
+            while True:
+                if _tts_cancel_event.is_set():
+                    was_interrupted = True
+                    break
 
-            try:
                 try:
-                    audio_chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
-                except asyncio.TimeoutError:
-                    if synthesis_done.is_set() and audio_queue.empty():
-                        break
-                    continue
+                    try:
+                        audio_chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.1)
+                    except asyncio.TimeoutError:
+                        if synthesis_done.is_set() and audio_queue.empty():
+                            break
+                        continue
 
-                data, samplerate = sf.read(audio_chunk, dtype='float32')
+                    data, samplerate = sf.read(audio_chunk, dtype='float32')
 
-                # Resample to 16kHz if needed
-                if samplerate != 44100:
-                    ratio = 44100 / samplerate
-                    new_len = int(len(data) * ratio)
-                    if data.ndim == 1:
-                        indices = np.linspace(0, len(data) - 1, new_len)
-                        data = np.interp(indices, np.arange(len(data)), data)
-                    else:
-                        indices = np.linspace(0, len(data) - 1, new_len)
-                        data = np.column_stack([
-                            np.interp(indices, np.arange(len(data)), data[:, ch])
-                            for ch in range(data.shape[1])
-                        ])
-                    samplerate = 44100
+                    # Resample to 16kHz if needed
+                    if samplerate != 44100:
+                        ratio = 44100 / samplerate
+                        new_len = int(len(data) * ratio)
+                        if data.ndim == 1:
+                            indices = np.linspace(0, len(data) - 1, new_len)
+                            data = np.interp(indices, np.arange(len(data)), data)
+                        else:
+                            indices = np.linspace(0, len(data) - 1, new_len)
+                            data = np.column_stack([
+                                np.interp(indices, np.arange(len(data)), data[:, ch])
+                                for ch in range(data.shape[1])
+                            ])
+                        samplerate = 44100
 
-                # Per-chunk peak normalization causes volume pumping between
-                # streaming slices; only normalize long (non-streaming) chunks.
-                if len(data) / max(samplerate, 1) > 2.0:
-                    max_val = np.max(np.abs(data))
-                    if max_val > 0:
-                        data = data / max_val
+                    # Per-chunk peak normalization causes volume pumping between
+                    # streaming slices; only normalize long (non-streaming) chunks.
+                    if len(data) / max(samplerate, 1) > 2.0:
+                        max_val = np.max(np.abs(data))
+                        if max_val > 0:
+                            data = data / max_val
 
-                gain = _playback_gain()
-                data = np.clip(data * gain, -1.0, 1.0)
+                    gain = _playback_gain()
+                    data = np.clip(data * gain, -1.0, 1.0)
 
-                if out_stream is not None:
-                    if data.ndim > 1:
-                        data = np.ascontiguousarray(data[:, 0])
-                    await asyncio.to_thread(out_stream.write, data)
+                    if out_stream is not None:
+                        if data.ndim > 1:
+                            data = np.ascontiguousarray(data[:, 0])
+                        # Set BEFORE the write: is_tts_playing() must be True
+                        # while audio is actually being output, else STT's
+                        # barge-in / self-hearing checks treat TTS as over
+                        # mid-utterance (false barge-in on the default path).
+                        _tts_playing.set()
+                        try:
+                            await asyncio.to_thread(out_stream.write, data)
+                        finally:
+                            _tts_playing.clear()
+                        if not first_audio_logged:
+                            import modules.module_speed as speed
+                            speed.mark_first_audio()
+                            first_audio_logged = True
+                        if _tts_cancel_event.is_set():
+                            out_stream.abort()
+                            was_interrupted = True
+                            break
+                        if not is_wakeword:
+                            _tts_needs_flush.set()
+                        continue
+
+                    pw_proc = None
+                    try:
+                        sd.play(data, samplerate, device=_output_device)
+                    except sd.PortAudioError as e:
+                        # Device unavailable (PaErrorCode -9985): the USB card can be
+                        # wedged by a dead PipeWire stream after servo power-on spikes.
+                        # Restart the user sound server, re-resolve the device, retry once.
+                        queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — recovering sound server and retrying")
+                        _recover_sound_server()
+                        _reset_output_device_resolution()
+                        _resolve_output_device()
+                        try:
+                            sd.play(data, samplerate, device=_output_device)
+                        except sd.PortAudioError as e2:
+                            queue_message(f"WARNING: retry on resolved device failed ({e2}) — final retry on system default")
+                            _fallback_to_default_output()
+                            try:
+                                sd.play(data, samplerate, device=None)
+                            except sd.PortAudioError as e3:
+                                queue_message(f"WARNING: all PortAudio devices failed ({e3}) — falling back to pw-play")
+                                pw_proc = _play_via_pwplay(data, samplerate)
                     _tts_playing.set()
-                    if not first_audio_logged:
-                        import modules.module_speed as speed
-                        speed.mark_first_audio()
-                        first_audio_logged = True
-                    if _tts_cancel_event.is_set():
-                        out_stream.abort()
-                        was_interrupted = True
-                        break
+
+                    # Log time-to-first-audio on the first chunk
+                    import modules.module_speed as speed
+                    speed.mark_first_audio()
+
+                    # Poll instead of sd.wait() so we can check for barge-in
+                    while True:
+                        if _tts_cancel_event.is_set():
+                            if pw_proc is not None:
+                                pw_proc.terminate()
+                            else:
+                                sd.stop()
+                            was_interrupted = True
+                            break
+                        if pw_proc is not None:
+                            if pw_proc.poll() is not None:
+                                break
+                        else:
+                            try:
+                                stream = sd.get_stream()
+                                if stream is None or not stream.active:
+                                    break
+                            except Exception:
+                                break
+                        await asyncio.sleep(0.05)
+                    if pw_proc is not None:
+                        try:
+                            import os as _os
+                            _os.unlink(pw_proc.args[-1])
+                        except Exception:
+                            pass
+
                     _tts_playing.clear()
                     if not is_wakeword:
                         _tts_needs_flush.set()
-                    continue
 
-                pw_proc = None
-                try:
-                    sd.play(data, samplerate, device=_output_device)
-                except sd.PortAudioError as e:
-                    # Device unavailable (PaErrorCode -9985): the USB card can be
-                    # wedged by a dead PipeWire stream after servo power-on spikes.
-                    # Restart the user sound server, re-resolve the device, retry once.
-                    queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — recovering sound server and retrying")
-                    _recover_sound_server()
-                    _reset_output_device_resolution()
-                    _resolve_output_device()
-                    try:
-                        sd.play(data, samplerate, device=_output_device)
-                    except sd.PortAudioError as e2:
-                        queue_message(f"WARNING: retry on resolved device failed ({e2}) — final retry on system default")
-                        _fallback_to_default_output()
-                        try:
-                            sd.play(data, samplerate, device=None)
-                        except sd.PortAudioError as e3:
-                            queue_message(f"WARNING: all PortAudio devices failed ({e3}) — falling back to pw-play")
-                            pw_proc = _play_via_pwplay(data, samplerate)
-                _tts_playing.set()
-
-                # Log time-to-first-audio on the first chunk
-                import modules.module_speed as speed
-                speed.mark_first_audio()
-
-                # Poll instead of sd.wait() so we can check for barge-in
-                while True:
-                    if _tts_cancel_event.is_set():
-                        if pw_proc is not None:
-                            pw_proc.terminate()
-                        else:
-                            sd.stop()
-                        was_interrupted = True
+                    if was_interrupted:
                         break
-                    if pw_proc is not None:
-                        if pw_proc.poll() is not None:
+
+                    # Brief pause between chunks for barge-in detection.
+                    # Monitor checks mic RMS only when _tts_playing is clear.
+                    # Skip it for streaming slices (<3s) or playback stutters —
+                    # the window only makes sense between full sentences.
+                    chunk_seconds = len(data) / max(samplerate, 1)
+                    window = 6 if chunk_seconds >= 3.0 else 0
+                    for _ in range(window):  # 300ms window (6 x 50ms)
+                        if _tts_cancel_event.is_set():
+                            was_interrupted = True
                             break
-                    else:
-                        try:
-                            stream = sd.get_stream()
-                            if stream is None or not stream.active:
-                                break
-                        except Exception:
-                            break
-                    await asyncio.sleep(0.05)
-                if pw_proc is not None:
-                    try:
-                        import os as _os
-                        _os.unlink(pw_proc.args[-1])
-                    except Exception:
-                        pass
+                        await asyncio.sleep(0.05)
 
-                _tts_playing.clear()
-                if not is_wakeword:
-                    _tts_needs_flush.set()
-
-                if was_interrupted:
-                    break
-
-                # Brief pause between chunks for barge-in detection.
-                # Monitor checks mic RMS only when _tts_playing is clear.
-                # Skip it for streaming slices (<3s) or playback stutters —
-                # the window only makes sense between full sentences.
-                chunk_seconds = len(data) / max(samplerate, 1)
-                window = 6 if chunk_seconds >= 3.0 else 0
-                for _ in range(window):  # 300ms window (6 x 50ms)
-                    if _tts_cancel_event.is_set():
-                        was_interrupted = True
+                    if was_interrupted:
                         break
-                    await asyncio.sleep(0.05)
 
-                if was_interrupted:
-                    break
-
-            except Exception as e:
-                queue_message(f"ERROR: Failed to play chunk: {e}")
-                if synthesis_done.is_set() and audio_queue.empty():
-                    break
+                except Exception as e:
+                    queue_message(f"ERROR: Failed to play chunk: {e}")
+                    if synthesis_done.is_set() and audio_queue.empty():
+                        break
+        finally:
+            # A1: never leave _tts_playing set after play_chunks ends.
+            _tts_playing.clear()
 
         if out_stream is not None:
             try:
