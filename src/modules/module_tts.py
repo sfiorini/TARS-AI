@@ -837,13 +837,16 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
             async for audio_chunk in gen:
                 if _tts_cancel_event.is_set():
                     break
-                # Use put_nowait with a wait loop so we can check for cancellation
-                while not _tts_cancel_event.is_set():
-                    try:
-                        audio_queue.put_nowait(audio_chunk)
-                        break
-                    except asyncio.QueueFull:
-                        await asyncio.sleep(0.05)
+                # Bounded put (C14): waiting on queue.put with a short deadline
+                # replaces the old busy-wait spin (non-blocking enqueue +
+                # sleep) — one code path, and the cancel check above still
+                # runs every iteration. A full queue that does not drain
+                # within the deadline drops the chunk (playback keeps moving
+                # with the next one) instead of spinning on the dead consumer.
+                try:
+                    await asyncio.wait_for(audio_queue.put(audio_chunk), 0.05)
+                except asyncio.TimeoutError:
+                    pass
         except Exception as e:
             queue_message(f"ERROR: Synthesis failed: {e}")
         finally:

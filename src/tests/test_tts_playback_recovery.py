@@ -336,6 +336,32 @@ class TestPerUtteranceCancelToken(PlayTestCase):
         self.assertEqual(len(fake2.writes), 1)
 
 
+class TestSynthesizeChunksBoundedPut(PlayTestCase):
+    """C14: synthesize_chunks must use a bounded asyncio.wait_for(queue.put,
+    0.05) instead of the put_nowait + sleep(0.05) busy-wait spin, keeping the
+    cancel check on every iteration."""
+
+    def test_full_queue_still_yields_chunks_when_consumer_drains(self):
+        # 10 chunks through the maxsize=3 queue with a fast consumer: the
+        # producer must keep making progress while the consumer drains —
+        # every chunk is delivered, none lost to a full queue.
+        chunks = [_wav_chunk(0.02) for _ in range(10)]
+        fake = _FakeOutputStream()
+        with self._play_ctx(chunks, stream_factory=mock.Mock(return_value=fake)):
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertFalse(result)
+        self.assertEqual(len(fake.writes), 10)
+
+    def test_put_nowait_spin_replaced_by_bounded_wait(self):
+        # The mechanism itself: no put_nowait/QueueFull busy-wait spin left
+        # in play_audio_chunks; the bounded wait_for put is used instead.
+        import inspect
+        source = inspect.getsource(tts.play_audio_chunks)
+        self.assertNotIn("put_nowait", source)
+        self.assertNotIn("QueueFull", source)
+        self.assertIn("wait_for(audio_queue.put", source)
+
+
 class TestDeadCodeRemoval(unittest.TestCase):
     """B3: play_audio_stream (module_tts.py) had zero callers and duplicated
     resample/normalize/gain with different constants — it must stay deleted so
