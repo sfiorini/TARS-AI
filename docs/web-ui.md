@@ -33,6 +33,10 @@ Templates in `src/www/templates/tabs/`:
 
 Plus `/holo` — the standalone talking-head view (avatar sprites per emotion via `/character_sprite/<emo>/animation/<file>`, pushed over SocketIO as `emotion_change`).
 
+## TTS provider selector
+
+The config tab's TTS provider selector sets **only the primary provider** (`[TTS] ttsoption`) — changing it does **not** disable the fallback chain: the effective chain stays `dedup([ttsoption] + tts_fallback_list)` with `espeak` always appended last, so a failing primary still fails over (each failover is logged with its reason). To go fully offline, also set `tts_fallback_list = external,piper,espeak` (or shorter). See [Voice Pipeline](voice-pipeline.md) for the chain semantics.
+
 ## Key endpoints
 
 | Endpoint | Purpose |

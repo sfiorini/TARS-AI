@@ -12,6 +12,21 @@ Known symptoms on the V3 fork, their cause, and the fix. Logs first: `tail -f sr
 - Server mode: `curl -s http://<server-host>:5678/health` must answer, and `.env` `EXTERNAL_API_KEY` must equal the server host's `config-server.ini` `api_key`.
 - Mic: raise `mic_amp_gain` if too quiet; lower `silence_margin` for more sensitivity; check `speechdelay` isn't cutting you off; `use_indicators = True` gives audible beeps when listening starts/stops.
 
+## TARS is silent / TTS keeps failing over
+
+The ordered chain never hangs: on any provider failure it logs a typed reason and moves on, e.g. `WARNING: TTS provider 'fishaudio' failed (QuotaExhausted: …) — failing over to 'speechify'`. Read the reason in the parentheses — it names the exact problem:
+
+- **`QuotaExhausted`** — the provider has no credit left. Fish.audio free tier (`fishaudio_model = s2.1-pro-free`) exhausts with **HTTP 402**; top up your Fish account and set `fishaudio_model = s2.1-pro` in `src/config.ini` (config-only change, no code). Speechify reports it as `payment_required` / `spend_cap_exceeded`; ElevenLabs as a 429/401 with a quota body.
+- **`RateLimited`** — 429 concurrency limit; the provider already did its one backoff retry. Wait or switch primary provider.
+- **`AuthFailed`** — 401/4xx: bad or missing credentials for that provider; check the matching key in `.env`.
+- **`TransientError`** — 5xx/timeout after the single retry; network or server-side, usually self-heals.
+
+A **missing API key skips the provider before any HTTP request** (`WARNING: FISH_AUDIO_API_KEY not set — skipping Fish.audio TTS (no request sent)`; same pattern for `SPEECHIFY_API_KEY` / `ELEVENLABS_API_KEY` / `OPENAI_API_KEY`) — the key lives in `.env`, never in `config.ini`, and is never logged. If the whole chain yields nothing, `espeak` (always appended last) still speaks.
+
+`ERROR: TTS per-utterance deadline exceeded before/during provider '…' — giving up/stopping` means the whole-chain deadline (`tts_timeout` × chain length) ran out — raise `[TTS] tts_timeout` or shorten `tts_fallback_list`.
+
+If playback itself fails: `WARNING: all PortAudio devices failed (…) — falling back to pw-play` means the USB card was wedged and TARS played the chunk through PipeWire's native API (pw-play subprocess, bypassing the dead ALSA device) — see [Voice Pipeline](voice-pipeline.md) for the full recovery ladder.
+
 ## App says it's moving but the servos are silent
 
 The **PCA9685 MODE2 glitch**: the chip still ACKs on I2C, but with MODE2 ≠ `0x04` the outputs don't drive (`0x01` = silent, `0x0B`/`0x1E` = high-impedance). Check and repair:

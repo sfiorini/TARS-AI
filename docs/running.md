@@ -64,6 +64,8 @@ tail -f ~/TARS-AI/src/logs/tars-ai.log
 
 Servo-specific events (watchdog repairs, I2C errors, stuck-MOVING resets) appear here as `SERVO:` / `WARNING:` lines — see [Servo Watchdog & Recovery](servo-watchdog.md).
 
+TTS failover lines also land here: `WARNING: TTS provider '…' failed (QuotaExhausted / RateLimited / AuthFailed / TransientError: …) — failing over to '…'` whenever the ordered provider chain switches to the next provider, plus `ERROR: TTS per-utterance deadline exceeded …` if the whole chain ran out of time — see [Voice Pipeline](voice-pipeline.md) and [Troubleshooting](troubleshooting.md).
+
 ## Other root scripts
 
 - `launch_retropie.sh` — hand control to RetroPie (used by `skill_launch_retropie`).

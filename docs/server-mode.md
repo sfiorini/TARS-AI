@@ -64,7 +64,7 @@ On the Pi, once:
 ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>
 ```
 
-Sets `[TTS] ttsoption = elevenlabs` + `ttsurl = http://<server-host>:5678`, `[STT] stt_processor = elevenlabs` + `external_url = http://<server-host>:5678`, `[VISION] vision_processor = external, use_llm_backend = False, base_url = http://<server-host>:5678`, `[RAG] embedding_source = external, embedding_url = http://<server-host>:5678`, and upserts `EXTERNAL_API_KEY` in `.env`. `[LLM]` stays on the Pi.
+Sets the cloud-first TTS chain — `[TTS] ttsoption = fishaudio`, `tts_fallback_list = speechify,elevenlabs,external,piper,espeak` (→ **fishaudio → speechify → elevenlabs → external → piper → espeak**), `ttsurl = http://<server-host>:5678`, `fishaudio_model = s2.1-pro-free`, `fishaudio_latency = low`, `fishaudio_reference_id = 6a57e35f…` (the public "Tars" voice) and `piper_robot_fx = True` — plus `[STT] stt_processor = elevenlabs` + `external_url = http://<server-host>:5678`, `[VISION] vision_processor = external, use_llm_backend = False, base_url = http://<server-host>:5678`, `[RAG] embedding_source = external, embedding_url = http://<server-host>:5678`, and upserts `EXTERNAL_API_KEY` in `.env`. `[LLM]` stays on the Pi.
 
 ## Verifying the server
 
@@ -81,7 +81,7 @@ curl -s -H "Authorization: Bearer $KEY" -X POST http://<server-host>:5678/v1/emb
      -H 'Content-Type: application/json' -d '{"input":"hello"}' | head -c 120
 ```
 
-The robot's runtime flow: ElevenLabs Scribe is primary STT, the server host's whisper (`external_url`, 30 s timeout) is the automatic fallback; TTS is ElevenLabs → external Piper → local piper → espeak (see [Voice Pipeline](voice-pipeline.md)).
+The robot's runtime flow: ElevenLabs Scribe is primary STT, the server host's whisper (`external_url`, 30 s timeout) is the automatic fallback; TTS is **fishaudio → speechify → elevenlabs → external (server Piper) → piper → espeak** — the chain `scripts/configure_tars_client.sh` sets (see [Voice Pipeline](voice-pipeline.md)).
 
 ## `config-server.ini`
 
