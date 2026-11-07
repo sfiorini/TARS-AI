@@ -183,8 +183,11 @@ class TestRunSoxChain(unittest.TestCase):
             out = module_piper._run_sox_chain(b"RAWWAV", DEFAULT_FX)
         self.assertEqual(out, b"PROCESSED-WAV")
         cmd = popen.call_args.args[0]
-        self.assertEqual(cmd[:3], ["/usr/bin/sox", "-", "-"])
-        self.assertEqual(cmd[3:], shlex.split(DEFAULT_FX))
+        # stdin/stdout are '-' but the wav format must be declared explicitly
+        # (sox cannot sniff the type of a pipe)
+        self.assertEqual(cmd[:6], ["/usr/bin/sox", "-t", "wav", "-", "-t", "wav"])
+        self.assertEqual(cmd[6], "-")
+        self.assertEqual(cmd[7:], shlex.split(DEFAULT_FX))
         self.assertEqual(popen.call_args.kwargs["stdin"], module_piper.subprocess.PIPE)
         self.assertEqual(popen.call_args.kwargs["stdout"], module_piper.subprocess.PIPE)
         proc.communicate.assert_called_once_with(input=b"RAWWAV", timeout=module_piper.SOX_TIMEOUT)

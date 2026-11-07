@@ -188,7 +188,8 @@ def _run_sox_chain(wav_bytes, fx_chain):
     if not sox:
         queue_message("WARNING: [Piper] piper_robot_fx is enabled but sox is not installed — using unprocessed audio")
         return None
-    cmd = [sox, '-', '-'] + shlex.split(fx_chain)
+    # sox cannot sniff the format of stdin ('-'), so declare wav explicitly on both ends
+    cmd = [sox, '-t', 'wav', '-', '-t', 'wav', '-'] + shlex.split(fx_chain)
     try:
         proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = proc.communicate(input=wav_bytes, timeout=SOX_TIMEOUT)
