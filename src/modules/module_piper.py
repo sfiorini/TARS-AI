@@ -76,7 +76,17 @@ def _is_lfs_pointer(filepath):
         return False
 
 voice = None
-if CONFIG['TTS']['ttsoption'] == 'piper':
+
+def _ensure_voice_loaded():
+    """Load the Piper voice model on first use, regardless of ttsoption.
+
+    The TTS fallback chain may reach Piper even when ttsoption is another
+    provider, so the model cannot be loaded only when ttsoption == 'piper'.
+    Returns True when the voice is loaded and usable.
+    """
+    global voice
+    if voice is not None:
+        return True
     # Auto-download from Hugging Face if missing or is a Git LFS pointer
     if not os.path.isfile(model_path) or _is_lfs_pointer(model_path):
         queue_message(f"[Piper] Voice model missing or incomplete, attempting download from Hugging Face...")
@@ -99,11 +109,16 @@ if CONFIG['TTS']['ttsoption'] == 'piper':
                 elif hasattr(voice, "synthesize"):
                     voice.synthesize("warm", _wf)
             del _warmup_buf
+            return True
         except Exception as e:
             queue_message(f"[Piper] Failed to load voice model: {e}")
             queue_message(f"[Piper] The file may be corrupt: {model_path}")
             queue_message("[Piper] Try re-downloading the .onnx voice model.")
             voice = None
+    return False
+
+if CONFIG['TTS']['ttsoption'] == 'piper':
+    _ensure_voice_loaded()
 
 def _get_piper_speaker_id(emotion):
     """Return speaker ID for the given emotion axis, or None if multispeaker is disabled."""
@@ -243,7 +258,7 @@ async def text_to_speech_with_pipelining_piper(text, emotion=None):
     Converts text to speech using the Piper model and streams audio as it's generated.
     When piper_multispeaker is enabled, selects speaker based on detected emotion.
     """
-    if voice is None:
+    if not _ensure_voice_loaded():
         queue_message("[Piper] Cannot synthesize - voice model not loaded. Check logs for details.")
         return
 
