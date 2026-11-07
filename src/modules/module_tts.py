@@ -74,16 +74,38 @@ def _resolve_output_device():
         else:
             hw_devices.append((i, dev))
 
-    # Pick best device: USB > hardware > virtual
+    # Pick best device: USB > hardware > virtual.
+    # Validate each candidate by actually opening a stream: after a reboot the
+    # sound server (PipeWire/PulseAudio) may already hold the raw hw PCM, in
+    # which case a direct hw open fails with PaErrorCode -9985 (device
+    # unavailable). Skip such devices and finally fall back to the system
+    # default (None), which routes through the sound server.
     for label, candidates in [("USB", usb_devices), ("hardware", hw_devices), ("virtual", virtual_devices)]:
-        if candidates:
-            idx, dev = candidates[0]
-            _output_device = idx
-            queue_message(f"INFO: Audio output: {dev['name']} (device {idx}, {label})")
-            return
+        for idx, dev in candidates:
+            if _device_opens(idx):
+                _output_device = idx
+                queue_message(f"INFO: Audio output: {dev['name']} (device {idx}, {label})")
+                return
+            queue_message(f"WARNING: Audio device {dev['name']} (device {idx}) unavailable — trying next")
 
-    queue_message("WARNING: No audio output device found — using system default")
+    queue_message("WARNING: No directly-openable audio output device found — using system default (sound server)")
     _output_device = None
+
+
+def _device_opens(idx):
+    """True if a short OutputStream can be opened on device idx right now."""
+    try:
+        with sd.OutputStream(device=idx, samplerate=16000, channels=1, dtype='float32', blocksize=1024):
+            return True
+    except Exception:
+        return False
+
+
+def _fallback_to_default_output():
+    """Switch cached output device to the system default (sound server route)."""
+    global _output_device, _output_device_resolved
+    _output_device = None
+    _output_device_resolved = True
 
 
 def init_audio_output():
@@ -717,7 +739,14 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                 gain = 1.5
                 data = np.clip(data * gain, -1.0, 1.0)
 
-                sd.play(data, samplerate, device=_output_device)
+                try:
+                    sd.play(data, samplerate, device=_output_device)
+                except sd.PortAudioError as e:
+                    # Device may have become unavailable (e.g. sound server took
+                    # it over after a reboot): retry once on the system default.
+                    queue_message(f"WARNING: Audio device {_output_device} failed ({e}) — retrying on system default")
+                    _fallback_to_default_output()
+                    sd.play(data, samplerate, device=None)
                 _tts_playing.set()
 
                 # Log time-to-first-audio on the first chunk
