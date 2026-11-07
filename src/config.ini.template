@@ -118,8 +118,15 @@ silence_margin = 3.0
 [TTS]
 # Use voice settings from character card instead of settings above
 toggle_charvoice = True
-# TTS engine: espeak | piper | silero | elevenlabs | openai | other | external
+# TTS engine: espeak | piper | silero | elevenlabs | openai | fishaudio | speechify | other | external
 ttsoption = piper
+# Ordered fallback chain — providers tried in this order when ttsoption fails
+# (quota exhausted, rate limited, auth error, timeout, or empty audio).
+# Comma-separated (a JSON array like ["speechify","piper"] also works).
+# "espeak" is always appended automatically as the final fallback.
+tts_fallback_list = external,piper,espeak
+# Per-request HTTP timeout in seconds for cloud TTS providers (fishaudio, speechify, elevenlabs, openai)
+tts_timeout = 30
 # External TTS server URL (ttsoption = other or external)
 ttsurl = 
 # Voice name/ID for external TTS server
@@ -128,6 +135,19 @@ tts_voice =
 elevenlabs_voice_id = JBFqnCBsd6RMkjVDRZzb
 # ElevenLabs model: eleven_multilingual_v2 | eleven_monolingual_v1 | eleven_turbo_v2
 elevenlabs_model = eleven_multilingual_v2
+# Fish.audio model — sent as the "model" HTTP header on EVERY request (omit it and
+# Fish silently bills the paid model). s2.1-pro-free = free tier; when it starts
+# returning 402, top up and set fishaudio_model = s2.1-pro here (config-only change).
+# API key comes from FISH_AUDIO_API_KEY in .env — never stored here.
+fishaudio_model = s2.1-pro-free
+# Fish.audio voice reference_id — a voice model id from https://fish.audio/m/<id>
+# (or your own clone). Leave empty to use Fish's default voice.
+fishaudio_reference_id =
+# Speechify voice id — list voices: GET https://api.speechify.ai/v1/voices with your
+# SPEECHIFY_API_KEY. API key comes from .env — never stored here.
+speechify_voice_id = george
+# Speechify model
+speechify_model = simba-3.5
 # OpenAI TTS voice: alloy | echo | fable | onyx | nova | shimmer
 openai_voice = onyx
 # Enable multi-speaker Piper model — maps detected emotion to a speaker ID (True/False)

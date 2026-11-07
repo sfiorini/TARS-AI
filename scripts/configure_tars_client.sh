@@ -1,6 +1,8 @@
 #!/bin/bash
-# Configure the TARS client (robot): ElevenLabs cloud STT/TTS (primary) with
-# mini app-server fallback; vision/embeddings offloaded to mini.
+# Configure the TARS client (robot): Fish.audio cloud TTS primary with an
+# ordered fallback chain (speechify -> elevenlabs -> external mini server ->
+# local piper -> espeak); ElevenLabs cloud STT primary; vision/embeddings
+# offloaded to mini.
 # Also sets the robot voice config: Fish.audio public "Tars" voice
 # (fishaudio_reference_id) and the local-Piper sox robot-FX chain.
 #
@@ -54,8 +56,10 @@ set_kv() {
     fi
 }
 
-# --- [TTS]: ElevenLabs primary, external (mini) fallback ---
-set_kv TTS ttsoption elevenlabs
+# --- [TTS]: Fish.audio primary; ordered fallback chain on the robot:
+# fishaudio -> speechify -> elevenlabs -> external (mini) -> piper (local) -> espeak ---
+set_kv TTS ttsoption fishaudio
+set_kv TTS tts_fallback_list speechify,elevenlabs,external,piper,espeak
 set_kv TTS ttsurl http://mini:5678
 
 # --- [TTS]: voice config ---

@@ -11,7 +11,7 @@ import os
 import sys
 import configparser
 from dotenv import load_dotenv
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Dict, List, Set
 from enum import Enum
 
@@ -59,7 +59,7 @@ DEVICE_PROFILES: Dict[DeviceProfile, DeviceCapabilities] = {
     DeviceProfile.PI5: DeviceCapabilities(
         profile=DeviceProfile.PI5,
         allowed_stt={"fastrtc", "silero", "openai", "external", "elevenlabs", "sherpa-onnx"},
-        allowed_tts={"espeak", "piper", "silero", "elevenlabs", "openai", "other", "external"},
+        allowed_tts={"espeak", "piper", "silero", "elevenlabs", "openai", "fishaudio", "speechify", "other", "external"},
         allowed_vad={"silero", "rms", "sherpa-onnx", "smart-turn"},
         allowed_wake={"fastrtc", "atomik", "sherpa-onnx"},
         can_use_embeddings=True,
@@ -77,7 +77,7 @@ DEVICE_PROFILES: Dict[DeviceProfile, DeviceCapabilities] = {
     DeviceProfile.PI4: DeviceCapabilities(
         profile=DeviceProfile.PI4,
         allowed_stt={"openai", "external", "sherpa-onnx"},
-        allowed_tts={"espeak", "piper", "elevenlabs", "openai", "other", "external"},
+        allowed_tts={"espeak", "piper", "elevenlabs", "openai", "fishaudio", "speechify", "other", "external"},
         allowed_vad={"silero", "rms", "sherpa-onnx", "smart-turn"},
         allowed_wake={"atomik", "sherpa-onnx"},
         can_use_embeddings=True,
@@ -95,7 +95,7 @@ DEVICE_PROFILES: Dict[DeviceProfile, DeviceCapabilities] = {
     DeviceProfile.PI3: DeviceCapabilities(
         profile=DeviceProfile.PI3,
         allowed_stt={"openai", "external"},
-        allowed_tts={"espeak", "elevenlabs", "openai", "other", "external"},
+        allowed_tts={"espeak", "elevenlabs", "openai", "fishaudio", "speechify", "other", "external"},
         allowed_vad={"rms", "sherpa-onnx"},
         allowed_wake={"atomik", "sherpa-onnx"},
         can_use_embeddings=False,
@@ -113,7 +113,7 @@ DEVICE_PROFILES: Dict[DeviceProfile, DeviceCapabilities] = {
     DeviceProfile.PIZERO2: DeviceCapabilities(
         profile=DeviceProfile.PIZERO2,
         allowed_stt={"openai"},
-        allowed_tts={"elevenlabs", "openai", "other", "external"},
+        allowed_tts={"elevenlabs", "openai", "fishaudio", "speechify", "other", "external"},
         allowed_vad={"rms"},
         allowed_wake={"atomik"},
         can_use_embeddings=False,
@@ -249,6 +249,46 @@ def _as_bool(value, default: bool = False) -> bool:
     return bool(value)
 
 
+# ── TTS provider-chain defaults (single source for template + code) ──
+DEFAULT_TTS_FALLBACK_LIST = "external,piper,espeak"
+DEFAULT_FISHAUDIO_MODEL = "s2.1-pro-free"
+DEFAULT_SPEECHIFY_VOICE_ID = "george"
+DEFAULT_SPEECHIFY_MODEL = "simba-3.5"
+DEFAULT_TTS_TIMEOUT = 30.0
+
+
+def _parse_tts_fallback_list(value) -> List[str]:
+    """Parse [TTS] tts_fallback_list — comma-separated string, JSON array, or list.
+
+    None/missing -> template default; empty string -> [] (the chain runner always
+    appends 'espeak' as the final fallback anyway).
+    """
+    if value is None:
+        value = DEFAULT_TTS_FALLBACK_LIST
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    value = str(value).strip()
+    if not value:
+        return []
+    if value.startswith('[') and value.endswith(']'):
+        try:
+            import json
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item).strip() for item in parsed if str(item).strip()]
+        except (ValueError, TypeError):
+            pass  # not valid JSON — fall through and treat as comma-separated
+    return [item.strip() for item in value.split(',') if item.strip()]
+
+
+def _parse_tts_timeout(value) -> float:
+    """Coerce [TTS] tts_timeout to float; unparseable -> default. validate() rejects <= 0."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_TTS_TIMEOUT
+
+
 @dataclass
 class TTSConfig:
     ttsoption: str
@@ -274,6 +314,14 @@ class TTSConfig:
     piper_speaker_anger: int = 7
     piper_robot_fx: bool = False
     piper_fx: Optional[str] = None
+    tts_fallback_list: List[str] = field(default_factory=lambda: _parse_tts_fallback_list(None))
+    fishaudio_api_key: Optional[str] = None
+    fishaudio_model: Optional[str] = None
+    fishaudio_reference_id: Optional[str] = None
+    speechify_api_key: Optional[str] = None
+    speechify_voice_id: Optional[str] = None
+    speechify_model: Optional[str] = None
+    tts_timeout: float = DEFAULT_TTS_TIMEOUT
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -286,6 +334,13 @@ class TTSConfig:
             if not self.elevenlabs_api_key:
                 queue_message("ERROR: ElevenLabs API key is required for ElevenLabs TTS")
                 return False
+        try:
+            timeout = float(self.tts_timeout)
+        except (TypeError, ValueError):
+            timeout = -1.0
+        if not timeout > 0:
+            queue_message(f"ERROR: [TTS] tts_timeout must be a positive number of seconds, got {self.tts_timeout!r}")
+            return False
         return True
 
     @classmethod
@@ -314,6 +369,14 @@ class TTSConfig:
             piper_speaker_anger=config_dict.get('piper_speaker_anger', 7),
             piper_robot_fx=_as_bool(config_dict.get('piper_robot_fx', False), False),
             piper_fx=config_dict.get('piper_fx'),
+            tts_fallback_list=_parse_tts_fallback_list(config_dict.get('tts_fallback_list')),
+            fishaudio_api_key=config_dict.get('fishaudio_api_key'),
+            fishaudio_model=config_dict.get('fishaudio_model') or DEFAULT_FISHAUDIO_MODEL,
+            fishaudio_reference_id=config_dict.get('fishaudio_reference_id'),
+            speechify_api_key=config_dict.get('speechify_api_key'),
+            speechify_voice_id=config_dict.get('speechify_voice_id') or DEFAULT_SPEECHIFY_VOICE_ID,
+            speechify_model=config_dict.get('speechify_model') or DEFAULT_SPEECHIFY_MODEL,
+            tts_timeout=_parse_tts_timeout(config_dict.get('tts_timeout', DEFAULT_TTS_TIMEOUT)),
         )
 
 
@@ -503,6 +566,14 @@ def load_config():
             "piper_speaker_anger": config.getint('TTS', 'piper_speaker_anger', fallback=7),
             "piper_robot_fx": config.getboolean('TTS', 'piper_robot_fx', fallback=False),
             "piper_fx": config.get('TTS', 'piper_fx', fallback=''),
+            "tts_fallback_list": config.get('TTS', 'tts_fallback_list', fallback=DEFAULT_TTS_FALLBACK_LIST),
+            "fishaudio_api_key": os.getenv('FISH_AUDIO_API_KEY'),
+            "fishaudio_model": config.get('TTS', 'fishaudio_model', fallback=DEFAULT_FISHAUDIO_MODEL),
+            "fishaudio_reference_id": config.get('TTS', 'fishaudio_reference_id', fallback=''),
+            "speechify_api_key": os.getenv('SPEECHIFY_API_KEY'),
+            "speechify_voice_id": config.get('TTS', 'speechify_voice_id', fallback=DEFAULT_SPEECHIFY_VOICE_ID),
+            "speechify_model": config.get('TTS', 'speechify_model', fallback=DEFAULT_SPEECHIFY_MODEL),
+            "tts_timeout": config.get('TTS', 'tts_timeout', fallback=DEFAULT_TTS_TIMEOUT),
         }),
         "RAG": {
             "enabled": config.getboolean('RAG', 'enabled', fallback=True),
@@ -894,8 +965,16 @@ CONFIG_METADATA = {
         },
         'ttsoption': {
             'label': 'TTS Engine',
-            'options': ['espeak', 'piper', 'silero', 'elevenlabs', 'openai', 'other', 'external'],
-            'description': 'Choose how TARS speaks out loud. This is the most important voice setting. FREE options that work without internet: "piper" sounds natural and is the best free option (recommended for Pi 5 and Pi 4). "espeak" is a basic robotic-sounding voice but works on any Pi, even very weak ones. "silero" is another good-sounding option but only works on Pi 5. PAID cloud options (need internet + API key in .env file): "elevenlabs" has the most natural, human-like voices. "openai" is good quality and works well in many languages. "other" lets you point to any external TTS server using a custom URL. "external" sends text to a TARS app-server instance for TTS generation.'
+            'options': ['espeak', 'piper', 'silero', 'elevenlabs', 'openai', 'fishaudio', 'speechify', 'other', 'external'],
+            'description': 'Choose how TARS speaks out loud. This is the most important voice setting. FREE options that work without internet: "piper" sounds natural and is the best free option (recommended for Pi 5 and Pi 4). "espeak" is a basic robotic-sounding voice but works on any Pi, even very weak ones. "silero" is another good-sounding option but only works on Pi 5. PAID cloud options (need internet + API key in .env file): "elevenlabs" has the most natural, human-like voices. "openai" is good quality and works well in many languages. "fishaudio" and "speechify" are much cheaper cloud options (FISH_AUDIO_API_KEY / SPEECHIFY_API_KEY in .env) — combine them with the Fallback Chain below so TARS keeps speaking even when a provider runs out of credit. "other" lets you point to any external TTS server using a custom URL. "external" sends text to a TARS app-server instance for TTS generation.'
+        },
+        'tts_fallback_list': {
+            'label': 'Fallback Chain',
+            'description': 'Providers tried in this order when the TTS Engine above fails (quota exhausted, rate-limited, auth error, timeout, or no audio). Comma-separated, e.g. "speechify,elevenlabs,external,piper,espeak". "espeak" is always appended automatically as the last resort, so TARS never goes silent.'
+        },
+        'tts_timeout': {
+            'label': 'Cloud TTS Timeout (s)',
+            'description': 'Per-request HTTP timeout in seconds for cloud TTS providers (fishaudio, speechify, elevenlabs, openai). A slower request counts as a failure and the next provider in the Fallback Chain is tried. Default 30.'
         },
         'ttsurl': {
             'label': 'TTS Server URL',
@@ -915,6 +994,26 @@ CONFIG_METADATA = {
             'depends_on': [{'field': 'ttsoption', 'values': ['elevenlabs']}],
             'options': ['eleven_multilingual_v2', 'eleven_monolingual_v1', 'eleven_turbo_v2'],
             'description': 'Only matters if you are using "elevenlabs" as your TTS engine. "eleven_multilingual_v2" can speak in 29 different languages and is the recommended choice. "eleven_monolingual_v1" only speaks English but is slightly faster. "eleven_turbo_v2" is the fastest but sounds slightly lower quality.'
+        },
+        'fishaudio_model': {
+            'label': 'Fish.audio Model',
+            'depends_on': [{'field': 'ttsoption', 'values': ['fishaudio']}],
+            'description': 'Fish.audio model, sent as the "model" header on every request — the header is always sent because omitting it makes Fish silently bill the paid model. "s2.1-pro-free" is the free tier. When the free tier ends and requests start failing with HTTP 402, top up and set this to "s2.1-pro": a config-only change, no code edit needed (the fallback chain covers the gap in the meantime). Requires FISH_AUDIO_API_KEY in .env.'
+        },
+        'fishaudio_reference_id': {
+            'label': 'Fish.audio Voice ID',
+            'depends_on': [{'field': 'ttsoption', 'values': ['fishaudio']}],
+            'description': 'Fish.audio voice reference_id — a voice model id from https://fish.audio/m/<id> (e.g. the public "Tars" voice 6a57e35f5c8244dbb5d012a3c434ec16) or your own clone. Leave blank to use the Fish default voice.'
+        },
+        'speechify_voice_id': {
+            'label': 'Speechify Voice ID',
+            'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
+            'description': 'Speechify voice id. List the available voices with: curl -H "Authorization: Bearer $SPEECHIFY_API_KEY" https://api.speechify.ai/v1/voices — then put the id here. Requires SPEECHIFY_API_KEY in .env.'
+        },
+        'speechify_model': {
+            'label': 'Speechify Model',
+            'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
+            'description': 'Speechify model sent in the request body. Default "simba-3.5" (latest generation).'
         },
         'openai_voice': {
             'depends_on': [{'field': 'ttsoption', 'values': ['openai']}],
