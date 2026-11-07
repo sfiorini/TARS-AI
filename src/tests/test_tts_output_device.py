@@ -111,7 +111,10 @@ class TestPlayFallback(unittest.TestCase):
                     tts.sd.play(b"x", 16000, device=tts._output_device)
                 except tts.sd.PortAudioError:
                     tts._fallback_to_default_output()
-                    tts.sd.play(b"x", 16000, device=None)
+                    try:
+                        tts.sd.play(b"x", 16000, device=None)
+                    except tts.sd.PortAudioError:
+                        pass
         self.assertEqual(calls, [2, None, None])
         self.assertIsNone(tts._output_device)
 

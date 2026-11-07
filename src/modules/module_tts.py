@@ -785,7 +785,10 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                     except sd.PortAudioError as e2:
                         queue_message(f"WARNING: retry on resolved device failed ({e2}) — final retry on system default")
                         _fallback_to_default_output()
-                        sd.play(data, samplerate, device=None)
+                        try:
+                            sd.play(data, samplerate, device=None)
+                        except sd.PortAudioError as e3:
+                            queue_message(f"ERROR: audio playback failed on all devices: {e3}") 
                 _tts_playing.set()
 
                 # Log time-to-first-audio on the first chunk
