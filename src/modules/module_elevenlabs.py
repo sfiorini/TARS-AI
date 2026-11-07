@@ -5,7 +5,6 @@ import json
 import os
 import hashlib
 from modules.module_config import load_config, DEFAULT_TTS_TIMEOUT
-from elevenlabs.client import ElevenLabs
 
 from modules.module_messageQue import queue_message
 # Shared typed provider errors + backoff (single exception hierarchy for the
@@ -21,7 +20,9 @@ from modules.module_fishaudio import (
 
 CONFIG = load_config()
 
-elevenlabs_client = ElevenLabs(api_key=CONFIG['TTS']['elevenlabs_api_key'])
+# NOTE: no ElevenLabs SDK client is constructed here. All requests go through
+# the aiohttp helper (_post_elevenlabs); an import-time client with a missing
+# key raised ValueError (not ImportError) and killed module_tts's import.
 
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tts", "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
