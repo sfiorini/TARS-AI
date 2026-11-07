@@ -1,6 +1,8 @@
 #!/bin/bash
 # Configure the TARS client (robot): ElevenLabs cloud STT/TTS (primary) with
 # mini app-server fallback; vision/embeddings offloaded to mini.
+# Also sets the robot voice config: Fish.audio public "Tars" voice
+# (fishaudio_reference_id) and the local-Piper sox robot-FX chain.
 #
 # Usage: ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>
 # Idempotent: safe to run multiple times. [LLM] is intentionally untouched.
@@ -55,6 +57,15 @@ set_kv() {
 # --- [TTS]: ElevenLabs primary, external (mini) fallback ---
 set_kv TTS ttsoption elevenlabs
 set_kv TTS ttsurl http://mini:5678
+
+# --- [TTS]: voice config ---
+# Fish.audio public "Tars" voice by brenardspag:
+# https://fish.audio/m/6a57e35f5c8244dbb5d012a3c434ec16/
+# (API key comes from FISH_AUDIO_API_KEY in .env — never written here)
+set_kv TTS fishaudio_reference_id 6a57e35f5c8244dbb5d012a3c434ec16
+# Local-Piper robot voice: sox FX chain applied post-synthesis (needs sox installed)
+set_kv TTS piper_robot_fx True
+set_kv TTS piper_fx "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
 
 # --- [STT]: ElevenLabs Scribe (cloud) primary; external (mini) whisper fallback ---
 set_kv STT stt_processor elevenlabs

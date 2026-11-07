@@ -141,6 +141,10 @@ piper_speaker_love = 4
 piper_speaker_sadness = 5
 piper_speaker_surprise = 6
 piper_speaker_anger = 7
+# Apply a sox robot-effect chain to local Piper output (True/False). Requires sox installed; if sox is missing or the chain fails, the unprocessed audio is played.
+piper_robot_fx = True
+# sox effect chain applied post-synthesis when piper_robot_fx = True (robot-voice recipe)
+piper_fx = chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100
 
 [EMOTION]
 # Enable emotion detection

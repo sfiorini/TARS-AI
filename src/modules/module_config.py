@@ -238,6 +238,17 @@ def get_capabilities() -> Optional[DeviceCapabilities]:
     return CAPABILITIES
 
 
+def _as_bool(value, default: bool = False) -> bool:
+    """Coerce ini/env-style values ('True', 'false', 1, ...) to a real bool."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
 @dataclass
 class TTSConfig:
     ttsoption: str
@@ -261,6 +272,8 @@ class TTSConfig:
     piper_speaker_sadness: int = 5
     piper_speaker_surprise: int = 6
     piper_speaker_anger: int = 7
+    piper_robot_fx: bool = False
+    piper_fx: Optional[str] = None
 
     def __getitem__(self, key):
         return getattr(self, key)
@@ -299,6 +312,8 @@ class TTSConfig:
             piper_speaker_sadness=config_dict.get('piper_speaker_sadness', 5),
             piper_speaker_surprise=config_dict.get('piper_speaker_surprise', 6),
             piper_speaker_anger=config_dict.get('piper_speaker_anger', 7),
+            piper_robot_fx=_as_bool(config_dict.get('piper_robot_fx', False), False),
+            piper_fx=config_dict.get('piper_fx'),
         )
 
 
@@ -486,6 +501,8 @@ def load_config():
             "piper_speaker_sadness": config.getint('TTS', 'piper_speaker_sadness', fallback=5),
             "piper_speaker_surprise": config.getint('TTS', 'piper_speaker_surprise', fallback=6),
             "piper_speaker_anger": config.getint('TTS', 'piper_speaker_anger', fallback=7),
+            "piper_robot_fx": config.getboolean('TTS', 'piper_robot_fx', fallback=False),
+            "piper_fx": config.get('TTS', 'piper_fx', fallback=''),
         }),
         "RAG": {
             "enabled": config.getboolean('RAG', 'enabled', fallback=True),
@@ -948,6 +965,16 @@ CONFIG_METADATA = {
             'label': 'Speaker ID — Anger',
             'depends_on': [{'field': 'ttsoption', 'values': ['piper']}, {'field': 'piper_multispeaker', 'values': ['true', 'True']}],
             'description': 'Piper speaker ID to use when TARS expresses anger.'
+        },
+        'piper_robot_fx': {
+            'label': 'Robot Voice FX',
+            'depends_on': [{'field': 'ttsoption', 'values': ['piper']}],
+            'description': 'Apply a sox effect chain to local Piper output to make the voice sound more robotic (TARS-like). Requires sox installed (sudo apt install sox). If sox is missing or the chain fails, TARS plays the unprocessed audio. Turn OFF to use the raw Piper voice.'
+        },
+        'piper_fx': {
+            'label': 'sox FX Chain',
+            'depends_on': [{'field': 'ttsoption', 'values': ['piper']}, {'field': 'piper_robot_fx', 'values': ['true', 'True']}],
+            'description': 'sox effect chain applied after each Piper sentence when Robot Voice FX is ON. The default is a robot-voice recipe: chorus + overdrive + pitch down.'
         },
     },
     'EMOTION': {

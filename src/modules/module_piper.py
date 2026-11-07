@@ -6,6 +6,9 @@ import wave
 import re
 import os
 import ctypes
+import shlex
+import shutil
+import subprocess
 from urllib.request import urlretrieve
 
 # === Custom Modules ===
@@ -122,6 +125,92 @@ def _get_piper_speaker_id(emotion):
             return None
 
 
+# Robot-voice sox recipe (inspired by dsidlo/ComfyUI_SoX_Effects SoxVeRobotNode):
+# chorus + overdrive + pitch down. Configurable via [TTS] piper_fx.
+DEFAULT_PIPER_FX = "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
+SOX_TIMEOUT = 30
+
+
+def _tts_config_value(key, default=None):
+    """Read a [TTS] config value at call time (works for dict-style and TTSConfig-style sections)."""
+    try:
+        section = CONFIG['TTS']
+    except Exception:
+        return default
+    try:
+        getter = getattr(section, 'get', None)
+        if callable(getter):
+            value = getter(key, default)
+        else:
+            value = section[key]
+    except Exception:
+        return default
+    return default if value is None else value
+
+
+def _as_bool(value, default=False):
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def piper_robot_fx_enabled():
+    """True when the sox robot-FX chain should be applied to local Piper output ([TTS] piper_robot_fx)."""
+    return _as_bool(_tts_config_value('piper_robot_fx', False), False)
+
+
+def _run_sox_chain(wav_bytes, fx_chain):
+    """Pipe wav bytes through `sox - - <fx_chain>` and return the processed bytes.
+
+    Returns None (and logs a warning) when sox is missing or fails — callers
+    then fall back to the unprocessed audio.
+    """
+    sox = shutil.which('sox')
+    if not sox:
+        queue_message("WARNING: [Piper] piper_robot_fx is enabled but sox is not installed — using unprocessed audio")
+        return None
+    cmd = [sox, '-', '-'] + shlex.split(fx_chain)
+    try:
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out, err = proc.communicate(input=wav_bytes, timeout=SOX_TIMEOUT)
+        if proc.returncode == 0 and out:
+            return out
+        detail = (err or b'').decode('utf-8', 'replace')[:200]
+        queue_message(f"WARNING: [Piper] sox FX chain failed (rc={proc.returncode}): {detail}")
+        return None
+    except Exception as e:
+        queue_message(f"WARNING: [Piper] sox FX pipe failed: {e}")
+        return None
+
+
+def apply_piper_fx(wav_buffer):
+    """Apply the configured sox robot-FX chain to a synthesized wav buffer.
+
+    Enabled via [TTS] piper_robot_fx; chain from [TTS] piper_fx (defaults to
+    DEFAULT_PIPER_FX when empty). Config is read at call time. Any failure
+    returns the original buffer unchanged so speech is never lost.
+    """
+    try:
+        if not piper_robot_fx_enabled():
+            return wav_buffer
+        fx_chain = (_tts_config_value('piper_fx', '') or DEFAULT_PIPER_FX).strip()
+        if not fx_chain:
+            return wav_buffer
+        processed = _run_sox_chain(wav_buffer.getvalue(), fx_chain)
+        if processed is None:
+            return wav_buffer
+        out = BytesIO(processed)
+        out.seek(0)
+        return out
+    except Exception as e:
+        queue_message(f"WARNING: [Piper] robot FX error, using unprocessed audio: {e}")
+        return wav_buffer
+
+
 async def synthesize(voice, chunk, speaker_id=None):
     """
     Synthesize a chunk of text into a BytesIO buffer.
@@ -176,4 +265,4 @@ async def text_to_speech_with_pipelining_piper(text, emotion=None):
     for chunk in chunks:
         if chunk.strip():  # Ignore empty chunks
             wav_buffer = await synthesize(voice, chunk.strip(), speaker_id=speaker_id)
-            yield wav_buffer  # Return the chunk for external playback
+            yield apply_piper_fx(wav_buffer)  # sox robot-FX post-processing when piper_robot_fx is enabled

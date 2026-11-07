@@ -39,6 +39,14 @@ Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay
 
 `ttsoption` may also be set directly to `piper | espeak | silero | openai | other | external`.
 
+### Voice sources & attribution
+
+- **Fish.audio** uses the public **“Tars” voice** by brenardspag — `fishaudio_reference_id = 6a57e35f5c8244dbb5d012a3c434ec16` (<https://fish.audio/m/6a57e35f5c8244dbb5d012a3c434ec16/>), set on the robot by `scripts/configure_tars_client.sh`. To clone your own voice instead, run `FISH_AUDIO_API_KEY=... ./scripts/setup_tts_voice.sh` — the sample is freesound #815828 by RICHERlandTV, **CC BY 4.0** (see `ATTRIBUTION.md` in the repo root).
+- **Speechify**: list the catalog voices to pick the flattest male one — `curl -s https://api.speechify.ai/v1/voices -H "Authorization: Bearer $SPEECHIFY_API_KEY" | python3 -m json.tool` — then set `speechify_voice_id`; wrap the input in `<prosody pitch="-10%" rate="95%">…</prosody>` SSML for a flatter robot read.
+- **Local Piper robot FX**: `piper_robot_fx = True` with `piper_fx = chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100` — a sox chain applied post-synthesis in `module_piper.py` (`apply_piper_fx`). Requires `sox` installed; if sox is missing or the chain fails, the raw Piper audio is played instead.
+
+Attribution for all voice assets lives in `ATTRIBUTION.md` (repo root) with a note in `LICENSE`.
+
 ## 5. Emotion
 
 `[EMOTION] enabled = True`; `emotion_method = llm` (the LLM returns the emotion inside its JSON — zero extra RAM) or `classifier` (local HuggingFace `emotion_model`, ~500 MB RAM, 28 fine-grained emotions; use the ONNX variant `SamLowe/roberta-base-go_emotions-onnx`). The emotion drives the avatar sprites (`/character_sprite/<emo>/…`), the RoboEyes mood (`/api/eyes/mood`), TTS voice selection, and is stored in memory.
