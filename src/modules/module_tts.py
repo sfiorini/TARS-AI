@@ -118,6 +118,7 @@ text_to_speech_with_pipelining_espeak = None
 text_to_speech_with_pipelining_elevenlabs = None
 text_to_speech_with_pipelining_openai = None
 text_to_speech_with_pipelining_fishaudio = None
+text_to_speech_with_pipelining_speechify = None
 try:
     from modules.module_piper import text_to_speech_with_pipelining_piper as _piper
     text_to_speech_with_pipelining_piper = _piper
@@ -154,6 +155,13 @@ try:
     text_to_speech_with_pipelining_fishaudio = _fishaudio
 except Exception as e:
     queue_message(f"[TTS] Fish.audio module failed to load: {e}")
+    pass
+
+try:
+    from modules.module_speechify import text_to_speech_with_speechify as _speechify
+    text_to_speech_with_pipelining_speechify = _speechify
+except Exception as e:
+    queue_message(f"[TTS] Speechify module failed to load: {e}")
     pass
 
 
