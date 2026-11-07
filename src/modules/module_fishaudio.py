@@ -246,11 +246,11 @@ async def _synthesize_sentence_streaming(sentence, headers, timeout, reference_i
             )
 
         # 200: stream chunks; each iter_content step runs in a worker thread.
-        # Coalesce small network pieces into ~0.4s slices (32768 B = 0.37s at
-        # 44.1kHz/16-bit/mono) — yielding raw 8KB pieces made playback choppy.
-        iterator = response.iter_content(chunk_size=8192)
+        # Coalesce small network pieces into ~1s slices (88200 B at
+        # 44.1kHz/16-bit/mono) — smaller slices made playback choppy.
+        iterator = response.iter_content(chunk_size=16384)
         pending = bytearray()
-        SLICE = 32768
+        SLICE = 88200
         while True:
             piece = await asyncio.to_thread(next, iterator, None)
             if piece is None:

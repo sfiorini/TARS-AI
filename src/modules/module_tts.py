@@ -826,9 +826,12 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         ])
                     samplerate = 44100
 
-                max_val = np.max(np.abs(data))
-                if max_val > 0:
-                    data = data / max_val
+                # Per-chunk peak normalization causes volume pumping between
+                # streaming slices; only normalize long (non-streaming) chunks.
+                if len(data) / max(samplerate, 1) > 2.0:
+                    max_val = np.max(np.abs(data))
+                    if max_val > 0:
+                        data = data / max_val
 
                 gain = _playback_gain()
                 data = np.clip(data * gain, -1.0, 1.0)

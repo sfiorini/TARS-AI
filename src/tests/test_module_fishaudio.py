@@ -404,8 +404,8 @@ class TestFishAudioStreaming(unittest.TestCase):
 
     def test_streaming_yields_wav_chunks_per_network_piece(self):
         import wave as _wave
-        # 5 x 8KB = 40960 B -> coalesced into one 32768 B slice + 8192 B remainder
-        pieces = [bytes([i]) * 8192 for i in (1, 2, 3, 4, 5)]
+        # 5 x 16KB = 81920 B -> below the 88200 B slice threshold: one remainder chunk
+        pieces = [bytes([i]) * 16384 for i in (1, 2, 3, 4, 5)]
 
         class _StreamResp:
             status_code = 200
@@ -424,12 +424,10 @@ class TestFishAudioStreaming(unittest.TestCase):
         self.assertEqual(kw["json"]["format"], "pcm")
         self.assertEqual(kw["json"]["sample_rate"], 44100)
         self.assertEqual(kw["json"]["latency"], "low")
-        self.assertEqual(len(chunks), 2)  # 32768 B slice + 8192 B remainder
+        self.assertEqual(len(chunks), 1)  # 81920 B < 88200 B slice -> single chunk
         with _wave.open(chunks[0], "rb") as wf:
             self.assertEqual(wf.getframerate(), 44100)
-            self.assertEqual(len(wf.readframes(10**9)), 32768)
-        with _wave.open(chunks[1], "rb") as wf:
-            self.assertEqual(len(wf.readframes(10**9)), 8192)
+            self.assertEqual(len(wf.readframes(10**9)), 81920)
 
     def test_streaming_error_classified(self):
         class _ErrResp:
