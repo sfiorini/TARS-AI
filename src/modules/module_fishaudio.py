@@ -73,11 +73,18 @@ async def _backoff(seconds=_RETRY_BACKOFF_SECONDS):
 
 
 def _cfg(key, default=None):
-    """Read a [TTS] key from the loaded config at call time (never at import)."""
+    """Read a [TTS] key from the loaded config at call time (never at import).
+
+    None-safe: an explicitly-set falsy value (False/0/"") is returned
+    verbatim — the `or default` form used to silently override it (this
+    bit fishaudio_stream=False). The default applies only when the key is
+    missing or None.
+    """
     try:
-        return getattr(CONFIG["TTS"], key, None) or default
+        value = getattr(CONFIG["TTS"], key, None)
     except Exception:
         return default
+    return default if value is None else value
 
 
 def _split_into_sentences(text, max_length=80):
@@ -311,11 +318,9 @@ async def text_to_speech_with_fishaudio(text, reference_id=None, model=None,
         "model": model,
     }
 
-    # None-safe read: _cfg uses `or default`, which would turn an explicit
-    # False into the default — so read the raw attribute here.
-    stream_raw = getattr(CONFIG["TTS"], "fishaudio_stream", None)
-    if stream_raw is None:
-        stream_raw = "true"
+    # _cfg is None-safe (C3), so an explicit fishaudio_stream=False is
+    # honored here directly — no raw-getattr workaround needed.
+    stream_raw = _cfg("fishaudio_stream", "true")
     stream = str(stream_raw).strip().lower() in ("1", "true", "yes", "on")
     for sentence in _split_into_sentences(str(text)):
         if stream:

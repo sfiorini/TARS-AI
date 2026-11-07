@@ -447,5 +447,32 @@ class TestSpeechifyGuards(unittest.TestCase):
         post.assert_not_called()
 
 
+class TestCfgNoneSafeReads(unittest.TestCase):
+    """C3: _cfg must be None-safe — an explicitly-set falsy value (False/0/"")
+    is returned verbatim; the default applies only when the key is missing
+    or None (the old `or default` read silently overrode falsy config)."""
+
+    def test_explicit_falsy_values_returned_verbatim(self):
+        for value in (False, 0, ""):
+            cfg = {"TTS": types.SimpleNamespace(speechify_voice_id=value)}
+            with mock.patch.object(module_speechify, "CONFIG", cfg):
+                self.assertIs(module_speechify._cfg("speechify_voice_id", "fallback"), value)
+
+    def test_default_returned_when_key_missing(self):
+        cfg = {"TTS": types.SimpleNamespace()}
+        with mock.patch.object(module_speechify, "CONFIG", cfg):
+            self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
+
+    def test_default_returned_when_value_is_none(self):
+        cfg = {"TTS": types.SimpleNamespace(speechify_voice_id=None)}
+        with mock.patch.object(module_speechify, "CONFIG", cfg):
+            self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
+
+    def test_broken_config_object_returns_default(self):
+        with mock.patch.object(module_speechify, "CONFIG", object()):  # no __getitem__
+            self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
+
+
 if __name__ == "__main__":
+    unittest.main()
     unittest.main()

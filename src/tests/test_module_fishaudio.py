@@ -375,6 +375,33 @@ class TestFishAudioErrorClassification(unittest.TestCase):
             self.assertTrue(issubclass(cls, module_fishaudio.TTSProviderError))
 
 
+class TestCfgNoneSafeReads(unittest.TestCase):
+    """C3: _cfg must be None-safe — an explicitly-set falsy value (False/0/"")
+    is returned verbatim; the default applies only when the key is missing
+    or None. The old `or default` read silently turned fishaudio_stream=False
+    into the default and forced a raw-getattr workaround at the call site."""
+
+    def test_explicit_falsy_values_returned_verbatim(self):
+        for value in (False, 0, ""):
+            cfg = {"TTS": types.SimpleNamespace(fishaudio_stream=value)}
+            with mock.patch.object(fa, "CONFIG", cfg):
+                self.assertIs(fa._cfg("fishaudio_stream", "fallback"), value)
+
+    def test_default_returned_when_key_missing(self):
+        cfg = {"TTS": types.SimpleNamespace()}
+        with mock.patch.object(fa, "CONFIG", cfg):
+            self.assertEqual(fa._cfg("fishaudio_stream", "fallback"), "fallback")
+
+    def test_default_returned_when_value_is_none(self):
+        cfg = {"TTS": types.SimpleNamespace(fishaudio_stream=None)}
+        with mock.patch.object(fa, "CONFIG", cfg):
+            self.assertEqual(fa._cfg("fishaudio_stream", "fallback"), "fallback")
+
+    def test_broken_config_object_returns_default(self):
+        with mock.patch.object(fa, "CONFIG", object()):  # no __getitem__ -> except path
+            self.assertEqual(fa._cfg("fishaudio_stream", "fallback"), "fallback")
+
+
 class TestFishAudioGuards(unittest.TestCase):
     def test_missing_api_key_makes_no_request(self):
         chunks, exc, post, qmsg, _ = _run(env_key=None)

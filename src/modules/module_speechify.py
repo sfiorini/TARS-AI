@@ -96,11 +96,17 @@ async def _backoff(seconds=_RETRY_BACKOFF_SECONDS):
 
 
 def _cfg(key, default=None):
-    """Read a [TTS] key from the loaded config at call time (never at import)."""
+    """Read a [TTS] key from the loaded config at call time (never at import).
+
+    None-safe: an explicitly-set falsy value (False/0/"") is returned
+    verbatim — the `or default` form used to silently override it. The
+    default applies only when the key is missing or None.
+    """
     try:
-        return getattr(CONFIG["TTS"], key, None) or default
+        value = getattr(CONFIG["TTS"], key, None)
     except Exception:
         return default
+    return default if value is None else value
 
 
 def _parse_error_body(response):
