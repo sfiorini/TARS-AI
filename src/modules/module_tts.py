@@ -32,9 +32,12 @@ _tts_cancel_event = threading.Event()
 _tts_playing = threading.Event()  # Set while sd.play() is actively outputting audio
 _tts_needs_flush = threading.Event()  # Set after TTS finishes; cleared by STT after flushing
 
-# Output device discovery — resolved once on first playback
+# Output device discovery — resolved once on first playback. The lock makes
+# resolution thread-safe: a concurrent caller used to see the resolved flag
+# set BEFORE the scan finished and silently got the system default.
 _output_device = None
 _output_device_resolved = False
+_output_device_lock = threading.Lock()
 
 
 def _resolve_output_device():
@@ -42,12 +45,32 @@ def _resolve_output_device():
 
     Prefers real hardware (USB audio, headphones, I2S DACs) over virtual
     ALSA devices like 'default' or 'dmix' which may route to HDMI/null.
+    Thread-safe: the scan runs under _output_device_lock and the resolved
+    flag is set only AFTER the scan completes, so concurrent callers either
+    wait for the result or see the cached device — never a half-resolved None.
     """
     global _output_device, _output_device_resolved
     if _output_device_resolved:
         return
 
-    _output_device_resolved = True
+    with _output_device_lock:
+        if _output_device_resolved:
+            return
+        _scan_output_device()
+        # Flag goes up only AFTER the scan completes (all exits above set
+        # _output_device): a concurrent caller must never observe
+        # resolved=True with a still-None device.
+        _output_device_resolved = True
+
+
+def _scan_output_device():
+    """Scan and cache the best output device into _output_device.
+
+    Callers hold _output_device_lock. Prefers real hardware (USB audio,
+    headphones, I2S DACs) over virtual ALSA devices like 'default' or 'dmix'
+    which may route to HDMI/null.
+    """
+    global _output_device
 
     try:
         devices = sd.query_devices()
@@ -96,6 +119,7 @@ def _resolve_output_device():
     _output_device = None
 
 
+
 def _device_opens(idx):
     """True if a short OutputStream can be opened on device idx right now."""
     try:
@@ -108,8 +132,9 @@ def _device_opens(idx):
 def _fallback_to_default_output():
     """Switch cached output device to the system default (sound server route)."""
     global _output_device, _output_device_resolved
-    _output_device = None
-    _output_device_resolved = True
+    with _output_device_lock:
+        _output_device = None
+        _output_device_resolved = True
 
 
 def _recover_sound_server():
@@ -144,9 +169,11 @@ def _recover_sound_server():
 
 
 def _reset_output_device_resolution():
+    """Forget the cached output device so the next playback re-resolves it."""
     global _output_device, _output_device_resolved
-    _output_device = None
-    _output_device_resolved = False
+    with _output_device_lock:
+        _output_device = None
+        _output_device_resolved = False
 
 
 def _playback_gain():
