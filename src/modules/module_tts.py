@@ -909,6 +909,8 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                             # keeps the buffered tail tiny, and holding the flag
                             # until full drain would block the between-chunk
                             # barge-in window this path relies on.
+                            # Pinned by test_flag_cleared_when_write_returns_documented_residual
+                            # (src/tests/test_tts_playback_recovery.py).
                             _tts_playing.clear()
                         if write_error is not None:
                             # The persistent stream is dead (e.g. wedged USB

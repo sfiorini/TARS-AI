@@ -206,6 +206,30 @@ class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
         self.assertEqual(observed, [True])
         self.assertTrue(len(fake.writes) == 1)
 
+    def test_flag_cleared_when_write_returns_documented_residual(self):
+        """F2/F8: accepted residual, pinned. The flag is set during
+        write() (A1) and cleared as soon as write() returns — the
+        PortAudio ring buffer may still be draining the slice tail, a
+        brief window where is_tts_playing() is False during audible
+        output. Intended semantics: latency='low' keeps the tail tiny and
+        holding the flag until full drain would starve the between-chunk
+        barge-in window (see the F8 comment in module_tts.py). If this
+        test ever fails, the timing contract changed — re-evaluate the F8
+        comment, do not just flip the assertion."""
+        during_write = []
+        after_write = []
+        fake = _FakeOutputStream()
+        fake.on_write = lambda stream: during_write.append(tts.is_tts_playing())
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake)) as ctx:
+            # mark_first_audio runs right after the successful write,
+            # i.e. after the finally clause cleared the flag.
+            ctx.mark_first_audio.side_effect = \
+                lambda: after_write.append(tts.is_tts_playing())
+            asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertEqual(during_write, [True])   # set during the write (A1)
+        self.assertEqual(after_write, [False])   # cleared on write() return (F8)
+
     def test_is_tts_playing_cleared_after_playback(self):
         fake = _FakeOutputStream()
         with self._play_ctx([_wav_chunk(0.05)],
