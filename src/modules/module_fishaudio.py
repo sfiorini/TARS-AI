@@ -137,7 +137,6 @@ async def _synthesize_sentence(sentence, headers, timeout, reference_id, latency
         "text": sentence,
         "format": "wav",
         "latency": latency if latency in ("low", "normal", "balanced") else "balanced",
-        "sample_rate": 22050,
     }
     if reference_id:
         body["reference_id"] = reference_id

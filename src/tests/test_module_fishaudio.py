@@ -2,7 +2,7 @@
 
 Covers: success path (raw wav bytes -> BytesIO chunk), request shape
 (POST https://api.fish.audio/v1/tts, Authorization Bearer + ALWAYS-present
-"model" header, body {text, reference_id, format:"wav", latency from [TTS] fishaudio_latency (default balanced), sample_rate 22050}),
+"model" header, body {text, reference_id, format:"wav", latency from [TTS] fishaudio_latency (default balanced)}),
 error classification (402 -> QuotaExhausted no retry; 429 -> one backoff
 retry then RateLimited; 400/401 -> AuthFailed no retry; 5xx/timeout -> one
 backoff retry then TransientError), model/reference_id/timeout read from
@@ -134,7 +134,6 @@ class TestFishAudioSuccess(unittest.TestCase):
             "text": "Hello there.",
             "format": "wav",
             "latency": "balanced",
-            "sample_rate": 22050,
         })
         self.assertEqual(kwargs["timeout"], 30.0)
 
