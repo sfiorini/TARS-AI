@@ -451,35 +451,6 @@ def update_tts_settings(ttsurl):
     except Exception as e:
         queue_message(f"ERROR: TTS update failed: {e}")
 
-def play_audio_stream(tts_stream, samplerate=22050, channels=1, gain=1.0, normalize=False):
-    _resolve_output_device()
-    try:
-        target_rate = 16000
-        with sd.OutputStream(samplerate=target_rate, channels=channels, dtype='int16', blocksize=4096, device=_output_device) as stream:
-            for chunk in tts_stream:
-                if chunk:
-                    audio_data = np.frombuffer(chunk, dtype='int16')
-
-                    # Resample to 16kHz if needed
-                    if samplerate != target_rate and samplerate > 0:
-                        ratio = target_rate / samplerate
-                        new_len = int(len(audio_data) * ratio)
-                        indices = np.linspace(0, len(audio_data) - 1, new_len)
-                        audio_data = np.interp(indices, np.arange(len(audio_data)), audio_data.astype(np.float32)).astype('int16')
-
-                    if normalize:
-                        max_value = np.max(np.abs(audio_data))
-                        if max_value > 0:
-                            audio_data = audio_data / max_value * 32767
-
-                    audio_data = np.clip(audio_data * gain, -32768, 32767).astype('int16')
-                    stream.write(audio_data)
-                else:
-                    queue_message(f"ERROR: Received empty chunk.")
-    except Exception as e:
-        queue_message(f"ERROR: Error during audio playback: {e}")
-
-
 async def _external_tts_chunks(text, timeout=None):
     """Fetch audio from the external TTS server (POST {ttsurl}/tts/generate).
 

@@ -214,5 +214,17 @@ class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
         self.assertFalse(tts.is_tts_playing())
 
 
+class TestDeadCodeRemoval(unittest.TestCase):
+    """B3: play_audio_stream (module_tts.py) had zero callers and duplicated
+    resample/normalize/gain with different constants — it must stay deleted so
+    the dead duplicate cannot drift from play_audio_chunks' real pipeline."""
+
+    def test_play_audio_stream_is_deleted(self):
+        self.assertFalse(
+            hasattr(tts, "play_audio_stream"),
+            "play_audio_stream is dead code (zero callers) and must not exist",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
