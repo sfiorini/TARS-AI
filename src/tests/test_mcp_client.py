@@ -1055,5 +1055,54 @@ class TestHardKillOrphanSweep(unittest.TestCase):
         self.assertIn("pkill -f mcp_example_server", doc)
 
 
+class TestTransportThreadSafety(_ManagerTestCase):
+    """Audit A1/B1: the deferred loop dispatches tools concurrently —
+    the stdio transport must serialize each _send+_read round-trip, and
+    concurrent first-starts must spawn exactly ONE child."""
+
+    def test_concurrent_calls_return_own_results(self):
+        import concurrent.futures
+        manager = self._real_manager()
+        # warm the transport first (handshake done once)
+        manager.list_tools("example")
+        def call(tool, args):
+            return tool, manager.call_tool("example", tool, args)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(call, "get_time", {}),
+                       pool.submit(call, "add_numbers", {"a": 2, "b": 3})]
+            results = [f.result(timeout=15) for f in futures]
+        for tool, result in results:
+            self.assertFalse(result.is_error,
+                             f"{tool}: {result.content}")
+        by_tool = dict(results)
+        # each response matches ITS OWN request — no cross-talk
+        self.assertRegex(by_tool["get_time"].content,
+                         re.compile(r"It is \d{2}:\d{2}\."))
+        self.assertEqual(by_tool["add_numbers"].content, "2 + 3 = 5")
+
+    def test_concurrent_first_start_spawns_one_child(self):
+        import concurrent.futures
+        manager = self._real_manager()
+        spawned = []
+        real_popen = subprocess.Popen
+
+        def counting_popen(*args, **kwargs):
+            spawned.append(args)
+            return real_popen(*args, **kwargs)
+
+        with mock.patch("modules.module_mcp.subprocess.Popen",
+                        side_effect=counting_popen):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [pool.submit(manager.list_tools, "example")
+                            for _ in range(4)]
+                for f in futures:
+                    f.result(timeout=15)
+        self.assertEqual(len(spawned), 1,
+                         f"concurrent first-start spawned {len(spawned)} "
+                         f"children — exactly one must win")
+        tools = manager.list_tools("example")
+        self.assertEqual(len(tools), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

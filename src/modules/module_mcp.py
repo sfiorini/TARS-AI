@@ -56,6 +56,10 @@ class McpManager:
         # deadline, degraded flag
         self._state = {}
         self._backoff_base = 1.0  # production: 1→2→4…→60s (tests shrink it)
+        # per-server start locks (audit A1/B1): two concurrent first-starts
+        # of a dead server must not each Popen a child (one is orphaned)
+        self._start_locks = {}
+        self._start_locks_guard = threading.Lock()
 
     def _restart_max_attempts(self):
         try:
@@ -78,6 +82,17 @@ class McpManager:
         transport = self._transports.get(name)
         if transport is not None and transport.poll() is None:
             return transport
+        with self._start_locks_guard:
+            lock = self._start_locks.setdefault(name, threading.Lock())
+        with lock:
+            # re-check under the lock: the winner may have started it
+            transport = self._transports.get(name)
+            if transport is not None and transport.poll() is None:
+                return transport
+            return self._start_locked(name)
+
+    def _start_locked(self, name):
+        """The start path — callers hold the per-name lock."""
         state = self._state.setdefault(
             name, {"attempts": 0, "next_at": 0.0, "degraded": False})
         if state["degraded"]:
@@ -510,6 +525,7 @@ class _HttpServer:
         self.negotiated_version = None
         self.session_id = None
         self._session = None
+        self._roundtrip_lock = threading.Lock()  # audit A1/B1
 
     def start(self):
         import requests
@@ -548,6 +564,10 @@ class _HttpServer:
             queue_message(f"MCP: notification to '{self.name}' failed: {exc}")
 
     def _request(self, msg, timeout=30):
+        with self._roundtrip_lock:
+            return self._request_locked(msg, timeout)
+
+    def _request_locked(self, msg, timeout=30):
         response = self._post(msg, timeout)
         content_type = response.headers.get("Content-Type", "")
         if "text/event-stream" in content_type:
@@ -577,6 +597,11 @@ class _StdioServer:
     def __init__(self, name, entry, default_cwd=None):
         self.name = name
         self.entry = entry
+        # one JSON-RPC round-trip at a time (audit A1/B1): the deferred
+        # loop dispatches tools concurrently — concurrent _send/_read
+        # pairs would interleave frames and race for the single response
+        # stream, mis-attributing responses
+        self._roundtrip_lock = threading.Lock()
         # when the registry entry has no cwd, the child runs in the
         # REGISTRY's directory so relative args resolve against it (the
         # app chdirs to src/ — review F2), not against the process cwd
@@ -643,8 +668,10 @@ class _StdioServer:
         return json.loads(box[0].strip())
 
     def _request(self, msg, timeout=30):
-        self._send(msg)
-        return self._read(timeout)
+        # serialize the FULL round-trip (send + read) — see __init__
+        with self._roundtrip_lock:
+            self._send(msg)
+            return self._read(timeout)
 
     def poll(self):
         """The process's return code, or None while running."""
