@@ -154,3 +154,32 @@ def test_voice_pipeline_documents_piper_offloop_and_speaker_fix():
     assert "event loop" in doc or "to_thread" in doc
     assert "SynthesisConfig" in doc
     assert "piper_multispeaker" in doc
+
+
+# --- Measured on-robot numbers (S-M5-05) ---------------------------------------
+
+def test_voice_pipeline_records_measured_piper_ttfa():
+    doc = _read("voice-pipeline.md")
+    # measured on the robot (Pi 5, piper-tts 1.8.0, sox 14.4.2), not estimated
+    assert "0.280 s" in doc
+    assert "1.183 s" in doc
+    # the old first-audio estimate must be gone
+    assert "0.3–0.6 s" not in doc
+    # synthesis stays documented as off the event loop
+    assert "event loop" in doc
+
+
+def test_voice_pipeline_speechify_latency_distinguishes_server_ttfb_from_first_slice():
+    doc = _read("voice-pipeline.md")
+    # measured first playable chunk on the robot (warm session, pcm_24000)
+    assert "0.929 s" in doc
+    # the doc must honestly distinguish the server's first byte from the
+    # first playable slice (the client coalesces raw PCM into ~1 s slices)
+    assert "first byte" in doc
+    assert "first playable" in doc
+    assert "Server-Timing" in doc
+    # the old misleading claims must be gone
+    assert "time-to-first-audio ≈ **0.1 s**" not in doc
+    assert "starts speaking in ≈ 0.1 s" not in doc
+    # verified output format recorded (24 kHz mono 16-bit)
+    assert "sampwidth=2" in doc
