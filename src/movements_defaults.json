@@ -726,7 +726,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.3,
+          "hold_time": 0.4,
           "left_forearm": -1,
           "left_hand": null,
           "left_height": null,
@@ -1238,7 +1238,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.3,
+          "hold_time": 0.4,
           "left_forearm": -1,
           "left_hand": null,
           "left_height": null,

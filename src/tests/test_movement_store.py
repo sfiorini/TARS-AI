@@ -130,6 +130,15 @@ class TestDefaultsGolden(unittest.TestCase):
                             "turn_right/turn_left must not collapse to one "
                             "shared step list")
 
+    def test_consecutive_sleeps_accumulate(self):
+        # happy_dance has back-to-back time.sleep(0.1) + time.sleep(0.3)
+        # (module_movements.py:1060-1061) — the exporter must accumulate
+        # them into hold_time 0.4, not overwrite with the last one
+        holds = [s["hold_time"]
+                 for s in self.data["movements"]["happy_dance"]["steps"]]
+        self.assertIn(0.4, holds,
+                      "consecutive time.sleep calls must accumulate")
+
     def test_arms_branches_captured(self):
         entry = self.data["movements"]["step_forward"]
         self.assertIsNotNone(

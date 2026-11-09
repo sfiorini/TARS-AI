@@ -100,7 +100,10 @@ class _Collector:
 
     def sleep(self, seconds):
         if self.steps:
-            self.steps[-1]["hold_time"] = float(seconds)
+            # consecutive sleeps accumulate (e.g. happy_dance's
+            # time.sleep(0.1) + time.sleep(0.3) -> hold_time 0.4)
+            self.steps[-1]["hold_time"] = round(
+                self.steps[-1]["hold_time"] + float(seconds), 3)
         self._attachable = False
 
     def disable(self):
