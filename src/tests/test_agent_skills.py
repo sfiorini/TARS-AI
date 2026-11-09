@@ -503,5 +503,71 @@ class TestDescriptorsAndPrompt(_PoolTestCase):
                         r'"sides": number\}'))
 
 
+import subprocess  # noqa: E402
+
+_REPO = os.path.abspath(os.path.join(_SRC, ".."))
+_CLI = os.path.join(_SRC, "app-skills.py")
+
+
+class TestSkillsCli(unittest.TestCase):
+    """app-skills.py CLI (S-M5-09) — real subprocess, real exit codes."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.pool = os.path.join(self.tmp, "agent_skills")
+        shutil.copyfile(os.path.join(_SRC, "config.ini.template"),
+                        os.path.join(self.tmp, "config.ini"))
+        self.env = dict(os.environ)
+        self.env["TARS_CONFIG_PATH"] = os.path.join(self.tmp, "config.ini")
+        self.env["TARS_SKILLS_POOL"] = self.pool
+
+    def run_cli(self, *args):
+        return subprocess.run([sys.executable, _CLI] + list(args),
+                              cwd=_REPO, env=self.env,
+                              capture_output=True, text=True, timeout=60)
+
+    def test_cli_list_shows_dice_roll(self):
+        result = self.run_cli("reset", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        listed = self.run_cli("list")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn("dice-roll", listed.stdout)
+        self.assertIn("[params]", listed.stdout)
+
+    def test_cli_validate_real_dice_roll_exits_0(self):
+        result = self.run_cli("validate", _DICE_DEFAULTS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cli_validate_bad_skill_exits_1(self):
+        bad = os.path.join(self.tmp, "bad-skill")
+        os.makedirs(bad)
+        with open(os.path.join(bad, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: bad-skill\ndescription: d\n"
+                     "sneaky: top-level\n---\nbody\n")
+        result = self.run_cli("validate", bad)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("sneaky", result.stderr)
+
+    def test_cli_install_conflict_exits_1(self):
+        result = self.run_cli("install", _DICE_DEFAULTS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.run_cli("install", _DICE_DEFAULTS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("already installed", result.stderr)
+        result = self.run_cli("install", _DICE_DEFAULTS, "--force")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cli_uninstall_then_reset_restores(self):
+        self.run_cli("reset", "--yes")
+        result = self.run_cli("uninstall", "dice-roll")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("dice-roll", self.run_cli("list").stdout)
+        result = self.run_cli("reset", "--yes")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("dice-roll", self.run_cli("list").stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
