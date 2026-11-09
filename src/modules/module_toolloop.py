@@ -246,17 +246,23 @@ class ToolLoopRunner:
             if followup is None:
                 # request failure -> timeout fallback
                 return self._timeout(callbacks, parts)
-            new_calls = self._result_bearing_calls(
-                followup.get("function_calls")
-                if isinstance(followup, dict) else None)
+            if isinstance(followup, dict):
+                new_calls = self._result_bearing_calls(
+                    followup.get("function_calls"))
+                reply = followup.get("reply", "")
+            elif isinstance(followup, str):
+                new_calls = []
+                reply = followup
+            else:
+                # non-dict/non-str garbage is never spoken verbatim (F5)
+                new_calls = []
+                reply = FALLBACK_LINE
             if new_calls and hops_used < max_hops:
                 pending = new_calls
                 continue
             if new_calls:
                 # hop limit with still-pending work
                 return self._timeout(callbacks, parts)
-            reply = (followup.get("reply", "")
-                     if isinstance(followup, dict) else str(followup))
             if not str(reply).strip():
                 reply = FALLBACK_LINE
             return self._speak(callbacks, source, epoch, reply)

@@ -428,6 +428,7 @@ def followup_completion(user_input, prior_reply, tool_results_text, source="voic
                  f"[Tool results:\n{tool_results_text}\n]\n"
                  "Produce the final short spoken reply for the user using these results.\n"
                  "Do not call functions again unless strictly necessary.")
+    queue_message(f"DEBUG: follow-up completion (source={source})")
     prompt = build_prompt(augmented, character_manager, memory_manager, CONFIG, debug=False)
     bot_reply = raw_complete_llm(prompt)
     if bot_reply is None:

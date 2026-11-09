@@ -260,6 +260,10 @@ class TestToolLoopRunner(_LoopTestCase):
             self._wait_turn()
         # never raised, and a speak happened for every garbage turn
         self.assertEqual(len(self.spoken), 3)
+        # non-dict/non-str garbage is NEVER spoken verbatim (review F5):
+        # 42 must not become the spoken answer "42"
+        self.assertEqual(self.spoken, [FALLBACK_LINE, FALLBACK_LINE,
+                                       FALLBACK_LINE])
 
 
 HOLDING_LINE = "On it — I'll report back."
