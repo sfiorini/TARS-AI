@@ -64,6 +64,7 @@ class _FakeResponse:
         self.content = content
         self.text = text
         self.headers = headers if headers is not None else {}
+        self.close = mock.MagicMock()  # streaming tail closes even 200 responses
 
     def json(self):
         if self._payload is None:
@@ -78,6 +79,20 @@ def _ok_response(audio_b64=WAV_B64):
 def _err_response(status_code, code, message="some error", headers=None):
     return _FakeResponse(status_code, payload={"error": {"code": code, "message": message}},
                          headers=headers)
+
+
+class _StreamResp:
+    def __init__(self, pieces, headers=None):
+        self.status_code = 200
+        self._pieces = list(pieces)
+        self.headers = headers if headers is not None else {}
+        self.close = mock.MagicMock()
+        self.chunk_sizes = []
+
+    def iter_content(self, chunk_size=None):
+        self.chunk_sizes.append(chunk_size)
+        for p in self._pieces:
+            yield p
 
 
 def _fake_config(**overrides):
@@ -475,6 +490,71 @@ class TestCfgNoneSafeReads(unittest.TestCase):
     def test_broken_config_object_returns_default(self):
         with mock.patch.object(module_speechify, "CONFIG", object()):  # no __getitem__
             self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
+
+
+class TestSpeechifyStreamPreStreamErrors(unittest.TestCase):
+    def _run_stream(self, responses=None, exc=None, payload=None):
+        env = {"SPEECHIFY_API_KEY": ENV_KEY}
+        session = mock.MagicMock()
+        if exc is not None:
+            session.post.side_effect = exc
+        elif len(responses) == 1:
+            session.post.return_value = responses[0]
+        else:
+            session.post.side_effect = list(responses)
+        p = payload or {"input": "Hi.", "voice_id": "george", "model": "simba-3.5",
+                        "output_format": "pcm_24000"}
+        with mock.patch.dict(os.environ, env), \
+             mock.patch.object(module_speechify, "_session", session), \
+             mock.patch.object(module_speechify, "queue_message"), \
+             mock.patch.object(module_speechify, "_backoff", new=mock.AsyncMock()) as backoff:
+            chunks, raised = _collect(module_speechify._synthesize_streaming(
+                "Hi.", {"Authorization": "Bearer k"}, p, 30.0))
+        return chunks, raised, session.post, backoff
+
+    def test_quota_code_raises_quota_exhausted_no_retry(self):
+        chunks, exc, post, backoff = self._run_stream(
+            responses=[_err_response(402, "payment_required", "no credit")])
+        self.assertEqual(chunks, [])
+        self.assertIsInstance(exc, module_speechify.QuotaExhausted)
+        post.assert_called_once()
+        backoff.assert_not_awaited()
+
+    def test_429_retried_once_honoring_retry_after(self):
+        r = _err_response(429, "rate_limited", "slow", headers={"Retry-After": "2"})
+        chunks, exc, post, backoff = self._run_stream(responses=[r, r])
+        self.assertIsInstance(exc, module_speechify.RateLimited)
+        self.assertEqual(post.call_count, 2)
+        backoff.assert_awaited_once_with(2.0)
+
+    def test_401_auth_failed_no_retry(self):
+        chunks, exc, post, backoff = self._run_stream(
+            responses=[_err_response(401, "unauthorized", "bad key")])
+        self.assertIsInstance(exc, module_speechify.AuthFailed)
+        post.assert_called_once()
+        backoff.assert_not_awaited()
+
+    def test_500_retried_once_then_transient(self):
+        chunks, exc, post, backoff = self._run_stream(
+            responses=[_FakeResponse(500, text="boom"), _FakeResponse(503, text="boom")])
+        self.assertIsInstance(exc, module_speechify.TransientError)
+        self.assertEqual(post.call_count, 2)
+        backoff.assert_awaited_once()
+
+    def test_timeout_retried_once_then_transient(self):
+        chunks, exc, post, backoff = self._run_stream(
+            exc=module_speechify.requests.exceptions.Timeout("t"))
+        self.assertIsInstance(exc, module_speechify.TransientError)
+        self.assertEqual(post.call_count, 2)
+
+    def test_request_shape_is_stream_url_with_stream_true(self):
+        ok = _StreamResp([])
+        chunks, exc, post, _ = self._run_stream(responses=[ok])
+        self.assertIsNone(exc)
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], "https://api.speechify.ai/v1/audio/stream")
+        self.assertIs(kwargs.get("stream"), True)
+        self.assertEqual(kwargs["json"]["output_format"], "pcm_24000")
 
 
 class TestResolveOutputFormat(unittest.TestCase):

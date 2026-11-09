@@ -284,6 +284,79 @@ async def _synthesize_sentence(sentence, headers, body, timeout):
             f"Speechify returned {status}{label} after retry: {message}", status_code=status)
 
 
+async def _synthesize_streaming(text, headers, payload, timeout):
+    """POST the whole utterance to /v1/audio/stream and yield WAV-wrapped
+    ~1 s PCM slices as they arrive. Raises typed errors ONLY for pre-stream
+    failures (before the first byte); a mid-stream abort ends the utterance
+    with a logged WARNING (D7)."""
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            response = await asyncio.to_thread(
+                _session.post, SPEECHIFY_STREAM_URL, headers=headers,
+                json=payload, timeout=timeout, stream=True,
+            )
+        except requests.exceptions.RequestException as exc:
+            if attempt < _MAX_ATTEMPTS:
+                await _backoff()
+                continue
+            raise TransientError(f"Speechify stream request failed: {exc}") from exc
+
+        status = response.status_code
+        if status == 200:
+            break
+        err_body = await asyncio.to_thread(lambda: response.content)
+        code, message = _parse_error_body(response)
+        exc_class = _classify_error(code, status)
+        label = f" [{code}]" if code else ""
+        if exc_class is QuotaExhausted:
+            raise QuotaExhausted(
+                f"Speechify returned {status}{label}: {message}", status_code=status)
+        if exc_class is RateLimited:
+            if attempt < _MAX_ATTEMPTS:
+                await _backoff(_retry_after_seconds(getattr(response, "headers", None)))
+                continue
+            raise RateLimited(
+                f"Speechify returned {status}{label} after retry: {message}", status_code=status)
+        if exc_class is AuthFailed:
+            raise AuthFailed(
+                f"Speechify returned {status}{label}: {message}", status_code=status)
+        if attempt < _MAX_ATTEMPTS:
+            await _backoff()
+            continue
+        raise TransientError(
+            f"Speechify returned {status}{label} after retry: {message}", status_code=status)
+
+    queue_message(f"DEBUG: Speechify stream ttfb: "
+                  f"{getattr(response, 'headers', {}).get('Server-Timing', 'n/a')}")
+
+    fmt, sample_rate = _resolve_output_format(payload["output_format"])
+    slice_bytes = sample_rate * 2   # 1 s of 16-bit mono PCM (48000 @ 24k, 88200 @ 44.1k)
+    received = 0
+    iterator = response.iter_content(chunk_size=16384)
+    pending = bytearray()
+    while True:
+        piece = await asyncio.to_thread(next, iterator, None)
+        if piece is None:
+            break
+        received += len(piece)
+        pending.extend(piece)
+        while len(pending) >= slice_bytes:
+            yield _pcm_to_wav_buffer(bytes(pending[:slice_bytes]), sample_rate)
+            del pending[:slice_bytes]
+    if pending:
+        # even-length guard: a truncated L16 stream may end mid-frame
+        even_len = len(pending) // 2 * 2
+        if even_len:
+            yield _pcm_to_wav_buffer(bytes(pending[:even_len]), sample_rate)
+        if len(pending) % 2:
+            queue_message("DEBUG: Speechify stream dropped a trailing odd byte")
+    queue_message(f"DEBUG: Speechify stream complete: {received} bytes "
+                  f"(~{received / (sample_rate * 2):.1f}s at {sample_rate} Hz)")
+    return
+
+
 async def text_to_speech_with_speechify(text, voice_id=None, model=None,
                                         timeout=None, **_ignored):
     """Synthesize text with Speechify; yield one BytesIO wav chunk per sentence.
