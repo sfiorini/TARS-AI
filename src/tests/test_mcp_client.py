@@ -47,6 +47,7 @@ def _install_fake_hardware():
 _install_fake_hardware()
 
 _SERVER = os.path.join(_SRC, "mcp_example_server.py")
+_REPO_ROOT = os.path.abspath(os.path.join(_SRC, ".."))
 
 
 class _RealServerPipe(unittest.TestCase):
@@ -718,6 +719,53 @@ class TestLifecycle(_ManagerTestCase):
         manager.list_tools("example")
         self.assertTrue(manager.status()["example"]["running"])
         self.assertTrue(manager.status()["example"]["in_prompt"])
+
+
+class TestShutdown(_ManagerTestCase):
+    """SIGTERM handler + shutdown wiring (S-M6-08)."""
+
+    def test_shutdown_stops_servers(self):
+        manager = self._real_manager()
+        manager.list_tools("example")  # starts the real server
+        transport = manager._transports["example"]
+        self.assertIsNone(transport.poll())  # alive
+        manager.shutdown()
+        deadline = time.monotonic() + 3
+        while transport.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertIsNotNone(transport.poll(), "server did not exit")
+        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
+                               capture_output=True, text=True)
+        self.assertEqual(check.stdout.strip(), "",
+                         f"orphan server process: {check.stdout}")
+        # safe when nothing is running
+        manager.shutdown()
+
+    def test_app_py_sigterm_handler(self):
+        with open(os.path.join(_SRC, "app.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        # the handler is installed right after the event exists
+        event_idx = src.index("shutdown_event = threading.Event()")
+        handler_idx = src.index("signal.signal(signal.SIGTERM")
+        self.assertLess(event_idx, handler_idx)
+        self.assertIn("shutdown_event.set()",
+                      src[handler_idx:handler_idx + 200])
+        # the finally block stops MCP before the hard exit
+        shutdown_idx = src.index("get_mcp_manager().shutdown()")
+        exit_idx = src.index("os._exit(0)")
+        self.assertLess(shutdown_idx, exit_idx)
+
+    def test_app_stop_sigterm_first(self):
+        with open(os.path.join(_REPO_ROOT, "App-Stop.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        # SIGTERM-first helper that waits up to 10s for a graceful exit
+        self.assertIn("def _sigterm_first(", src)
+        self.assertIn("wait_s: float = 10.0", src)
+        self.assertIn('["kill", "-TERM", pid]', src)
+        # and it runs BEFORE the pkill escalation
+        self.assertLess(src.index("_sigterm_first(\"python app.py\""),
+                        src.index('_pkill_escalate("App-Start.py")'))
 
 
 if __name__ == "__main__":

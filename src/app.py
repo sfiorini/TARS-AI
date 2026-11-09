@@ -18,6 +18,7 @@ Run this script directly to start the application.
 import os
 import sys
 import threading
+import signal
 import time
 from datetime import datetime
 import warnings
@@ -326,6 +327,12 @@ if __name__ == "__main__":
     # Shutdown event
     shutdown_event = threading.Event()
 
+    # Graceful SIGTERM (S-M6-08): the app had NO SIGTERM handler — a stop
+    # signal now sets the shutdown event so the finally block below runs
+    # (including MCP shutdown) instead of relying on KeyboardInterrupt.
+    signal.signal(signal.SIGTERM,
+                  lambda *_: shutdown_event.set())
+
     # Battery module (only if enabled in config)
     if CONFIG['BATTERY'].get('battery_enabled', False):
         battery = BatteryModule()
@@ -488,5 +495,11 @@ if __name__ == "__main__":
             battery.stop()
         if bt_controller_thread:
             bt_controller_thread.join(timeout=2)
+        # Stop MCP servers (process-group kill per server) — S-M6-08
+        try:
+            from modules.module_mcp import get_mcp_manager
+            get_mcp_manager().shutdown()
+        except Exception:
+            pass
         queue_message("INFO: Shutdown complete.")
         os._exit(0)
