@@ -33,10 +33,18 @@ import zipfile
 
 from modules.module_messageQue import queue_message
 from modules.module_config import load_config
-from modules.module_toolregistry import ToolResult
+from modules.module_toolregistry import ToolDescriptor, ToolResult
 
 SPEC_FIELDS = ("name", "description", "license", "compatibility",
                "metadata", "allowed-tools")
+
+# The fixed meta-tool descriptions in prompt block 2 (design §4 verbatim)
+META_TOOLS_TEXT = """load_skill
+   Loads a skill's full instructions. Params: {"name": "<skill-name>"}
+   Returns the skill body; follow its instructions, then answer or run its scripts.
+run_skill_script
+   Runs a skill's script. Params: {"skill": "<name>", "script": "<filename>", "args": ["..."]}
+   Scripts run with the app's privileges. Returns stdout."""
 
 _NAME_RE = re.compile(r"^[a-z0-9-]+$")
 
@@ -410,6 +418,151 @@ class AgentSkillStore:
                 content=(proc.stderr or "").strip()
                           or f"script exited with code {proc.returncode}")
         return ToolResult(content=(proc.stdout or "").strip())
+
+    # ── descriptors + prompt block 2 (S-M5-07) ───────────────────
+
+    def iter_descriptors(self):
+        """Yield the pool's ToolDescriptors: the two meta-tools plus one
+        direct descriptor per parameterized skill (non-parameterized skills
+        are only reachable via load_skill — progressive disclosure)."""
+        yield ToolDescriptor(
+            name="load_skill", kind="agent_skill",
+            description="Load a skill's full instructions.",
+            parameters={"properties": {"name": {"type": "string"}},
+                        "required": ["name"]},
+            result_bearing=True, timeout_s=None,
+            execute=lambda params, ctx: self.load_skill(
+                (params or {}).get("name", "")))
+        yield ToolDescriptor(
+            name="run_skill_script", kind="agent_skill",
+            description="Run a skill's script.",
+            parameters={"properties": {"skill": {"type": "string"},
+                                       "script": {"type": "string"},
+                                       "args": {"type": "array"}},
+                        "required": ["skill", "script"]},
+            result_bearing=True, timeout_s=None,
+            execute=lambda params, ctx: self.run_skill_script(
+                (params or {}).get("skill", ""),
+                (params or {}).get("script", ""),
+                (params or {}).get("args", [])))
+        for skill in self.list_skills():
+            name = skill["name"]
+            data, errors = self._read_skill(name)
+            if data is None or errors:
+                continue
+            schema = decode_tars_metadata(data)["parameters"]
+            if not schema:
+                continue  # not directly callable — load_skill path only
+            body = self._raw_body(name)
+            yield ToolDescriptor(
+                name=name, kind="agent_skill",
+                description=skill["description"],
+                parameters=schema, result_bearing=True, timeout_s=None,
+                execute=self._make_agent_exec(name, body, schema))
+
+    def _raw_body(self, name):
+        """The SKILL.md body, untruncated (descriptor execution)."""
+        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
+        try:
+            with open(skill_md, "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            close = next(i for i in range(1, len(lines))
+                         if lines[i].strip() == "---")
+            return "\n".join(lines[close + 1:])
+        except (OSError, StopIteration):
+            return ""
+
+    def _make_agent_exec(self, name, body, schema):
+        """Render the body's run_skill_script line with the call's params
+        (schema defaults for missing ones) and run the script."""
+        defaults = {key: value.get("default")
+                    for key, value
+                    in (schema or {}).get("properties", {}).items()}
+        placeholder_re = re.compile(r"^<([a-zA-Z0-9_]+)>$")
+
+        def _exec(params, ctx):
+            match = re.search(r"run_skill_script:\s*(\{.*\})", body)
+            if not match:
+                return ToolResult(
+                    is_error=True,
+                    content=f"skill '{name}' has no run_skill_script "
+                            f"line in its body")
+            try:
+                spec = json.loads(match.group(1))
+            except json.JSONDecodeError:
+                return ToolResult(
+                    is_error=True,
+                    content=f"skill '{name}' has a malformed "
+                            f"run_skill_script line")
+            params = params or {}
+            args = []
+            for arg in spec.get("args", []):
+                match_placeholder = placeholder_re.match(str(arg))
+                if match_placeholder:
+                    key = match_placeholder.group(1)
+                    if key in params:
+                        args.append(str(params[key]))
+                    elif key in defaults and defaults[key] is not None:
+                        args.append(str(defaults[key]))
+                    else:
+                        args.append("")
+                else:
+                    args.append(str(arg))
+            return self.run_skill_script(spec.get("skill", name),
+                                         spec.get("script", ""), args)
+
+        return _exec
+
+    def build_prompt_block(self):
+        """Prompt block 2 (design §4): one line per skill + the fixed
+        meta-tool text, bounded by [STANDARD_SKILLS] prompt_budget_chars.
+        Returns (text, included_names, dropped_names) — the UI shows the
+        in-prompt flag from the last two."""
+        budget = load_config().get("STANDARD_SKILLS", {}).get(
+            "prompt_budget_chars", 3000)
+        skills = self.list_skills()
+
+        def entries_for(desc_limit):
+            entries = []
+            for skill in skills:
+                desc = skill["description"][:desc_limit]
+                if skill["has_parameters"]:
+                    data, _ = self._read_skill(skill["name"])
+                    schema = (decode_tars_metadata(data)["parameters"]
+                              or {})
+                    props = schema.get("properties", {})
+                    spec = "{" + ", ".join(
+                        f'"{key}": {value.get("type", "string")}'
+                        for key, value in sorted(props.items())) + "}"
+                    entries.append((skill["name"],
+                                    f'* "{skill["name"]}" — {desc} '
+                                    f'Params: {spec}'))
+                else:
+                    entries.append(
+                        (skill["name"],
+                         f'* "{skill["name"]}" — {desc} '
+                         f'(call load_skill("{skill["name"]}") to '
+                         f'activate)'))
+            return entries
+
+        def render(entries):
+            if not entries:
+                return META_TOOLS_TEXT
+            return META_TOOLS_TEXT + "\n" + "\n".join(
+                e[1] for e in entries)
+
+        entries = entries_for(200)
+        for limit in (100, 50):                # 1) truncate descriptions
+            if len(render(entries)) <= budget:
+                break
+            entries = entries_for(limit)
+        dropped = []
+        while entries and len(render(entries)) > budget:
+            dropped.append(entries.pop(0)[0])  # 2) drop alphabetically
+        for name in dropped:
+            queue_message(f"SKILLS: '{name}' dropped from agent-skills "
+                          f"prompt block (budget {budget} chars)")
+        return render(entries), [e[0] for e in entries], dropped
 
     def uninstall(self, name):
         """Remove an installed skill (its whole folder)."""

@@ -434,5 +434,74 @@ class TestStandardSkillsConfig(unittest.TestCase):
         self.assertEqual(stored, {"sides": "20", "count": "2"})
 
 
+class TestDescriptorsAndPrompt(_PoolTestCase):
+    """Agent-skill descriptors + prompt block 2 + budget (S-M5-07)."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+
+    def test_dice_roll_descriptor_end_to_end(self):
+        from modules.module_toolregistry import ToolRegistry, ToolContext
+        registry = ToolRegistry()
+        for d in self.store.iter_descriptors():
+            registry.register(d)
+        # the two meta-tools + the direct dice-roll descriptor
+        names = {d.name for d in registry.iter_descriptors()}
+        self.assertIn("load_skill", names)
+        self.assertIn("run_skill_script", names)
+        self.assertIn("dice-roll", names)
+        dice = registry.get("dice-roll")
+        self.assertEqual(dice.kind, "agent_skill")
+        self.assertTrue(dice.result_bearing)
+        self.assertIn("count", dice.parameters["properties"])
+        # D7: the REAL script runs through the descriptor
+        result = registry.dispatch("dice-roll", {"count": 2, "sides": 20},
+                                   ToolContext())
+        self.assertFalse(result.is_error, result.content)
+        self.assertRegex(result.content,
+                         _re.compile(r"Rolled 2d20: \d+, \d+ \(total \d+\)"))
+
+    def test_meta_tools_in_prompt(self):
+        block, included, dropped = self.store.build_prompt_block()
+        self.assertIn("load_skill\n   Loads a skill's full instructions. "
+                      'Params: {"name": "<skill-name>"}', block)
+        self.assertIn("run_skill_script\n   Runs a skill's script. "
+                      'Params: {"skill": "<name>", "script": '
+                      '"<filename>", "args": ["..."]}', block)
+        self.assertIn("Scripts run with the app's privileges.", block)
+        self.assertIn("dice-roll", included)
+        self.assertEqual(dropped, [])
+
+    def test_prompt_block_budget_drops_and_logs(self):
+        # 30 fake skills with long descriptions + a tiny budget
+        for i in range(30):
+            ok, _ = self.store.create(
+                f"fake-skill-{i:02d}", "x" * 300, "body")
+            self.assertTrue(ok)
+        with mock.patch.object(
+                module_agent_skills, "load_config",
+                return_value={"STANDARD_SKILLS": {
+                    "prompt_budget_chars": 600}}), \
+             mock.patch("modules.module_agent_skills.queue_message") as qm:
+            block, included, dropped = self.store.build_prompt_block()
+        self.assertLessEqual(len(block), 600)
+        self.assertTrue(dropped, "overflow must drop entries alphabetically")
+        self.assertEqual(dropped, sorted(dropped))
+        messages = [call.args[0] for call in qm.call_args_list]
+        self.assertTrue(any("dropped from agent-skills prompt" in m
+                            for m in messages), messages)
+        for name in dropped:
+            self.assertNotIn(f'"{name}"', block)
+
+    def test_parameterized_skill_gets_params_spec(self):
+        block, _inc, _dropped = self.store.build_prompt_block()
+        self.assertRegex(
+            block,
+            _re.compile(r'\* "dice-roll" — .* Params: \{"count": number, '
+                        r'"sides": number\}'))
+
+
 if __name__ == "__main__":
     unittest.main()

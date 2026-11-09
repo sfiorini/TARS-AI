@@ -289,6 +289,16 @@ if __name__ == "__main__":
     except Exception as e:
         queue_message(f"WARNING: Tool registry population failed: {e}")
 
+    # === Agent Skills pool: register descriptors (meta-tools + parameterized skills, S-M5-07) ===
+    try:
+        from modules.module_toolregistry import get_registry
+        from modules.module_agent_skills import get_agent_skill_store
+        for d in get_agent_skill_store().iter_descriptors():
+            get_registry().register(d)
+        queue_message("LOAD: Agent skill descriptors registered")
+    except Exception as e:
+        queue_message(f"WARNING: Agent skill registration failed: {e}")
+
     # === Movement store: seed live store from tracked defaults on first start ===
     try:
         from modules.module_movementstore import get_movement_store

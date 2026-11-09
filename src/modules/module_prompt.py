@@ -31,14 +31,26 @@ def _get_tools_prompt_text():
 
     Block 1 (builtin skills) is byte-identical to the legacy skills
     prompt — trigger reliability for the 8 followup skills is preserved
-    verbatim.  Block 2 (agent skills) and block 3 (MCP) arrive in M5/M6.
+    verbatim.  Block 2 (agent skills, M5) is bounded progressive disclosure;
+    block 3 (MCP) arrives in M6.
     """
     try:
         from modules.module_skills import get_skill_manager
         skills = get_skill_manager()
         if skills:
             block_builtin = skills.get_prompt_text()
-            block_agent_skills = ""  # agent-skill pool (M5)
+            # block 2: agent-skill pool (M5) — omitted when disabled
+            block_agent_skills = ""
+            try:
+                from modules.module_config import load_config
+                if load_config().get("STANDARD_SKILLS", {}).get(
+                        "enabled", True):
+                    from modules.module_agent_skills import \
+                        get_agent_skill_store
+                    block_agent_skills = get_agent_skill_store() \
+                        .build_prompt_block()[0]
+            except Exception:
+                block_agent_skills = ""
             block_mcp = ""           # MCP pool (M6)
             blocks = [b for b in (block_builtin, block_agent_skills,
                                    block_mcp) if b]

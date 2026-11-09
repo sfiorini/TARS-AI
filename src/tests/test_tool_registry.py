@@ -365,7 +365,11 @@ class TestPromptByteIdentity(unittest.TestCase):
         manager = module_skills.initialize_skills()
         expected = manager.get_prompt_text()
         actual = module_prompt._get_tools_prompt_text()
-        self.assertEqual(actual, expected)
+        # block 1 (builtin) must be a byte-identical PREFIX — block 2
+        # (agent skills, M5) is appended after it, never reorders or
+        # reformats the builtin text
+        self.assertTrue(actual.startswith(expected),
+                        "builtin block drifted")
         self.assertTrue(expected)  # a real prompt, not the fallback
 
     def test_no_skills_loaded_fallback_preserved(self):
