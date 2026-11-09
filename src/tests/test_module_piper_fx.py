@@ -36,7 +36,7 @@ if not os.path.exists(_CONFIG_INI):
 
 _REPO = os.path.abspath(os.path.join(_SRC, ".."))
 
-DEFAULT_FX = "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
+DEFAULT_FX = "pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
 FISH_TARS_REF = "6a57e35f5c8244dbb5d012a3c434ec16"
 
 
@@ -400,8 +400,33 @@ class TestRobotVoiceOpsFiles(unittest.TestCase):
         self.assertIn("api.speechify.ai/v1/voices", text)
         self.assertIn("prosody", text)
         self.assertIn("piper_robot_fx", text)
-        self.assertIn("chorus", text)
+        self.assertIn("flanger", text)
         self.assertIn("815828", text)
+
+    def test_piper_fx_chain_agrees_across_all_locations(self):
+        # An EMPTY piper_fx silently falls back to DEFAULT_PIPER_FX, so ALL
+        # repo copies of the chain must carry the SAME string or a partial
+        # change resurrects the old sound. Every file that carries the chain
+        # (grep-verified, 7 total; this test's DEFAULT_FX is the pin):
+        # src/modules/module_piper.py (DEFAULT_PIPER_FX), src/config.ini.template,
+        # scripts/configure_tars_client.sh, docs/voice-pipeline.md,
+        # docs/configuration.md, ATTRIBUTION.md. A future copy added anywhere
+        # in the repo MUST be asserted here too.
+        self.assertEqual(module_piper.DEFAULT_PIPER_FX, DEFAULT_FX)
+        parser = configparser.ConfigParser()
+        parser.read(os.path.join(_SRC, "config.ini.template"))
+        self.assertEqual(parser.get("TTS", "piper_fx"), DEFAULT_FX)
+        with open(os.path.join(_REPO, "scripts", "configure_tars_client.sh"), encoding="utf-8") as fh:
+            script = fh.read()
+        m = re.search(r'set_kv TTS piper_fx "([^"]+)"', script)
+        self.assertIsNotNone(m, "configure script must set piper_fx")
+        self.assertEqual(m.group(1), DEFAULT_FX)
+        with open(os.path.join(_REPO, "docs", "voice-pipeline.md"), encoding="utf-8") as fh:
+            self.assertIn(DEFAULT_FX, fh.read())
+        with open(os.path.join(_REPO, "docs", "configuration.md"), encoding="utf-8") as fh:
+            self.assertIn(DEFAULT_FX, fh.read())
+        with open(os.path.join(_REPO, "ATTRIBUTION.md"), encoding="utf-8") as fh:
+            self.assertIn(DEFAULT_FX, fh.read())
 
 
 if __name__ == "__main__":
