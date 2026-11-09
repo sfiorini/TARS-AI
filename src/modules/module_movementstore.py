@@ -144,11 +144,15 @@ class MovementStore:
                         candidate = None
                         break
             if candidate is not None:
-                # second pass: movement refs resolve once all ids are known
+                # second pass: movement refs resolve once all ids are
+                # known, and the ref graph must be acyclic (audit
+                # A2-remainder — a hand-edited cyclic movements.json
+                # must fall back to defaults, not recurse at playback)
                 known = set(candidate)
                 for mid, entry in candidate.items():
                     try:
                         self.validate_entry(mid, entry, known_ids=known)
+                        self._check_acyclic(mid, entries=candidate)
                     except ValueError as exc:
                         queue_message(
                             f"MOVEMENTS: invalid entry '{mid}': {exc}")
@@ -257,6 +261,13 @@ class MovementStore:
                 errors.append(f"{mid}: {exc}")
         if errors:
             return errors
+        # audit A2-remainder: reject cyclic imports wholesale — the DFS
+        # runs on the CANDIDATE set before anything is committed
+        for mid in entries:
+            try:
+                self._check_acyclic(mid, entries=entries)
+            except ValueError as exc:
+                return [str(exc)]
         self.movements = copy.deepcopy(entries)
         self.save()
         self._refresh_registry()
@@ -474,15 +485,17 @@ class MovementStore:
             # read-only fs: warn and continue (defaults load in-memory)
             queue_message(f"WARNING: could not seed movements.json: {exc}")
 
-    def _check_acyclic(self, start_mid):
+    def _check_acyclic(self, start_mid, entries=None):
         """DFS over movement refs from start_mid — a cycle would recurse
         forever at playback (audit A2). Raises ValueError naming the
-        cycle."""
+        cycle.  `entries` defaults to the live store (import checks pass
+        the candidate set before committing it)."""
+        entries = self.movements if entries is None else entries
         visited = set()
         path = [start_mid]
 
         def refs_of(mid):
-            entry = self.movements.get(mid)
+            entry = entries.get(mid)
             if not entry:
                 return []
             out = []

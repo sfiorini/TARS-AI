@@ -687,6 +687,58 @@ class TestArmGatedLegs(_PlaybackTestCase):
                         "the arms branch must play when arms are present")
 
 
+class TestCycleSafetyAtLoadAndImport(_StoreTestCase):
+    """Audit A2-remainder: cyclic movement refs must be rejected at EVERY
+    entry point — import_from and load, not just add/update."""
+
+    def _cycle_file(self, movements):
+        path = os.path.join(self.tmp, "cycle.json")
+        with open(path, "w") as fh:
+            json.dump({"version": 1, "movements": movements}, fh)
+        return path
+
+    def test_import_self_reference_rejected_wholesale(self):
+        self.store.load()
+        before = self.store.get_all()
+        entry = _valid_entry()
+        entry["steps"][0]["movement"] = "loop"
+        errors = self.store.import_from(
+            self._cycle_file({"loop": entry}))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("loop", errors[0])
+        # all-or-nothing: the store is unchanged
+        self.assertEqual(self.store.get_all(), before)
+
+    def test_import_two_node_cycle_rejected(self):
+        self.store.load()
+        before = self.store.get_all()
+        a, b = _valid_entry(), _valid_entry()
+        a["steps"][0]["movement"] = "cyc_b"
+        b["steps"][0]["movement"] = "cyc_a"
+        errors = self.store.import_from(
+            self._cycle_file({"cyc_a": a, "cyc_b": b}))
+        self.assertEqual(len(errors), 1)
+        self.assertIn("cyc", errors[0])
+        self.assertEqual(self.store.get_all(), before)
+
+    def test_load_cycle_falls_back_to_defaults(self):
+        entry = _valid_entry()
+        entry["steps"][0]["movement"] = "loop"
+        with open(self.store_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"loop": entry}}, fh)
+        with mock.patch("modules.module_movementstore.queue_message") as qm:
+            loaded = self.store.load()
+        self.assertEqual(loaded, self._defaults_movements())
+        messages = [call.args[0] for call in qm.call_args_list]
+        self.assertTrue(any("loop" in m and ("cycle" in m.lower()
+                                              or "invalid" in m.lower())
+                            for m in messages), messages)
+        # and playback of every loaded entry is safe (no recursion)
+        for mid in loaded:
+            self.assertIn(mid, self.store.movements)
+
+
 class TestMalformedStepTolerance(_PlaybackTestCase):
     """Audit B4: /play_sequence passes raw client steps into play_steps —
     a step missing keys must not raise KeyError mid-playback (the old
