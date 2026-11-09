@@ -89,7 +89,7 @@ Yes. With the model kept in memory after the first load (no per-utterance CLI re
 
 - **Fish.audio** uses the public **“Tars” voice** by brenardspag — `fishaudio_reference_id = 6a57e35f5c8244dbb5d012a3c434ec16` (<https://fish.audio/m/6a57e35f5c8244dbb5d012a3c434ec16/>), set on the robot by `scripts/configure_tars_client.sh`. To clone your own voice instead, run `FISH_AUDIO_API_KEY=... ./scripts/setup_tts_voice.sh` — the sample is freesound #815828 by RICHERlandTV, **CC BY 4.0** (see `ATTRIBUTION.md` in the repo root).
 - **Speechify**: list the catalog voices to pick the flattest male one — `curl -s https://api.speechify.ai/v1/voices -H "Authorization: Bearer $SPEECHIFY_API_KEY" | python3 -m json.tool` — then set `speechify_voice_id`; wrap the input in `<prosody pitch="-10%" rate="95%">…</prosody>` SSML for a flatter robot read.
-- **Local Piper robot FX**: `piper_robot_fx = True` with `piper_fx = chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100` — a sox chain applied post-synthesis in `module_piper.py` (`apply_piper_fx`). Requires `sox` installed; if sox is missing or the chain fails, the raw Piper audio is played instead.
+- **Local Piper robot FX**: `piper_robot_fx = True` with `piper_fx = pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3` — a sox chain applied post-synthesis in `module_piper.py` (`apply_piper_fx`). Requires `sox` installed; if sox is missing or the chain fails, the raw Piper audio is played instead.
 
 Attribution for all voice assets lives in `ATTRIBUTION.md` (repo root) with a note in `LICENSE`.
 

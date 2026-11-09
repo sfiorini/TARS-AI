@@ -118,7 +118,7 @@ if ! sed -n "/^\[TTS\]/,/^\[/p" "$CONFIG" | grep -qE "^[[:space:]]*fishaudio_ref
 fi
 # Local-Piper robot voice: sox FX chain applied post-synthesis (needs sox installed)
 set_kv TTS piper_robot_fx True
-set_kv TTS piper_fx "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
+set_kv TTS piper_fx "pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
 
 # --- [STT]: ElevenLabs Scribe (cloud) primary; external whisper fallback ---
 set_kv STT stt_processor elevenlabs
