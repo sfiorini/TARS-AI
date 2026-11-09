@@ -245,6 +245,34 @@ class TestRequiredParamsGuard(_StubSkillsDirTestCase):
         self.assertEqual(stub_module.recorder, [{"query": "x"}])
 
 
+class TestStartupRegistration(unittest.TestCase):
+    """The builtin pool registers into the tool registry at startup
+    (S-M3-05 — the same flow app.py runs after initialize_skills())."""
+
+    def test_registry_has_builtin_tools(self):
+        from modules import module_skills
+        from modules.module_toolregistry import get_registry, reset_registry
+        reset_registry()
+        self.addCleanup(reset_registry)
+        saved = module_skills._manager
+        self.addCleanup(setattr, module_skills, "_manager", saved)
+        manager = module_skills.initialize_skills()
+        registry = get_registry()
+        for d in manager.iter_descriptors():
+            registry.register(d)
+        registered = registry.iter_descriptors()
+        enabled = [n for n in manager._skills
+                    if n not in manager._disabled]
+        # every enabled skill yields exactly one builtin descriptor
+        # (19 on the robot with all skills enabled; dev machines load 17 —
+        # skill_tars_radio needs py3.10+, skill_discord needs the discord lib)
+        self.assertEqual(len(registered), len(enabled))
+        self.assertTrue(all(d.kind == "builtin" for d in registered))
+        names = {d.name for d in registered}
+        self.assertIn("web_search", names)
+        self.assertIn("execute_movement", names)
+
+
 class TestPromptByteIdentity(unittest.TestCase):
     """The builtin prompt block must stay byte-identical to today's
     skills prompt (S-M3-03) — the 8 followup skills depend on their exact

@@ -277,6 +277,18 @@ if __name__ == "__main__":
     # === Skills System (auto-discover tool plugins) ===
     initialize_skills()
 
+    # === Tool registry: register the builtin pool (M3 seam for the M4 loop) ===
+    try:
+        from modules.module_toolregistry import get_registry
+        from modules.module_skills import get_skill_manager
+        for d in get_skill_manager().iter_descriptors():
+            get_registry().register(d)
+        queue_message(
+            f"LOAD: Tool registry: "
+            f"{len(get_registry().iter_descriptors())} builtin tools")
+    except Exception as e:
+        queue_message(f"WARNING: Tool registry population failed: {e}")
+
     # === Movement store: seed live store from tracked defaults on first start ===
     try:
         from modules.module_movementstore import get_movement_store
