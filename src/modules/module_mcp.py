@@ -318,7 +318,8 @@ class McpManager:
                              f'Params: {spec}')
             return "\n".join(lines)
 
-        items = entries
+        # drops are ALPHABETICAL (as documented) — not insertion order
+        items = sorted(entries, key=lambda entry: entry[0])
         limit = 200
         for limit in (200, 100, 50):          # 1) truncate descriptions
             if len(render(items, limit)) <= budget:

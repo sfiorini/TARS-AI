@@ -994,5 +994,45 @@ class TestAutoStartRemoved(unittest.TestCase):
         self.assertIn("disable", doc)
 
 
+class TestPromptDropOrder(unittest.TestCase):
+    """M6 review F4: budget drops are ALPHABETICAL (as documented), not
+    insertion order."""
+
+    def test_drop_order_is_alphabetical(self):
+        from modules.module_mcp import McpManager
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        registry = os.path.join(tmp, "mcp_servers.json")
+        # tools/list returns zeta BEFORE alpha — insertion order ≠ alpha
+        with open(registry, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "srv": {"transport": "stdio", "command": sys.executable,
+                        "args": ["-c", "pass"], "env": {}, "cwd": None,
+                        "enabled": True}}}, fh)
+        manager = McpManager(registry,
+                             os.path.join(_SRC, "mcp_servers.json.template"))
+        self.assertEqual(manager.load_registry(), [])
+        fake_tools = [
+            {"name": "zeta", "description": "z" * 300,
+             "inputSchema": {"type": "object", "properties": {}}},
+            {"name": "alpha", "description": "a" * 300,
+             "inputSchema": {"type": "object", "properties": {}}},
+        ]
+        with mock.patch.object(manager, "list_tools",
+                              return_value=fake_tools), \
+             mock.patch("modules.module_mcp.queue_message") as qm, \
+             mock.patch.object(manager, "_prompt_budget",
+                              return_value=60):
+            block = manager.build_prompt_block()
+        self.assertLessEqual(len(block), 60)
+        messages = [call.args[0] for call in qm.call_args_list]
+        dropped = [m.split("'")[1] for m in messages
+                   if "dropped from MCP prompt" in m]
+        self.assertTrue(dropped, messages)
+        # the FIRST dropped name is the alphabetically-first tool
+        self.assertEqual(dropped[0], "mcp_srv_alpha",
+                         f"drops must be alphabetical, got {dropped}")
+
+
 if __name__ == "__main__":
     unittest.main()
