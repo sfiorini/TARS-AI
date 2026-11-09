@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -48,6 +49,41 @@ _install_fake_hardware()
 
 _SERVER = os.path.join(_SRC, "mcp_example_server.py")
 _REPO_ROOT = os.path.abspath(os.path.join(_SRC, ".."))
+
+
+def _pid_exists(pid):
+    """True while `pid` is present at all — a zombie (unreaped corpse)
+    still counts as present: it only disappears once reaped."""
+    if os.path.isdir("/proc"):  # Linux (the robot): /proc tells the truth
+        try:
+            with open(f"/proc/{pid}/stat", encoding="utf-8"):
+                return True  # stat exists → alive OR zombie (both "here")
+        except OSError:
+            return False
+    try:  # portable fallback (macOS dev machines)
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists but not ours — still present
+    return True
+
+
+def _assert_process_dead(pid, timeout=2.0):
+    """Assert the SPECIFIC `pid` this test spawned is fully gone.
+
+    Name-based scans (pgrep -f …) match ANY process with the string in
+    its command line — on the robot the live app's own MCP child makes
+    them fail, so assertions must target the spawned pid.  SIGTERM is
+    asynchronous, so poll up to `timeout` seconds.  A zombie does not
+    count as gone (see _pid_exists).
+    """
+    deadline = time.monotonic() + timeout
+    while _pid_exists(pid):
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"process {pid} still present {timeout:g}s after stop")
+        time.sleep(0.05)
 
 
 class _RealServerPipe(unittest.TestCase):
@@ -324,16 +360,16 @@ class TestStdioTransport(unittest.TestCase):
     def test_stop_kills_process_group(self):
         server = self._make_server()
         server.start()
+        pid = server._proc.pid
         server.stop()
         deadline = time.monotonic() + 3
         while server.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertIsNotNone(server.poll(), "process did not exit")
-        # no orphan: the process-group kill covered the whole tree
-        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
-                               capture_output=True, text=True)
-        self.assertEqual(check.stdout.strip(), "",
-                         f"orphan server process: {check.stdout}")
+        # no orphan: the process-group kill covered the whole tree —
+        # assert on OUR pid, not a name scan (a live app's own MCP child
+        # would make a pgrep -f match fail on the robot)
+        _assert_process_dead(pid)
 
     def test_send_is_compact_single_line(self):
         from modules.module_mcp import _StdioServer
@@ -737,15 +773,15 @@ class TestShutdown(_ManagerTestCase):
         manager.list_tools("example")  # starts the real server
         transport = manager._transports["example"]
         self.assertIsNone(transport.poll())  # alive
+        pid = transport._proc.pid
         manager.shutdown()
         deadline = time.monotonic() + 3
         while transport.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertIsNotNone(transport.poll(), "server did not exit")
-        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
-                               capture_output=True, text=True)
-        self.assertEqual(check.stdout.strip(), "",
-                         f"orphan server process: {check.stdout}")
+        # assert on OUR pid, not a name scan (a live app's own MCP child
+        # would make a pgrep -f match fail on the robot)
+        _assert_process_dead(pid)
         # safe when nothing is running
         manager.shutdown()
 
@@ -914,12 +950,31 @@ class TestOrphanCleanup(unittest.TestCase):
     not leak a live process — the half-open transport is stopped."""
 
     def test_failed_handshake_leaves_no_orphan(self):
-        from modules.module_mcp import McpManager
+        from modules.module_mcp import _StdioServer, McpManager
         tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
-        # safety net: never leak the blocker even if the test fails
-        self.addCleanup(subprocess.run, ["pkill", "-f", "banner_blocker"],
-                        **{"check": False})
+        # capture the pid THIS test spawns (the failed handshake stops
+        # the half-open transport inside the manager, so the pid must be
+        # recorded at start time); safety net: never leak the blocker
+        # even if the test fails — pid-scoped, so an unrelated process
+        # whose command line happens to match can never be killed
+        spawned = []
+
+        def _recording_start(self):
+            _orig_start(self)
+            spawned.append(self._proc.pid)
+
+        _orig_start = _StdioServer.start
+        self.addCleanup(setattr, _StdioServer, "start", _orig_start)
+        _StdioServer.start = _recording_start
+
+        def _kill_spawned():
+            for pid in spawned:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+        self.addCleanup(_kill_spawned)
         script = os.path.join(tmp, "banner_blocker.py")
         with open(script, "w") as fh:
             fh.write("import sys, time\n"
@@ -938,17 +993,11 @@ class TestOrphanCleanup(unittest.TestCase):
         self.addCleanup(manager.shutdown)
         result = manager.call_tool("banner", "x", {})
         self.assertTrue(result.is_error)
-        # the handshake failed — the just-started process must be dead
-        deadline = time.monotonic() + 3
-        while time.monotonic() < deadline:
-            check = subprocess.run(["pgrep", "-f", "banner_blocker"],
-                                   capture_output=True, text=True)
-            if check.stdout.strip() == "":
-                break
-            time.sleep(0.1)
-        self.assertEqual(check.stdout.strip(), "",
-                         f"orphaned MCP process survived the failed "
-                         f"handshake: {check.stdout}")
+        # the handshake failed — the just-started process must be dead;
+        # assert on OUR pid, not a name scan (a concurrently running
+        # process with a matching command line must not interfere)
+        self.assertEqual(len(spawned), 1, "expected exactly one spawn")
+        _assert_process_dead(spawned[0])
 
 
 class TestTemplatePathResolution(unittest.TestCase):
@@ -1123,6 +1172,7 @@ class TestRemoveStopsTransport(_ManagerTestCase):
         manager.list_tools("example")  # starts the real server
         transport = manager._transports["example"]
         self.assertIsNone(transport.poll())  # alive
+        pid = transport._proc.pid
         ok, errors = manager.remove_server("example")
         self.assertTrue(ok, errors)
         # the transport is gone and the child exited
@@ -1131,10 +1181,9 @@ class TestRemoveStopsTransport(_ManagerTestCase):
         while transport.poll() is None and time.monotonic() < deadline:
             time.sleep(0.05)
         self.assertIsNotNone(transport.poll(), "child survived removal")
-        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
-                               capture_output=True, text=True)
-        self.assertEqual(check.stdout.strip(), "",
-                         f"orphan after removal: {check.stdout}")
+        # assert on OUR pid, not a name scan (a live app's own MCP child
+        # would make a pgrep -f match fail on the robot)
+        _assert_process_dead(pid)
         # state/cache dropped
         self.assertNotIn("example", manager._tools_cache)
 
