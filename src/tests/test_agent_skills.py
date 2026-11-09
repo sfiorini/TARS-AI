@@ -366,5 +366,73 @@ class TestLoadAndRun(_PoolTestCase):
         self.assertIn("invalid script name", result.content)
 
 
+class TestStandardSkillsConfig(unittest.TestCase):
+    """[STANDARD_SKILLS] keys with code defaults (S-M5-06)."""
+
+    def test_standard_skills_keys_default(self):
+        from modules import module_config
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        minimal = os.path.join(tmp, "config.ini")
+        with open(os.path.join(_SRC, "config.ini.template")) as fh:
+            text = fh.read()
+        # strip the [STANDARD_SKILLS] section entirely — code defaults apply
+        lines, skipping = [], False
+        for ln in text.splitlines():
+            if ln.strip() == "[STANDARD_SKILLS]":
+                skipping = True
+                continue
+            if skipping and ln.startswith("["):
+                skipping = False
+            if not skipping:
+                lines.append(ln)
+        with open(minimal, "w") as fh:
+            fh.write("\n".join(lines))
+        saved_path = os.environ.get("TARS_CONFIG_PATH")
+        saved_cache = module_config._config_cache
+        os.environ["TARS_CONFIG_PATH"] = minimal
+        module_config._config_cache = None
+        self.addCleanup(module_config.__setattr__, "_config_cache",
+                        saved_cache)
+        def _restore():
+            if saved_path is None:
+                os.environ.pop("TARS_CONFIG_PATH", None)
+            else:
+                os.environ["TARS_CONFIG_PATH"] = saved_path
+        self.addCleanup(_restore)
+        config = module_config.load_config()
+        std = config.get("STANDARD_SKILLS", {})
+        self.assertIs(std.get("enabled"), True)
+        self.assertEqual(std.get("body_char_limit"), 4000)
+        self.assertEqual(std.get("prompt_budget_chars"), 3000)
+
+    def test_std_config_roundtrip(self):
+        from modules import module_agent_skills
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        cfg = os.path.join(tmp, "config.ini")
+        with open(os.path.join(_SRC, "config.ini.template")) as fh:
+            shutil.copyfileobj(fh, open(cfg, "w"))
+        saved_path = os.environ.get("TARS_CONFIG_PATH")
+        os.environ["TARS_CONFIG_PATH"] = cfg
+
+        def _restore():
+            if saved_path is None:
+                os.environ.pop("TARS_CONFIG_PATH", None)
+            else:
+                os.environ["TARS_CONFIG_PATH"] = saved_path
+        self.addCleanup(_restore)
+        module_agent_skills.set_std_config("dice-roll", {"sides": "20"})
+        self.assertEqual(module_agent_skills.get_std_config("dice-roll"),
+                         {"sides": "20"})
+        with open(cfg) as fh:
+            content = fh.read()
+        self.assertIn("[SKILL_STD:dice-roll]", content)
+        # update merges over the previous values
+        module_agent_skills.set_std_config("dice-roll", {"count": "2"})
+        stored = module_agent_skills.get_std_config("dice-roll")
+        self.assertEqual(stored, {"sides": "20", "count": "2"})
+
+
 if __name__ == "__main__":
     unittest.main()

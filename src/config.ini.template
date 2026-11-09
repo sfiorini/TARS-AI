@@ -358,3 +358,10 @@ disabled = true
 
 [SKILL:launch_retropie]
 disabled = true
+[STANDARD_SKILLS]
+# Master switch for the Agent Skills pool (spec-pure SKILL.md folders)
+enabled = true
+# Max chars of a skill body returned by load_skill (progressive disclosure)
+body_char_limit = 4000
+# Char budget for the agent-skills prompt block (overflow drops entries)
+prompt_budget_chars = 3000

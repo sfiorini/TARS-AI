@@ -537,6 +537,11 @@ def load_config():
             "deferred_loop_enabled": config.getboolean('LLM', 'deferred_loop_enabled', fallback=True),
             "api_key": get_api_key(config['LLM']['llm_backend']),
         },
+        "STANDARD_SKILLS": {
+            "enabled": config.getboolean('STANDARD_SKILLS', 'enabled', fallback=True),
+            "body_char_limit": config.getint('STANDARD_SKILLS', 'body_char_limit', fallback=4000),
+            "prompt_budget_chars": config.getint('STANDARD_SKILLS', 'prompt_budget_chars', fallback=3000),
+        },
         "VISION": {
             "enabled": config.getboolean('VISION', 'enabled'),
             "camera_rotation": config.getint('VISION', 'camera_rotation', fallback=0),
@@ -836,6 +841,18 @@ CONFIG_METADATA = {
         },
         'deferred_loop_enabled': {
             'description': 'Master switch for the deferred reply loop. When ON, tools that produce results (like web search) trigger a follow-up: TARS says a short holding line, runs the tool, then speaks the final answer built from the results. When OFF, TARS falls back to the old blocking behavior for one release. Flip this OFF and restart if the robot ever speaks oddly after tool use.'
+        },
+    },
+    'STANDARD_SKILLS': {
+        '__description__': 'The Agent Skills pool — spec-pure SKILL.md folders installed from src/agent_skills_defaults or your own folders/zips',
+        'enabled': {
+            'description': 'Master switch for the whole Agent Skills pool. When OFF, no agent skill is callable and the prompt block is omitted.'
+        },
+        'body_char_limit': {
+            'description': 'How much of a skill\'s SKILL.md body load_skill returns to the AI, in characters (progressive disclosure — the AI only pulls the full instructions when a skill is actually used). 4000 is plenty for most skills; lower it if your prompts get too long.'
+        },
+        'prompt_budget_chars': {
+            'description': 'Character budget for the agent-skills block in the AI prompt. When the block overflows, skill descriptions are shortened first, then whole skills are dropped alphabetically — every dropped name is logged.'
         },
     },
     'STT': {

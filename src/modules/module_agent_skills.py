@@ -420,6 +420,57 @@ class AgentSkillStore:
         queue_message(f"SKILLS: uninstalled agent skill '{name}'")
 
 
+def _std_config_path():
+    """The config.ini path (TARS_CONFIG_PATH-aware, like module_config)."""
+    return os.environ.get("TARS_CONFIG_PATH") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "config.ini")
+
+
+def get_std_config(name):
+    """Read a skill's persisted [SKILL_STD:<name>] values ({} if absent)."""
+    import configparser
+    parser = configparser.ConfigParser()
+    parser.read(_std_config_path())
+    section = f"SKILL_STD:{name}"
+    if not parser.has_section(section):
+        return {}
+    return dict(parser.items(section))
+
+
+def set_std_config(name, values):
+    """Persist values into [SKILL_STD:<name>] (merged with existing),
+    mirroring SkillManager._save_skill_section's line-level editing so
+    comments elsewhere in config.ini survive."""
+    config_path = _std_config_path()
+    if not os.path.exists(config_path):
+        return
+    merged = get_std_config(name)
+    merged.update({k: str(v) for k, v in (values or {}).items()})
+    section_header = f"[SKILL_STD:{name}]"
+    lines = open(config_path, "r").readlines()
+    new_lines, skip = [], False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == section_header:
+            skip = True
+            continue
+        if skip and stripped.startswith("[") and stripped.endswith("]"):
+            skip = False
+        if not skip:
+            new_lines.append(line)
+    if new_lines and not new_lines[-1].endswith("\n"):
+        new_lines.append("\n")
+    if not new_lines or new_lines[-1].strip():
+        new_lines.append("\n")
+    new_lines.append(f"{section_header}\n")
+    for field, value in sorted(merged.items()):
+        new_lines.append(f"{field} = {value}\n")
+    new_lines.append("\n")
+    with open(config_path, "w") as fh:
+        fh.writelines(new_lines)
+
+
 _store_instance = None
 
 
