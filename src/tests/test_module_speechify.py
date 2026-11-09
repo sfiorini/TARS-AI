@@ -472,6 +472,16 @@ class TestCfgNoneSafeReads(unittest.TestCase):
             self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
 
 
+class TestResolveOutputFormat(unittest.TestCase):
+    def test_valid_pcm_formats(self):
+        self.assertEqual(module_speechify._resolve_output_format("pcm_24000"), ("pcm_24000", 24000))
+        self.assertEqual(module_speechify._resolve_output_format(" pcm_44100 "), ("pcm_44100", 44100))
+
+    def test_invalid_formats_return_none(self):
+        for bad in ("mp3_24000_64", "", None, "wav", "pcm_", "pcm_abc"):
+            self.assertIsNone(module_speechify._resolve_output_format(bad), bad)
+
+
 class TestModuleDocstringMatchesBehavior(unittest.TestCase):
     def test_header_documents_streaming_endpoint_and_default(self):
         doc = module_speechify.__doc__ or ""

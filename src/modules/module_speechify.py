@@ -126,6 +126,15 @@ def _cfg(key, default=None):
     return default if value is None else value
 
 
+def _resolve_output_format(raw):
+    """Return (format_str, sample_rate) for a pcm_<rate> output_format, else None."""
+    fmt = str(raw or "").strip()
+    m = re.fullmatch(r"pcm_(\d+)", fmt)
+    if not m:
+        return None
+    return fmt, int(m.group(1))
+
+
 def _parse_error_body(response):
     """Return (code, message) from a Speechify error body.
 
