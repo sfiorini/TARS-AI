@@ -351,5 +351,95 @@ class TestFollowupCompletion(unittest.TestCase):
         self.assertIsNone(result)  # runner speaks the timeout fallback
 
 
+class _RecordingMemory:
+    """Event-setting recorder standing in for memory_manager."""
+
+    def __init__(self):
+        self.longterm = []
+        self.topic_index = []
+        self.activity = []
+        self.longterm_event = threading.Event()
+        self.topic_event = threading.Event()
+        self.activity_event = threading.Event()
+
+    def write_longterm_memory(self, user_input, reply, activity):
+        self.longterm.append((user_input, reply, activity))
+        self.longterm_event.set()
+
+    def update_topic_index_with_ai_response(self, json_str):
+        self.topic_index.append(json_str)
+        self.topic_event.set()
+
+    def save_current_activity(self, activity):
+        self.activity.append(activity)
+        self.activity_event.set()
+
+
+class TestTurnMemories(unittest.TestCase):
+    """Memory writes must never be lost (S-M4-06, plan-review F3):
+    llm_execute_side_effects is the ONLY memory path for webui, discord,
+    reminder and legacy llm_process — it keeps writing via the extracted
+    write_turn_memories, guarded to exactly one write per turn."""
+
+    def test_write_turn_memories_persists_all_three(self):
+        from modules import module_llm
+        mem = _RecordingMemory()
+        with mock.patch.object(module_llm, "memory_manager", mem):
+            module_llm.write_turn_memories(
+                {"reply": "r", "new_memories": ["fact"],
+                 "current_activity": "walking"}, "u")
+            self.assertTrue(mem.longterm_event.wait(2))
+            self.assertTrue(mem.topic_event.wait(2))
+            self.assertTrue(mem.activity_event.wait(2))
+        self.assertEqual(mem.longterm, [("u", "r", "walking")])
+        self.assertIn("fact", mem.topic_index[0])
+        self.assertEqual(mem.activity, ["walking"])
+        # empty new_memories -> the topic index is NOT called
+        mem2 = _RecordingMemory()
+        with mock.patch.object(module_llm, "memory_manager", mem2):
+            module_llm.write_turn_memories(
+                {"reply": "r", "new_memories": []}, "u2")
+            self.assertTrue(mem2.longterm_event.wait(2))
+        self.assertEqual(mem2.topic_index, [])
+
+    def test_side_effects_write_memories_non_voice_source(self):
+        from modules import module_llm
+        mem = _RecordingMemory()
+        parsed = {"reply": "r", "new_memories": ["fact"],
+                  "current_activity": "walking"}
+        with mock.patch.object(module_llm, "memory_manager", mem):
+            # the path webui (:783), discord (skill_discord.py:155),
+            # reminder (skill_reminder.py:82) and legacy llm_process (:711)
+            # all rely on
+            module_llm.llm_execute_side_effects(parsed, "u",
+                                                source="webui")
+            self.assertTrue(mem.longterm_event.wait(2))
+            self.assertTrue(mem.topic_event.wait(2))
+            self.assertTrue(mem.activity_event.wait(2))
+        self.assertEqual(mem.longterm, [("u", "r", "walking")])
+        self.assertIn("fact", mem.topic_index[0])
+        # idempotence: a second write on the SAME parsed dict fires nothing
+        mem_again = _RecordingMemory()
+        with mock.patch.object(module_llm, "memory_manager", mem_again):
+            module_llm.write_turn_memories(parsed, "u")
+        self.assertEqual(mem_again.longterm + mem_again.topic_index
+                         + mem_again.activity, [])
+
+    def test_module_main_memory_wiring(self):
+        # source pin (S-M2-11 pattern): the started-path memory write and
+        # the not-started dispatch thread must both survive refactors
+        with open(os.path.join(_SRC, "modules", "module_main.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("bump_epoch('voice')", src)
+        self.assertNotIn("has_blocking_tool", src)
+        start_idx = src.index("started = get_loop_runner().start_turn")
+        tail = src[start_idx:]
+        self.assertIn("if started:", tail)
+        self.assertIn("threading.Thread(target=write_turn_memories", tail)
+        self.assertIn("elif func_calls or new_mems:", tail)
+        self.assertIn("target=llm_execute_side_effects", tail)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -115,6 +115,9 @@ def utterance_callback(message):
     try:
         import modules.module_speed as speed
         import modules.module_llm as llm_mod
+        from modules.module_toolloop import (bump_epoch, get_loop_runner,
+                                             TurnCallbacks)
+        bump_epoch('voice')  # new utterance — cancel any in-flight deferred turn
         speed.mark_utterance_start()
         speed.start('total')
 
@@ -355,34 +358,43 @@ def utterance_callback(message):
         if ui_manager:
             ui_manager.update_streaming_data(reply)
 
-        # Handle side effects (vision/search/photo run inline, others in background)
-        _followup_reply = None
+        # Handle side effects: result-bearing tools → deferred loop (D1);
+        # fire-and-forget → the existing background side-effect thread (the
+        # single dispatcher — the loop never dispatches them)
         tools_dur = 0
         if not isinstance(parsed, str):
             func_calls = parsed.get("function_calls", [])
             new_mems = parsed.get("new_memories", [])
-            queue_message(f"DEBUG VOICE: parsed type={type(parsed).__name__}, func_calls={func_calls}, new_memories={new_mems}")
-            # Check if any called skill is blocking (double-pass: placeholder → result)
-            from modules.module_skills import get_skill_manager
-            _sm = get_skill_manager()
-            def _is_blocking(func_name):
-                if _sm:
-                    meta = _sm._skill_meta.get(func_name, {})
-                    return meta.get("followup", False)
-                return False
-            has_blocking_tool = any(_is_blocking(fc.get("function", "")) for fc in func_calls)
-            if has_blocking_tool:
-                queue_message(f"DEBUG VOICE: Running blocking side effects inline")
-                speed.start('tools')
-                llm_execute_side_effects(parsed, user_text)
-                tools_dur = speed.stop('tools')
-                # Check if side effects updated the reply (e.g. vision result, search summary)
-                updated_reply = parsed.get("reply", "") or ""
-                if updated_reply and updated_reply != reply:
-                    _followup_reply = _sanitize_for_tts(updated_reply)
-                    queue_message(f"DEBUG VOICE: Follow-up reply detected: {_followup_reply[:80]}...")
-                else:
-                    queue_message(f"DEBUG VOICE: No reply change after side effects")
+
+            def _speak_followup(text):
+                # moved verbatim from the old _followup_reply block; runs on
+                # the tool loop's turn thread (a new utterance bumps the
+                # epoch and cancels a stale follow-up before it speaks)
+                followup_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'<->]', '', text)
+                set_tars_state(TarsState.TALKING)
+                if ui_manager:
+                    ui_manager.update_streaming_data(text)
+                if stt_manager:
+                    stt_manager.start_bargein_monitor(tts_text=followup_clean)
+                speed.start('followup_tts')
+                asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
+                speed.log_tool('followup_tts', speed.stop('followup_tts'))
+                if stt_manager:
+                    stt_manager.stop_bargein_monitor()
+                set_tars_state(TarsState.LISTENING)
+                try:
+                    from modules.module_chatui import socketio
+                    socketio.emit('bot_message', {'message': text, 'audio_streamed': True})
+                except Exception:
+                    pass
+
+            started = get_loop_runner().start_turn(parsed, user_text, 'voice',
+                                                   TurnCallbacks(speak=_speak_followup))
+            if started:
+                # result-bearing turn: the loop path never runs
+                # llm_execute_side_effects — write memories directly
+                from modules.module_llm import write_turn_memories
+                threading.Thread(target=write_turn_memories, args=(parsed, user_text), daemon=True).start()
             elif func_calls or new_mems:
                 queue_message(f"DEBUG VOICE: Running side effects in background thread")
                 threading.Thread(
@@ -412,23 +424,9 @@ def utterance_callback(message):
                 stt_manager.stop_bargein_monitor()
             was_interrupted = pipeline.interrupted
 
-        # Speak follow-up if side effects produced new content (vision result, search summary)
-        queue_message(f"DEBUG VOICE: followup_reply={'yes' if _followup_reply else 'no'}, was_interrupted={was_interrupted}")
+        # Deferred follow-ups now arrive via _speak_followup on the tool
+        # loop's turn thread (D1) — no inline follow-up speaking here
         followup_tts_dur = 0
-        if _followup_reply and not was_interrupted:
-            followup_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'-<>]', '', _followup_reply)
-            # Update OpenGL UI with follow-up content
-            set_tars_state(TarsState.TALKING)
-            if ui_manager:
-                ui_manager.update_streaming_data(_followup_reply)
-            if stt_manager:
-                stt_manager.start_bargein_monitor(tts_text=followup_clean)
-            speed.start('followup_tts')
-            was_interrupted = asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
-            followup_tts_dur = speed.stop('followup_tts')
-            if stt_manager:
-                stt_manager.stop_bargein_monitor()
-            reply = _followup_reply  # Update for web UI display
 
         # After response finishes, return to LISTENING (waiting for next utterance in session)
         # Bot only goes to STANDBY after timeout in STT manager

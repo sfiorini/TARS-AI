@@ -650,6 +650,50 @@ def llm_parse_response(bot_response):
     return bot_response
 
 
+def write_turn_memories(parsed, user_input):
+    """Persist long-term memory / new_memories / current activity for a turn.
+
+    Idempotent: a turn writes at most once. The `_memories_written` flag
+    uses the same marker-key pattern on `parsed` as the existing
+    `_skill_replied`.  Called by llm_execute_side_effects (the only memory
+    path for webui/discord/reminder/legacy turns) and directly by the
+    voice/webui/discord started-path wiring on result-bearing turns.
+    """
+    global memory_manager
+    if not memory_manager or not isinstance(parsed, dict):
+        return
+    if parsed.get("_memories_written"):
+        return
+    parsed["_memories_written"] = True
+    # ── moved verbatim from llm_execute_side_effects ──
+    # Extract activity BEFORE writing memory so it gets stored on the document
+    current_activity = parsed.get("current_activity")
+    activity_str = current_activity.strip() if isinstance(current_activity, str) and current_activity else None
+
+    threading.Thread(
+        target=memory_manager.write_longterm_memory,
+        args=(user_input, parsed["reply"], activity_str)
+    ).start()
+
+    new_memories = parsed.get("new_memories", [])
+    if isinstance(new_memories, list) and len(new_memories) > 0:
+        def save_memories():
+            try:
+                import json
+                memory_manager.update_topic_index_with_ai_response(json.dumps(new_memories))
+            except Exception as e:
+                queue_message(f"MEMORY: Failed to save: {e}")
+
+        threading.Thread(target=save_memories).start()
+
+    # Also save to the short-lived activity cache (injected directly into prompt)
+    if activity_str:
+        threading.Thread(
+            target=memory_manager.save_current_activity,
+            args=(activity_str,)
+        ).start()
+
+
 def llm_execute_side_effects(parsed, user_input, source="voice", has_image=False):
     """Execute function_calls and save memories. Safe to run in a background thread.
 
@@ -700,33 +744,10 @@ def llm_execute_side_effects(parsed, user_input, source="voice", has_image=False
         else:
             queue_message(f"DEBUG: No function calls to execute (value: {fc!r})")
 
-        if memory_manager:
-            # Extract activity BEFORE writing memory so it gets stored on the document
-            current_activity = parsed.get("current_activity")
-            activity_str = current_activity.strip() if isinstance(current_activity, str) and current_activity else None
-
-            threading.Thread(
-                target=memory_manager.write_longterm_memory,
-                args=(user_input, parsed["reply"], activity_str)
-            ).start()
-
-            new_memories = parsed.get("new_memories", [])
-            if isinstance(new_memories, list) and len(new_memories) > 0:
-                def save_memories():
-                    try:
-                        import json
-                        memory_manager.update_topic_index_with_ai_response(json.dumps(new_memories))
-                    except Exception as e:
-                        queue_message(f"MEMORY: Failed to save: {e}")
-
-                threading.Thread(target=save_memories).start()
-
-            # Also save to the short-lived activity cache (injected directly into prompt)
-            if activity_str:
-                threading.Thread(
-                    target=memory_manager.save_current_activity,
-                    args=(activity_str,)
-                ).start()
+        # Memory persistence (extracted, idempotent): this function is the
+        # ONLY memory path for webui/discord/reminder/legacy turns — it must
+        # keep writing memories (plan-review F3).
+        write_turn_memories(parsed, user_input)
     except Exception as e:
         queue_message(f"ERROR: Side effects execution failed: {e}")
 
@@ -776,10 +797,11 @@ def _sanitize_for_tts(text):
 
 
 def execute_function_call(func_call, bot_response, user_input, source="voice", has_image=False):
-    """Dispatch a function call through the tool registry (M3 shim).
+    """Dispatch a function call through the tool registry (pure dispatch).
 
-    Thin shim over ToolRegistry.dispatch, kept for one release (design
-    (a)); the reply contract is preserved verbatim.  The required-params
+    Thin shim over ToolRegistry.dispatch (design (a)); log-only — reply
+    composition belongs to the deferred loop (result-bearing turns) or
+    run_blocking_legacy (rollback switch).  The required-params
     hallucination guard lives in the builtin adapter
     (module_skills.iter_descriptors) — it is NOT duplicated here.
     """
@@ -800,13 +822,9 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
         result = get_registry().dispatch(function_name, parameters, ctx)
         if result.is_error:
             queue_message(result.content)
-        elif result.content:
-            if bot_response.get("_skill_replied"):
-                # Multiple skills returning replies — append instead of overwrite
-                bot_response["reply"] = f"{bot_response['reply']} {result.content}"
-            else:
-                bot_response["reply"] = result.content
-                bot_response["_skill_replied"] = True
+        # pure dispatch (S-M4-06): reply composition belongs to the deferred
+        # loop (result-bearing turns) or run_blocking_legacy (rollback) —
+        # the reply-overwrite contract dies with the has_blocking_tool block
     except Exception as e:
         queue_message(f"Function execution failed for {function_name}: {e}")
 
