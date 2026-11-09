@@ -51,5 +51,16 @@ class TestGitignorePersona(unittest.TestCase):
         self.assertFalse(_ignored("personal-notes.txt"))
 
 
+class TestGitignoreLiveState(unittest.TestCase):
+    """Per-robot live state: src/movements.json is gitignored (seeded from
+    the tracked src/movements_defaults.json on first start, D5)."""
+
+    def test_movements_json_ignored(self):
+        self.assertTrue(_ignored("src/movements.json"))
+
+    def test_movements_defaults_tracked(self):
+        self.assertFalse(_ignored("src/movements_defaults.json"))
+
+
 if __name__ == "__main__":
     unittest.main()

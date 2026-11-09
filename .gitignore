@@ -236,3 +236,6 @@ TARS-AI_Server/outputs/*
 # local planning artifacts (never commit)
 ai_plan/
 .pi/
+
+# TARS per-robot live state (seeded from tracked defaults on first start)
+src/movements.json
