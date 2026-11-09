@@ -245,5 +245,28 @@ class TestRequiredParamsGuard(_StubSkillsDirTestCase):
         self.assertEqual(stub_module.recorder, [{"query": "x"}])
 
 
+class TestPromptByteIdentity(unittest.TestCase):
+    """The builtin prompt block must stay byte-identical to today's
+    skills prompt (S-M3-03) — the 8 followup skills depend on their exact
+    trigger text."""
+
+    def test_builtin_prompt_block_byte_identical(self):
+        from modules import module_skills, module_prompt
+        saved = module_skills._manager
+        self.addCleanup(setattr, module_skills, "_manager", saved)
+        manager = module_skills.initialize_skills()
+        expected = manager.get_prompt_text()
+        actual = module_prompt._get_tools_prompt_text()
+        self.assertEqual(actual, expected)
+        self.assertTrue(expected)  # a real prompt, not the fallback
+
+    def test_no_skills_loaded_fallback_preserved(self):
+        from modules import module_prompt
+        with mock.patch("modules.module_skills.get_skill_manager",
+                        return_value=None):
+            self.assertEqual(module_prompt._get_tools_prompt_text(),
+                             "(No skills loaded)")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -26,13 +26,23 @@ _LOCATION_CACHE_TTL = 86400  # 24 hours — re-resolve if user moves
 _location_cache = {"lat": None, "lon": None, "name": None, "cached_at": 0.0}
 
 
-def _get_skills_prompt_text():
-    """Get tool definitions from the skills system for LLM prompt injection."""
+def _get_tools_prompt_text():
+    """Tool definitions for LLM prompt injection (design §4).
+
+    Block 1 (builtin skills) is byte-identical to the legacy skills
+    prompt — trigger reliability for the 8 followup skills is preserved
+    verbatim.  Block 2 (agent skills) and block 3 (MCP) arrive in M5/M6.
+    """
     try:
         from modules.module_skills import get_skill_manager
         skills = get_skill_manager()
         if skills:
-            return skills.get_prompt_text()
+            block_builtin = skills.get_prompt_text()
+            block_agent_skills = ""  # agent-skill pool (M5)
+            block_mcp = ""           # MCP pool (M6)
+            blocks = [b for b in (block_builtin, block_agent_skills,
+                                   block_mcp) if b]
+            return "\n".join(blocks)
     except Exception:
         pass
     return "(No skills loaded)"
@@ -318,7 +328,7 @@ Schema:
 
 When user requests match these patterns, you MUST call the function:
 
-{_get_skills_prompt_text()}
+{_get_tools_prompt_text()}
 
    new_memories (REQUIRED field)
    Extract ONLY high-level, persistent facts about the user from this conversation
