@@ -251,10 +251,10 @@ class McpManager:
                          "in_prompt": enabled and not degraded}
         return out
 
-    def register_health_checks(self):
-        """Register the periodic health ping per server (app startup).
-        Recurring tasks are not persisted — the app re-registers each
-        start (module_heartbeat contract)."""
+    def _schedule_health_check(self, name):
+        """Register (or re-register) one server's periodic health ping.
+        Idempotent per module_heartbeat: re-registering replaces the
+        task, so double-scheduling is not possible."""
         try:
             from modules.module_config import load_config
             from modules.module_heartbeat import schedule_recurring
@@ -263,9 +263,15 @@ class McpManager:
         interval = load_config().get("MCP", {}).get("health_interval_s", 60)
         if not interval or interval <= 0:
             return
+        schedule_recurring(f"mcp_health_{name}", interval,
+                           self._health_check, args=(name,))
+
+    def register_health_checks(self):
+        """Register the periodic health ping per server (app startup).
+        Recurring tasks are not persisted — the app re-registers each
+        start (module_heartbeat contract)."""
         for name in self.servers:
-            schedule_recurring(f"mcp_health_{name}", interval,
-                               self._health_check, args=(name,))
+            self._schedule_health_check(name)
 
     # ── descriptors + prompt block 3 (S-M6-09) ─────────────────
 
@@ -527,13 +533,17 @@ class McpManager:
             return False, [f"unknown server '{name}'"]
         if not enabled:
             self._stop_and_forget(name)  # audit A5/B3: no stale child
-        elif name in self._state and self._state[name].get("degraded"):
-            # audit B2: explicit recovery — enable clears degraded
-            self._state[name]["degraded"] = False
-            self._state[name]["attempts"] = 0
-            self._state[name]["next_at"] = 0.0
-            queue_message(f"MCP: server '{name}' re-enabled — degraded "
-                          f"state cleared")
+        else:
+            # audit B3-caveat: a disable→enable cycle must restore the
+            # recurring health task (it was cancelled at disable time)
+            self._schedule_health_check(name)
+            if name in self._state and self._state[name].get("degraded"):
+                # audit B2: explicit recovery — enable clears degraded
+                self._state[name]["degraded"] = False
+                self._state[name]["attempts"] = 0
+                self._state[name]["next_at"] = 0.0
+                queue_message(f"MCP: server '{name}' re-enabled — "
+                              f"degraded state cleared")
         self.servers[name]["enabled"] = bool(enabled)
         self.save_registry()
         return True, []

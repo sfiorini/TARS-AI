@@ -1245,5 +1245,27 @@ class TestPidfileTracking(_ManagerTestCase):
         self.assertIn("mcp_pids", src)
 
 
+class TestHealthTaskRescheduling(_ManagerTestCase):
+    """Audit B3-caveat: a disable→enable cycle must restore the recurring
+    health task — it is scheduled only once at startup otherwise."""
+
+    def test_disable_enable_reschedules_health_task(self):
+        manager = self._real_manager()
+        scheduled = []
+
+        def fake_schedule(task_id, interval, callback, args=None,
+                          kwargs=None, meta=None):
+            scheduled.append(task_id)
+
+        with mock.patch("modules.module_mcp.queue_message"), \
+             mock.patch("modules.module_heartbeat.schedule_recurring",
+                        side_effect=fake_schedule):
+            manager.set_enabled("example", False)
+            ok, errors = manager.set_enabled("example", True)
+            self.assertTrue(ok, errors)
+        # the health task for this server was re-registered
+        self.assertIn("mcp_health_example", scheduled)
+
+
 if __name__ == "__main__":
     unittest.main()
