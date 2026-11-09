@@ -184,6 +184,13 @@ class TestLoadConfigEnvKeys(unittest.TestCase):
         module_config._config_cache = self._old_cache
 
     def _reload(self, env, clear=False):
+        # Keep the session's config-path pointer even under clear=True: the
+        # conftest points TARS_CONFIG_PATH at the isolated template copy, and
+        # wiping it would make load_config() read the ambient src/config.ini.
+        # clear=True stays hermetic for every other env var (API keys etc.).
+        env = dict(env)
+        if "TARS_CONFIG_PATH" in os.environ:
+            env.setdefault("TARS_CONFIG_PATH", os.environ["TARS_CONFIG_PATH"])
         with mock.patch.dict(os.environ, env, clear=clear):
             module_config._config_cache = None
             return module_config.load_config()
