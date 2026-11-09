@@ -3021,103 +3021,13 @@ def _execute_steps(steps):
 
 @flask_app.route('/get_movement_steps/<name>', methods=['GET'])
 def get_movement_steps(name):
-    import modules.module_movements as _mm
-    import inspect
-
-    try:
-        src = inspect.getsource(getattr(_mm, name))
-    except (AttributeError, OSError):
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    entry = store.get(name)
+    if entry is None:
         return jsonify({"error": f"Movement '{name}' not found"}), 404
-
-    steps = _parse_movement_steps(src)
-    if not steps:
-        return jsonify({"error": f"No move_legs calls found in '{name}'"}), 422
-
+    steps = entry.get("steps_arms") or entry["steps"]
     return jsonify({"name": name, "steps": steps}), 200
-
-
-def _parse_movement_steps(src):
-    import re as _re
-
-    def parse_val(v, default=50):
-        try:
-            return int(round(float(v)))
-        except (ValueError, TypeError):
-            return default
-
-    def extract_steps(lines):
-        result = []
-        i = 0
-        while i < len(lines):
-            line = lines[i]
-            loop_m = _re.search(r"for\s+\w+\s+in\s+range\((\d+)\)\s*:", line)
-            if loop_m:
-                repeat = int(loop_m.group(1))
-                loop_indent = len(line) - len(line.lstrip())
-                body_lines = []
-                i += 1
-                while i < len(lines):
-                    bl = lines[i]
-                    if bl.strip() == "":
-                        i += 1
-                        continue
-                    bl_indent = len(bl) - len(bl.lstrip())
-                    if bl_indent > loop_indent:
-                        body_lines.append(bl)
-                        i += 1
-                    else:
-                        break
-                for _ in range(repeat):
-                    result.extend(extract_steps(body_lines))
-                continue
-
-            ml = _re.search(r"move_legs\(([^)]+)\)", line)
-            if ml:
-                args = [a.strip() for a in ml.group(1).split(",")]
-                if len(args) >= 4:
-                    step = {
-                        "movement": None,
-                        "left_height": parse_val(args[0]),
-                        "right_height": parse_val(args[1]),
-                        "left_leg": parse_val(args[2]),
-                        "right_leg": parse_val(args[3]),
-                        "left_main": None, "left_forearm": None, "left_hand": None,
-                        "right_main": None, "right_forearm": None, "right_hand": None,
-                        "speed": round(float(args[4]), 2) if len(args) > 4 and _re.match(r"[\d.]+", args[4]) else 0.85,
-                        "hold_time": 0.0
-                    }
-                    # check for time.sleep on next 1-2 lines
-                    for j in range(i + 1, min(i + 3, len(lines))):
-                        sl = _re.search(r"time\.sleep\(([^)]+)\)", lines[j])
-                        if sl:
-                            try:
-                                step["hold_time"] = float(sl.group(1))
-                            except ValueError:
-                                pass
-                            break
-                    result.append(step)
-
-            arm_m = _re.search(r"move_arm\(([^)]+)\)", line)
-            if arm_m and result:
-                args = [a.strip() for a in arm_m.group(1).split(",")]
-                def _arm_val(v):
-                    try:
-                        return int(round(float(v)))
-                    except (ValueError, TypeError):
-                        return None
-                if len(args) >= 6:
-                    result[-1]["left_main"] = _arm_val(args[0])
-                    result[-1]["left_forearm"] = _arm_val(args[1])
-                    result[-1]["left_hand"] = _arm_val(args[2])
-                    result[-1]["right_main"] = _arm_val(args[3])
-                    result[-1]["right_forearm"] = _arm_val(args[4])
-                    result[-1]["right_hand"] = _arm_val(args[5])
-
-            i += 1
-        return result
-
-    lines = src.splitlines()
-    return extract_steps(lines)
 
 
 def start_flask_app(port=None):
