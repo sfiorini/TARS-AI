@@ -459,6 +459,60 @@ class TestPlayback(_PlaybackTestCase):
         self.assertEqual(self.servo.legs_calls[-1], (50, 50, 50, 50, 0.8))
 
 
+class TestRegistryShim(_StoreTestCase):
+    """module_movement_registry becomes a store-backed shim (S-M2-01)."""
+
+    def setUp(self):
+        super().setUp()
+        from modules import module_movement_registry as registry
+        from modules import module_movementstore
+        self.registry = registry
+        self.store_patcher = mock.patch.object(
+            module_movementstore, "get_movement_store",
+            return_value=self.store)
+        self.store_patcher.start()
+        self.addCleanup(self.store_patcher.stop)
+        # restore the real registry content for subsequent tests
+        self.addCleanup(registry.reload_from_store)
+
+    def test_registry_reflects_store_add(self):
+        self.store.load()
+        self.store.add("my_move", _valid_entry())
+        self.registry.reload_from_store()
+        self.assertIn("my_move", self.registry.MOVEMENTS)
+        self.assertEqual(self.registry.MOVEMENTS["my_move"]["type"],
+                         "legs_only")
+        self.assertEqual(self.registry.MOVEMENTS["my_move"]["name"],
+                         "Test Move")
+
+    def test_registry_entries_carry_only_metadata(self):
+        self.store.load()
+        self.registry.reload_from_store()
+        for mid, meta in self.registry.MOVEMENTS.items():
+            self.assertEqual(sorted(meta.keys()),
+                             ["description", "name", "type"])
+
+    def test_registry_import_survives_store_failure(self):
+        import importlib
+        self.store_patcher.stop()  # drop the returning-store patch
+        from modules import module_movementstore
+        with mock.patch.object(module_movementstore,
+                               "get_movement_store",
+                               side_effect=RuntimeError("boom")):
+            reloaded = importlib.reload(self.registry)
+        self.assertEqual(reloaded.MOVEMENTS, {})  # empty, never a crash
+
+    def test_registry_reload_keeps_existing_bindings_live(self):
+        # btcontroller/chatui/servoctl hold `from ... import MOVEMENTS`
+        # references — reload must mutate the dict in place, not rebind
+        bound = self.registry.MOVEMENTS
+        self.store.load()
+        self.store.add("binding_probe", _valid_entry())
+        self.registry.reload_from_store()
+        self.assertIs(self.registry.MOVEMENTS, bound)
+        self.assertIn("binding_probe", bound)
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 

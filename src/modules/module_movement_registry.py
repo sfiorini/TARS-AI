@@ -20,41 +20,25 @@ This license applies only to this file and does not override licenses of other f
 LEGS_ONLY = "legs_only"
 HAS_ARMS = "has_arms"
 
-MOVEMENTS = {
-    "step_forward": {"name": "Step Forward", "type": LEGS_ONLY, "description": "take one step forward"},
-    "walk_forward": {"name": "Walk Forward", "type": LEGS_ONLY, "description": "walk forward several steps"},
-    "step_backward": {"name": "Step Backward", "type": LEGS_ONLY, "description": "take one step backward"},
-    "walk_backward": {"name": "Walk Backward", "type": LEGS_ONLY, "description": "walk backward several steps"},
-    "turn_right": {"name": "Turn Right", "type": LEGS_ONLY, "description": "turn the body to the right"},
-    "turn_right_slow": {"name": "Turn Right Slow", "type": LEGS_ONLY, "description": "turn the body to the right slowly"},
-    "turn_left": {"name": "Turn Left", "type": LEGS_ONLY, "description": "turn the body to the left"},
-    "turn_left_slow": {"name": "Turn Left Slow", "type": LEGS_ONLY, "description": "turn the body to the left slowly"},
-    "pose": {"name": "Pose", "type": LEGS_ONLY, "description": "strike a heroic pose"},
-    "bow": {"name": "Bow", "type": LEGS_ONLY, "description": "bow forward politely"},
-    "tilt_right": {"name": "Tilt Right", "type": LEGS_ONLY, "description": "lean/tilt the body to the right"},
-    "tilt_left": {"name": "Tilt Left", "type": LEGS_ONLY, "description": "lean/tilt the body to the left"},
-    "side_side": {"name": "Side Side", "type": LEGS_ONLY, "description": "sway side to side"},
-    "wave_right": {"name": "Wave Right", "type": LEGS_ONLY, "description": "wave a greeting with the right LEG"},
-    "wave_left": {"name": "Wave Left", "type": LEGS_ONLY, "description": "wave a greeting with the left LEG"},
-    "neutral_legs": {"name": "Neutral Legs", "type": LEGS_ONLY, "description": "return the legs to the neutral standing position"},
-    "excited": {"name": "Excited", "type": LEGS_ONLY, "description": "excited leg bounce/fidget"},
-    "laugh": {"name": "Laugh", "type": LEGS_ONLY, "description": "body laugh - shake with amusement"},
-    "swing_legs": {"name": "Swing Legs", "type": LEGS_ONLY, "description": "swing the legs back and forth playfully"},
-    "right_hi": {"name": "Right Hi", "type": HAS_ARMS, "description": "raise the right ARM in a hi greeting"},
-    "left_hi": {"name": "Left Hi", "type": HAS_ARMS, "description": "raise the left ARM in a hi greeting"},
-    "left_pezz_dispenser": {"name": "Left Pezz Dispenser", "type": HAS_ARMS, "description": "left-arm Pez-dispenser gag gesture"},
-    "right_pezz_dispenser": {"name": "Right Pezz Dispenser", "type": HAS_ARMS, "description": "right-arm Pez-dispenser gag gesture"},
-    "monster": {"name": "Monster", "type": HAS_ARMS, "description": "raise both ARMS up like a monster"},
-    "left_point": {"name": "Left Point", "type": HAS_ARMS, "description": "point with the left ARM"},
-    "right_point": {"name": "Right Point", "type": HAS_ARMS, "description": "point with the right ARM"},
-    "left_poke": {"name": "Left Poke", "type": HAS_ARMS, "description": "poke gesture with the left ARM"},
-    "right_poke": {"name": "Right Poke", "type": HAS_ARMS, "description": "poke gesture with the right ARM"},
-    "left_wave_open": {"name": "Left Wave Open", "type": HAS_ARMS, "description": "big open-armed wave with the left ARM"},
-    "right_wave_open": {"name": "Right Wave Open", "type": HAS_ARMS, "description": "big open-armed wave with the right ARM"},
-    "left_shy_wave": {"name": "Left Shy Wave", "type": HAS_ARMS, "description": "small shy wave with the left ARM"},
-    "right_shy_wave": {"name": "Right Shy Wave", "type": HAS_ARMS, "description": "small shy wave with the right ARM"},
-    "happy_dance": {"name": "Happy Dance", "type": HAS_ARMS, "description": "full happy dance with arms and legs"},
-}
+# Store-backed shim (S-M2-01): MOVEMENTS is rebuilt from the movement
+# store, so movements created/edited via the UI or CLI are immediately
+# dispatchable without a restart.  The dict is mutated IN PLACE by
+# reload_from_store() so every existing `from ... import MOVEMENTS`
+# binding (servoctl, chatui, btcontroller, skill) stays live.
+MOVEMENTS = {}
+
+
+def reload_from_store():
+    """Rebuild MOVEMENTS (id -> {name, type, description}) from the store."""
+    from modules.module_movementstore import get_movement_store
+    entries = get_movement_store().get_all()
+    rebuilt = {mid: {"name": e["name"],
+                    "type": e["type"],
+                    "description": e["description"]}
+               for mid, e in entries.items()}
+    MOVEMENTS.clear()
+    MOVEMENTS.update(rebuilt)
+
 
 def get_all():
     return MOVEMENTS
@@ -73,3 +57,14 @@ def get_names():
 
 def get_names_by_type(movement_type):
     return [(v["name"], k) for k, v in MOVEMENTS.items() if v["type"] == movement_type]
+
+
+# Load from the store at import time; a missing/broken store must never
+# crash the import chain (test_servo_watchdog.py imports it) — an empty
+# registry + one log line is the fallback.
+try:
+    reload_from_store()
+except Exception as _exc:  # noqa: BLE001
+    from modules.module_messageQue import queue_message
+    queue_message(f"WARNING: movement registry could not load from the "
+                  f"movement store: {_exc}")
