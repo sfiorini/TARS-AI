@@ -24,12 +24,21 @@ TARS-AI/
 │   ├── .venv/                       # virtualenv created by Install.sh
 │   ├── app.py                       # entrypoint: python app.py show_ui=true [key=value …]
 │   ├── app-servotester.py           # pygame servo calibration GUI
+│   ├── app-movements.py            # movements CLI: list/show/edit/reset/prune/export/import/validate
+│   ├── app-skills.py               # agent-skills CLI: list/install/uninstall/validate/reset
+│   ├── app-mcp.py                  # MCP CLI: list/add/remove/enable/disable/test
+│   ├── mcp_example_server.py       # the shipped example MCP server (copy this)
+│   ├── movements_defaults.json     # tracked movement defaults (live movements.json is gitignored)
+│   ├── mcp_servers.json.template   # tracked MCP registry template (live mcp_servers.json is gitignored)
+│   ├── agent_skills_defaults/      # tracked shipped skills (live agent_skills/ is gitignored)
 │   ├── config.ini.template          # → src/config.ini
-│   ├── custom_sequences.json        # web-UI movement sequences
 │   ├── modules/                     # module_*.py engine: main, stt, llm, tts, servoctl,
-│   │                                #   movements, movement_registry, battery, chatui, config,
-│   │                                #   skills, vision, memory/hyperdb, messageQue (log), …
-│   ├── skills/                      # skill_*.py auto-discovered skills
+│   │                                #   movementstore (movement JSON store), toolregistry +
+│   │                                #   toolloop (unified tool dispatch + deferred reply),
+│   │                                #   agent_skills (SKILL.md pool), mcp (MCP client),
+│   │                                #   battery, chatui, config, skills, vision,
+│   │                                #   memory/hyperdb, messageQue (log), …
+│   ├── skills/                      # skill_*.py auto-discovered BUILTIN tools
 │   ├── tests/                       # pytest suite
 │   └── character/ memory/ stt/ tts/ vision/ www/ logs/
 └── TARS-AI_Server/                  # companion FastAPI server: app-server.py :5678, Dockerfile,
@@ -61,7 +70,19 @@ Suite breakdown (12 files):
 | `test_module_stt_elevenlabs.py` | 8 | Scribe STT request + external-server fallback |
 | `test_module_vision_glm.py` | 2 | vision `message.content` list-block fix |
 
-## Authoring skills
+## Authoring tools — the three kinds
+
+The LLM can call three kinds of tools, all dispatched through one registry (`module_toolregistry.py`) and the deferred reply loop (`module_toolloop.py`):
+
+| Kind | What it is | How to add one | Template to copy |
+|---|---|---|---|
+| **Builtin tool** | In-process Python code, enable/disable only, addable/modifiable only in code (D2) | Drop a `skill_*.py` in `src/skills/` (auto-discovered) — see below | `src/skills/skill_example.py` |
+| **Agent skill** | A spec-pure `SKILL.md` folder with optional scripts — installable from folder/zip at runtime, no restart | Create in the web UI **skills** tab, `app-skills.py install`, or drop a folder in `src/agent_skills/` | `src/agent_skills_defaults/dice-roll/` — see [Agent Skills](skills.md) |
+| **MCP tool** | An external server process (stdio or Streamable HTTP) — tools appear as `mcp_<server>_<tool>` | Add a registry entry via the web UI **MCP** tab or `app-mcp.py add` | `src/mcp_example_server.py` — see [MCP](mcp.md) |
+
+Movements are data, not code: the 33 shipped movements live in `src/movements_defaults.json` (regenerate with `scripts/export_movement_defaults.py`); add or edit movements in the web UI **movements** tab or `app-movements.py` — see [Movements](movements.md).
+
+### Builtin tools (skills)
 
 Skills are plain Python files **`src/skills/skill_*.py`**, auto-discovered by `module_skills.py` (glob `skills/skill_*.py`, imported as `skills.<name>`). Each defines a `SKILL` dict and an `execute()` function:
 
@@ -82,7 +103,7 @@ def execute(parameters, context):
     return None  # or a dict that modifies the LLM reply
 ```
 
-A file missing `SKILL` or `execute` is skipped with a log line; duplicate names overwrite with a warning. Disable a skill via `[SKILL:my_skill] disabled = true` in `config.ini` or the web UI (`POST /toggle_skill`). Start from `src/skills/skill_example.py`; see `skill_execute_movement.py` for a registry-driven prompt ([Movements](movements.md)).
+A file missing `SKILL` or `execute` is skipped with a log line; duplicate names overwrite with a warning. Disable a skill via `[SKILL:my_skill] disabled = true` in `config.ini` or the web UI (`POST /toggle_skill`). Start from `src/skills/skill_example.py`; see `skill_execute_movement.py` for a store-driven per-request prompt ([Movements](movements.md)). Skills with `"followup": True` are result-bearing: their results flow through the deferred reply loop ([Voice Pipeline](voice-pipeline.md)).
 
 ## Documentation and CI
 

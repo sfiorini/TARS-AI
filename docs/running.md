@@ -66,6 +66,10 @@ Servo-specific events (watchdog repairs, I2C errors, stuck-MOVING resets) appear
 
 TTS failover lines also land here: `WARNING: TTS provider '…' failed (QuotaExhausted / RateLimited / AuthFailed / TransientError: …) — failing over to '…'` whenever the ordered provider chain switches to the next provider, plus `ERROR: TTS per-utterance deadline exceeded …` if the whole chain ran out of time — see [Voice Pipeline](voice-pipeline.md) and [Troubleshooting](troubleshooting.md).
 
+First-start seeding lines (one per live state file): `MOVEMENTS: seeded movements.json from defaults`, `SKILLS: seeded agent_skills from defaults (N skills)`, `MCP: seeded mcp_servers.json from template`.
+
+MCP lifecycle lines: `MCP: server '<name>' failed to start (attempt N): <reason> — retrying in <delay>s` (exponential restart backoff), `MCP: server '<name>' marked degraded after N consecutive restart attempts` (one line — its tools leave the prompt until a successful call), `MCP: health check found '<name>' dead — it will restart on next use`, and `MCP: '<tool>' dropped from MCP prompt block (budget N chars)` when the prompt budget overflows (agent-skill drops log the same way: `SKILLS: '<name>' dropped from agent-skills prompt block`).
+
 Deferred reply loop lines (result-bearing tool turns): `TOOLLOOP: turn cancelled (source=…) — results discarded, not injected into the new turn` when a new utterance abandons an in-flight turn, `TOOLLOOP: turn hit its limit — speaking fallback` when the hop bound (`tool_loop_max_hops`) or the overall deadline stops a turn (followed by the raw tool text), and `TOOLLOOP: follow-up completion failed: …` when the follow-up LLM request errors — see [Voice Pipeline](voice-pipeline.md).
 
 ## Other root scripts

@@ -12,7 +12,10 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | Self-healing servo watchdog: 15 s tick, MODE1 bit `0x20` + MODE2 `0x04` health checks, lazy PCA9685 re-init, stuck-MOVING reset (>180 s), position re-apply after repair | `src/modules/module_servoctl.py`, [servo-watchdog.md](servo-watchdog.md) |
 | Forced `MODE2 = 0x04` at every PCA9685 init — the only output-drive state that moves servos on this board | `initialize_pca9685()` |
 | Fork web endpoints `GET /servo_status` and `POST /servo_reinit` (no-reboot recovery) | `src/modules/module_chatui.py`, [web-ui.md](web-ui.md) |
-| 33-entry movement registry (19 legs-only + 14 arm) exposed to the LLM via the `execute_movement` skill | `src/modules/module_movement_registry.py`, [movements.md](movements.md) |
+| Movement store: 33 shipped movements in a tracked `movements_defaults.json`, a gitignored live `movements.json`, full CRUD via UI/CLI (`app-movements.py`), reset/prune from defaults | `src/modules/module_movementstore.py`, [movements.md](movements.md) |
+| Deferred reply loop (D1): result-bearing tools speak a holding line, run, then a follow-up LLM completion speaks the final answer; epoch cancellation, hop bound, one-line rollback switch | `src/modules/module_toolloop.py`, [voice-pipeline.md](voice-pipeline.md) |
+| Agent Skills pool: spec-pure SKILL.md packages installable from folder/zip, progressive disclosure, one shipped example (`dice-roll`) enabled out of the box | `src/modules/module_agent_skills.py`, [skills.md](skills.md) |
+| MCP client: external tool servers (stdio + Streamable HTTP, legacy era) exposed as `mcp_<server>_<tool>`, restart backoff + degraded state, one shipped example server enabled out of the box | `src/modules/module_mcp.py`, `src/mcp_example_server.py`, [mcp.md](mcp.md) |
 | ElevenLabs Scribe `scribe_v2` cloud STT with external-server fallback (30 s timeout) | `src/modules/module_stt.py`, [voice-pipeline.md](voice-pipeline.md) |
 | Configurable ordered TTS provider chain — Fish.audio → Speechify → ElevenLabs → external Piper → local Piper → espeak — with typed-error failover (quota / rate-limit / auth / timeout) and per-request timeouts | `src/modules/module_tts.py`, `module_fishaudio.py`, `module_speechify.py`, [voice-pipeline.md](voice-pipeline.md) |
 | `_delta_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
@@ -27,7 +30,9 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 - [Running TARS](running.md) — `tars-launcher.sh`, `App-Start.py`/`App-Stop.py`, XDG autostart, logs, restart without reboot.
 - [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, motion tab, `/servo_status` + `/servo_reinit`.
 - [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, the configurable TTS provider chain.
-- [Movements](movements.md) — the movement registry, arm gating, custom sequences, servo tester, how to add a movement.
+- [Movements](movements.md) — the movement store (defaults vs live), reset/prune, the builder, CLI, how to add a movement.
+- [Agent Skills](skills.md) — the SKILL.md format, install/create/edit, the script contract, the `dice-roll` example.
+- [MCP](mcp.md) — the MCP client, the registry, the example server, lifecycle and troubleshooting.
 - [Server Mode](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/srv`.
 - [Servo Watchdog & Recovery](servo-watchdog.md) — self-healing design, reading MODE1/MODE2, manual `i2cset` recovery.
 - [Troubleshooting](troubleshooting.md) — empty LLM replies, STT latency, silent servos, wake word, logs, `vcgencmd get_throttled`.

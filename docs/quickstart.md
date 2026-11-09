@@ -36,6 +36,24 @@ cp .env.template .env                        # Install.sh ~line 1150 (chmod 664)
 
 It also expands `dphys-swapfile` and can create a desktop shortcut.
 
+### What the first launch seeds automatically
+
+On first start the app seeds its per-robot state files from the tracked templates — you never create these by hand (they are all gitignored):
+
+| Live file (gitignored) | Seeded from (tracked) |
+|---|---|
+| `src/movements.json` | `src/movements_defaults.json` |
+| `src/agent_skills/` | `src/agent_skills_defaults/` |
+| `src/mcp_servers.json` | `src/mcp_servers.json.template` |
+
+Two working examples arrive **enabled out of the box**: the `dice-roll` agent skill (say "roll me a d20") and the `example` MCP server (say "what's 2 plus 3"). Verify after first launch:
+
+```bash
+python3 src/app-movements.py list      # 33 movements
+python3 src/app-skills.py list        # dice-roll [params]
+python3 src/app-mcp.py test example   # mcp_example_get_time, mcp_example_add_numbers
+```
+
 ## 4. Secrets and config
 
 Edit **`.env`** (hidden — `ls -la` to see it) with at least:
