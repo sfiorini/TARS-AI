@@ -424,8 +424,13 @@ class MovementStore:
             queue_message(f"MOVEMENTS: unknown movement '{mid}'")
             return False
         if entry["type"] == HAS_ARMS and not servoctl.ARMS_PRESENT:
-            queue_message(f"Skipping {mid} - arm servos not installed")
-            return True
+            # audit B5: the deleted functions still ran their LEG
+            # choreography on legs-only builds (only move_arm was
+            # ineffective) — play the steps' leg portion instead of
+            # silently no-op-ing, and log what was skipped
+            queue_message(f"MOVEMENTS: '{mid}' - arm servos not "
+                          f"installed; playing the leg portion only")
+            return self.play_steps(entry["steps"])
         if mid in _SWAP_TURNS:
             import modules.module_movements as movements
             if movements.get_swap_turn_directions():

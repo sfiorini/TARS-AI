@@ -426,10 +426,15 @@ class TestPlayback(_PlaybackTestCase):
         with mock.patch("modules.module_movementstore.queue_message") as qm:
             ok = self.store.execute("probe_arms")
         self.assertTrue(ok)
-        self.assertEqual(self.servo.legs_calls, [])
+        # audit B5: the leg portion still plays on legs-only builds (the
+        # deleted functions ran their move_legs sequence; only move_arm
+        # was ineffective) — arms never fire
+        self.assertEqual(self.servo.legs_calls,
+                         [(30, 31, 32, 33, 0.9)])
         self.assertEqual(self.servo.arm_calls, [])
         qm.assert_called_once_with(
-            "Skipping probe_arms - arm servos not installed")
+            "MOVEMENTS: 'probe_arms' - arm servos not installed; "
+            "playing the leg portion only")
 
     def test_swap_redirects_turn(self):
         import modules.module_movements as movements_mod
@@ -621,6 +626,37 @@ class TestBuilderPreservation(unittest.TestCase):
         route = _route_source("save_sequence", _chatui_source())
         self.assertIn('existing.get("steps_arms")', route)
         self.assertNotIn('"steps_arms": None', route)
+
+
+class TestArmGatedLegs(_PlaybackTestCase):
+    """Audit B5: on a legs-only build, selecting a has_arms movement
+    must still play its LEG choreography — the deleted functions ran
+    their move_legs sequence (only move_arm was ineffective); the store
+    must not report success for a no-op."""
+
+    def test_has_arms_movement_plays_legs_when_arms_absent(self):
+        self.servo.ARMS_PRESENT = False
+        # right_hi from the defaults: right-leg raise + wave choreography
+        entry = self._defaults_movements()["right_hi"]
+        legs_only = [s for s in entry["steps"]
+                    if any(s[k] is not None for k in
+                           ("left_height", "right_height",
+                            "left_leg", "right_leg"))]
+        self.assertTrue(legs_only, "right_hi has leg choreography")
+        ok = self.store.execute("right_hi")
+        self.assertTrue(ok)
+        expected = [(s["left_height"], s["right_height"],
+                     s["left_leg"], s["right_leg"], s["speed"])
+                    for s in legs_only]
+        self.assertEqual(self.servo.legs_calls, expected,
+                         "the leg portion must play when arms are absent")
+
+    def test_has_arms_movement_plays_arms_branch_when_present(self):
+        self.servo.ARMS_PRESENT = True
+        ok = self.store.execute("right_hi")
+        self.assertTrue(ok)
+        self.assertTrue(self.servo.arm_calls,
+                        "the arms branch must play when arms are present")
 
 
 class TestMalformedStepTolerance(_PlaybackTestCase):
