@@ -423,25 +423,29 @@ def utterance_callback(message):
             queue_message(f"DEBUG VOICE: parsed is str (legacy), no side effects")
 
         # For preemptive results, TTS hasn't started yet — play full reply normally
-        if preemptive is not None:
-            reply_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'-<>]', '', reply)
-            set_tars_state(TarsState.TALKING)
-            if stt_manager:
-                stt_manager.start_bargein_monitor(tts_text=reply_clean)
-            speed.start('tts')
-            was_interrupted = asyncio.run(play_audio_chunks(reply_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
-            pipeline._duration = speed.stop('tts')
-            if stt_manager:
-                stt_manager.stop_bargein_monitor()
-        else:
-            # Wait for the sentence-pipeline TTS to finish
-            pipeline.join(timeout=120)
-            if stt_manager:
-                stt_manager.stop_bargein_monitor()
-            was_interrupted = pipeline.interrupted
+        try:
+            if preemptive is not None:
+                reply_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'-<>]', '', reply)
+                set_tars_state(TarsState.TALKING)
+                if stt_manager:
+                    stt_manager.start_bargein_monitor(tts_text=reply_clean)
+                speed.start('tts')
+                was_interrupted = asyncio.run(play_audio_chunks(reply_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
+                pipeline._duration = speed.stop('tts')
+                if stt_manager:
+                    stt_manager.stop_bargein_monitor()
+            else:
+                # Wait for the sentence-pipeline TTS to finish
+                pipeline.join(timeout=120)
+                if stt_manager:
+                    stt_manager.stop_bargein_monitor()
+                was_interrupted = pipeline.interrupted
 
-        # Reply-0 TTS has drained — deferred follow-ups may now speak
-        _reply0_drained.set()
+        finally:
+            # Reply-0 TTS has drained (or failed) — deferred follow-ups may
+            # now speak; ALWAYS set so a TTS exception can't leave the
+            # follow-up waiting the full REPLY0_GATE_TIMEOUT
+            _reply0_drained.set()
 
         # Deferred follow-ups now arrive via _speak_followup on the tool
         # loop's turn thread (D1) — no inline follow-up speaking here

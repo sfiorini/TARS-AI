@@ -622,6 +622,27 @@ class TestReply0Gate(_LoopTestCase):
         self._wait_turn(timeout=5)
         self.assertEqual(self.spoken, ["final answer"])  # spoke anyway
 
+    def test_reply0_gate_finally_guarded(self):
+        """M4 review P3: a TTS exception between gate creation and the set
+        must not leave the follow-up waiting the full 120 s — the set is
+        finally-guarded."""
+        with open(os.path.join(_SRC, "modules", "module_main.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        idx = src.index("_reply0_drained.set()")
+        tail = src[:idx]
+        last_finally = tail.rfind("finally:")
+        self.assertNotEqual(last_finally, -1,
+                            "_reply0_drained.set() must live in a finally "
+                            "block")
+        between = tail[last_finally + len("finally:"):]
+        code_lines = [ln for ln in between.splitlines()
+                      if ln.strip() and not ln.strip().startswith("#")]
+        self.assertEqual(
+            code_lines, [],
+            "the gate set must sit directly inside the finally block "
+            "(only comments may precede it)")
+
     def test_voice_wiring_passes_gate(self):
         # source pin: module_main creates the gate, passes it in TurnCallbacks
         # and sets it after the reply-0 TTS drains
