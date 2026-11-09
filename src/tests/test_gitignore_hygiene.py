@@ -51,6 +51,15 @@ class TestGitignorePersona(unittest.TestCase):
         self.assertFalse(_ignored("personal-notes.txt"))
 
 
+class TestLegacySequencesFile(unittest.TestCase):
+    """src/custom_sequences.json is gone (D5: the step_forward_test entry
+    was discarded, not migrated — builder sequences live in the store)."""
+
+    def test_custom_sequences_gone(self):
+        self.assertFalse(
+            os.path.exists(os.path.join(_REPO, "src", "custom_sequences.json")))
+
+
 class TestGitignoreLiveState(unittest.TestCase):
     """Per-robot live state: src/movements.json is gitignored (seeded from
     the tracked src/movements_defaults.json on first start, D5)."""
