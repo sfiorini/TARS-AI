@@ -172,7 +172,12 @@ class MovementStore:
         self.validate_entry(mid, entry)
         if mid in self.movements:
             raise ValueError(f"duplicate movement id '{mid}'")
+        # audit A2: refs must resolve in the POST-WRITE id set, and the
+        # ref graph must stay acyclic (a self-ref/cycle recurses forever)
+        post_ids = set(self.movements) | {mid}
+        self.validate_entry(mid, entry, known_ids=post_ids)
         self.movements[mid] = copy.deepcopy(entry)
+        self._check_acyclic(mid)
         self.save()
         self._refresh_registry()
 
@@ -180,7 +185,9 @@ class MovementStore:
         self.validate_entry(mid, entry)
         if mid not in self.movements:
             raise ValueError(f"unknown movement id '{mid}'")
+        self.validate_entry(mid, entry, known_ids=set(self.movements))
         self.movements[mid] = copy.deepcopy(entry)
+        self._check_acyclic(mid)
         self.save()
         self._refresh_registry()
 
@@ -421,6 +428,48 @@ class MovementStore:
         except OSError as exc:
             # read-only fs: warn and continue (defaults load in-memory)
             queue_message(f"WARNING: could not seed movements.json: {exc}")
+
+    def _check_acyclic(self, start_mid):
+        """DFS over movement refs from start_mid — a cycle would recurse
+        forever at playback (audit A2). Raises ValueError naming the
+        cycle."""
+        visited = set()
+        path = [start_mid]
+
+        def refs_of(mid):
+            entry = self.movements.get(mid)
+            if not entry:
+                return []
+            out = []
+            for branch in (entry.get("steps"), entry.get("steps_arms")):
+                if not branch:
+                    continue
+                for step in branch:
+                    ref = step.get("movement")
+                    if ref is not None:
+                        out.append(ref)
+            return out
+
+        stack = [(start_mid, iter(refs_of(start_mid)))]
+        visited.add(start_mid)
+        while stack:
+            mid, it = stack[-1]
+            advanced = False
+            for ref in it:
+                if ref == start_mid or (ref in visited and ref in path):
+                    raise ValueError(
+                        f"movement '{start_mid}' creates a reference "
+                        f"cycle: {' -> '.join(path + [ref])}")
+                if ref not in visited:
+                    visited.add(ref)
+                    path.append(ref)
+                    stack.append((ref, iter(refs_of(ref))))
+                    advanced = True
+                    break
+            if not advanced:
+                stack.pop()
+                if path:
+                    path.pop()
 
     def _refresh_registry(self):
         """Keep module_movement_registry in sync after any mutation so a

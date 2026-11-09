@@ -623,6 +623,46 @@ class TestBuilderPreservation(unittest.TestCase):
         self.assertNotIn('"steps_arms": None', route)
 
 
+class TestMovementRefSafety(_StoreTestCase):
+    """Audit A2: movement refs must resolve AND be acyclic at write time —
+    a self-reference or cycle would recurse forever at playback."""
+
+    def _entry_with_ref(self, ref):
+        return {"name": "Ref Move", "type": "legs_only",
+                "description": "ref move",
+                "steps": [{"left_height": 50, "right_height": 50,
+                           "left_leg": 50, "right_leg": 50,
+                           "left_main": None, "left_forearm": None,
+                           "left_hand": None, "right_main": None,
+                           "right_forearm": None, "right_hand": None,
+                           "speed": 0.9, "hold_time": 0.0,
+                           "movement": ref}],
+                "steps_arms": None}
+
+    def test_self_reference_rejected(self):
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.add("loop", self._entry_with_ref("loop"))
+
+    def test_two_node_cycle_rejected(self):
+        self.store.load()
+        # loop -> bow is valid (bow exists, no cycle yet)
+        self.store.add("loop", self._entry_with_ref("bow"))
+        # bow -> loop closes the cycle bow -> loop -> bow — rejected
+        with self.assertRaises(ValueError):
+            self.store.update("bow", self._entry_with_ref("loop"))
+
+    def test_dangling_ref_rejected_at_write_time(self):
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.add("dangling", self._entry_with_ref("ghost_move"))
+
+    def test_valid_composition_still_works(self):
+        self.store.load()
+        self.store.add("composed", self._entry_with_ref("bow"))
+        self.assertIsNotNone(self.store.get("composed"))
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 
