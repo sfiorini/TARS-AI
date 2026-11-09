@@ -49,12 +49,16 @@
 
     function el(id) { return document.getElementById(id); }
 
-    function feedback(msg, isError) {
+    function feedback(msg, isError, sticky) {
       var box = el('mcpError');
       box.style.display = '';
       box.querySelector('.bld-confirm-msg').textContent = msg;
       box.style.color = isError ? '#ff6b6b' : '';
-      if (!isError) setTimeout(function () { box.style.display = 'none'; }, 2500);
+      // errors stay until the next action; confirmations fade. A test result
+      // is a diagnostic, so callers pass sticky=true and it stays put.
+      if (!isError && !sticky) {
+        setTimeout(function () { box.style.display = 'none'; }, 2500);
+      }
     }
 
     function loadServers() {
@@ -112,7 +116,8 @@
       }).then(function (res) {
         if (res.ok) {
           var names = (res.d.tools || []).map(function (t) { return t.name; });
-          feedback(name + ': ' + (names.join(', ') || 'no tools'), false);
+          feedback(name + ' — reachable, ' + (names.length || 0) +
+                   ' tool(s): ' + (names.join(', ') || 'none'), false, true);
           loadServers();
         } else feedback(res.d.error || 'Test failed', true);
       }).catch(function (err) { feedback('Error: ' + err.message, true); });
