@@ -60,6 +60,24 @@ _epochs = {}
 _epoch_lock = threading.Lock()
 
 
+def fire_and_forget_calls(parsed):
+    """The turn's NON-result-bearing function calls — the caller's
+    side-effect thread must still dispatch these when the deferred loop
+    owns the result-bearing ones (a mixed turn drops nothing; design §2
+    fire-and-forget dispatch is immediate and unconditional)."""
+    if not isinstance(parsed, dict):
+        return []
+    calls = parsed.get("function_calls") or []
+    out = []
+    for call in calls:
+        if not isinstance(call, dict):
+            continue
+        descriptor = get_registry().get(call.get("function", ""))
+        if descriptor is None or not descriptor.result_bearing:
+            out.append(call)
+    return out
+
+
 def bump_epoch(source):
     """Invalidate any in-flight turn for this source (new utterance)."""
     with _epoch_lock:

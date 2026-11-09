@@ -794,6 +794,16 @@ def _process_chat_message(msg, img_b64):
                 # llm_execute_side_effects — write memories directly
                 threading.Thread(target=write_turn_memories,
                                  args=(parsed, msg), daemon=True).start()
+                # fire-and-forget calls still dispatch exactly once (design
+                # §2) — the loop only runs the result-bearing ones
+                from modules.module_toolloop import fire_and_forget_calls
+                ff_calls = fire_and_forget_calls(parsed)
+                if ff_calls:
+                    ff_parsed = dict(parsed)
+                    ff_parsed["_memories_written"] = True  # written above
+                    ff_parsed["function_calls"] = ff_calls
+                    threading.Thread(target=llm_execute_side_effects,
+                                     args=(ff_parsed, msg), daemon=True).start()
             else:
                 llm_execute_side_effects(parsed, msg, source="webui",
                                         has_image=img_b64 is not None)

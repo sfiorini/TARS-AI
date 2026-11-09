@@ -164,6 +164,16 @@ def _run_side_effects_sync(reply, user_message, send_followup=None):
                 # result-bearing turn: the loop path never runs
                 # llm_execute_side_effects — write memories directly
                 write_turn_memories(reply, user_message)
+                # fire-and-forget calls still dispatch exactly once (design
+                # §2) — the loop only runs the result-bearing ones
+                from modules.module_toolloop import fire_and_forget_calls
+                ff_calls = fire_and_forget_calls(reply)
+                if ff_calls:
+                    ff_parsed = dict(reply)
+                    ff_parsed["_memories_written"] = True  # written above
+                    ff_parsed["function_calls"] = ff_calls
+                    llm_execute_side_effects(ff_parsed, user_message,
+                                             source="discord")
             else:
                 llm_execute_side_effects(reply, user_message, source="discord")
         except Exception as e:

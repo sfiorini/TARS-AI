@@ -492,5 +492,85 @@ class TestRollbackSwitch(_LoopTestCase):
         self.assertEqual(self.spoken, [])
 
 
+class TestMixedTurnDispatch(unittest.TestCase):
+    """Review F1: a turn with BOTH a fire-and-forget call and a
+    result-bearing call must dispatch each EXACTLY once — the loop only
+    runs the result-bearing ones, so the started-branch still dispatches
+    the fire-and-forget share through llm_execute_side_effects."""
+
+    def setUp(self):
+        super().setUp()
+        from modules.module_toolregistry import get_registry, reset_registry
+        reset_registry()
+        self.addCleanup(reset_registry)
+        self.movement_calls = []
+        self.search_calls = []
+        get_registry().register(_descriptor(
+            "move", result_bearing=False,
+            execute=lambda p, c: self.movement_calls.append(p) or "moved"))
+        get_registry().register(_descriptor(
+            "search", result_bearing=True,
+            execute=lambda p, c: self.search_calls.append(p) or "sunny"))
+
+    def _wired_turn(self, source):
+        """The exact started-branch wiring the three call sites run."""
+        from modules.module_toolloop import (ToolLoopRunner, TurnCallbacks,
+                                             fire_and_forget_calls)
+        from modules.module_llm import (llm_execute_side_effects,
+                                        write_turn_memories)
+        parsed = {"reply": "checking", "new_memories": [],
+                  "function_calls": [
+                      {"function": "move", "parameters": {"d": 1}},
+                      {"function": "search", "parameters": {"q": 2}}]}
+        spoken = []
+        done = threading.Event()
+
+        def on_state(state):
+            if state in ("IDLE", "CANCELLED", "TIMEOUT"):
+                done.set()
+
+        runner = ToolLoopRunner(lambda *a: {"reply": "final"})
+        started = runner.start_turn(
+            parsed, "hello", source,
+            TurnCallbacks(speak=spoken.append, on_state=on_state))
+        self.assertTrue(started)
+        # started-branch (the module_main/module_chatui/skill_discord pattern)
+        threading.Thread(target=write_turn_memories,
+                         args=(parsed, "hello"), daemon=True).start()
+        ff_calls = fire_and_forget_calls(parsed)
+        if ff_calls:
+            ff_parsed = dict(parsed)
+            ff_parsed["_memories_written"] = True  # the direct write owns memories
+            ff_parsed["function_calls"] = ff_calls
+            threading.Thread(target=llm_execute_side_effects,
+                            args=(ff_parsed, "hello"), daemon=True).start()
+        self.assertTrue(done.wait(5), "turn did not finish")
+        deadline = time.time() + 5
+        while not self.movement_calls and time.time() < deadline:
+            time.sleep(0.01)
+        return spoken
+
+    def test_mixed_turn_dispatches_each_call_exactly_once(self):
+        spoken = self._wired_turn("voice")
+        self.assertEqual(len(self.movement_calls), 1)  # not dropped
+        self.assertEqual(len(self.search_calls), 1)    # not doubled
+        self.assertEqual(spoken, ["final"])
+
+    def test_mixed_turn_webui_path(self):
+        spoken = self._wired_turn("webui")
+        self.assertEqual(len(self.movement_calls), 1)
+        self.assertEqual(len(self.search_calls), 1)
+        self.assertEqual(spoken, ["final"])
+
+    def test_call_sites_wire_fire_and_forget(self):
+        for rel in ("modules/module_main.py", "modules/module_chatui.py",
+                    "skills/skill_discord.py"):
+            with open(os.path.join(_SRC, rel), encoding="utf-8") as fh:
+                src = fh.read()
+            self.assertIn("fire_and_forget_calls(", src,
+                          f"{rel} must dispatch the fire-and-forget share "
+                          f"in its started-branch")
+
+
 if __name__ == "__main__":
     unittest.main()

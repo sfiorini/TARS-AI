@@ -393,8 +393,19 @@ def utterance_callback(message):
             if started:
                 # result-bearing turn: the loop path never runs
                 # llm_execute_side_effects — write memories directly
-                from modules.module_llm import write_turn_memories
+                from modules.module_llm import (llm_execute_side_effects,
+                                                write_turn_memories)
+                from modules.module_toolloop import fire_and_forget_calls
                 threading.Thread(target=write_turn_memories, args=(parsed, user_text), daemon=True).start()
+                # fire-and-forget calls still dispatch exactly once (design
+                # §2) — the loop only runs the result-bearing ones
+                ff_calls = fire_and_forget_calls(parsed)
+                if ff_calls:
+                    ff_parsed = dict(parsed)
+                    ff_parsed["_memories_written"] = True  # written above
+                    ff_parsed["function_calls"] = ff_calls
+                    threading.Thread(target=llm_execute_side_effects,
+                                     args=(ff_parsed, user_text), daemon=True).start()
             elif func_calls or new_mems:
                 queue_message(f"DEBUG VOICE: Running side effects in background thread")
                 threading.Thread(
