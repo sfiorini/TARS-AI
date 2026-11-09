@@ -748,10 +748,12 @@ def _sanitize_for_tts(text):
 
 
 def execute_function_call(func_call, bot_response, user_input, source="voice", has_image=False):
-    """Dispatch a function call to the matching skill plugin.
+    """Dispatch a function call through the tool registry (M3 shim).
 
-    Skills are auto-discovered from src/skills/skill_*.py at startup.
-    Each skill's execute() returns a reply string (or None to keep the existing reply).
+    Thin shim over ToolRegistry.dispatch, kept for one release (design
+    (a)); the reply contract is preserved verbatim.  The required-params
+    hallucination guard lives in the builtin adapter
+    (module_skills.iter_descriptors) — it is NOT duplicated here.
     """
     function_name = func_call.get("function", "")
     parameters = func_call.get("parameters", {})
@@ -762,38 +764,21 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
     speed.start('tool')
 
     try:
-        from modules.module_skills import get_skill_manager
-        skills = get_skill_manager()
-
-        if skills and skills.has_skill(function_name):
-            # Guard against hallucinated calls: skip if params are empty
-            # but the skill declares required parameters.
-            skill_meta = skills._skill_meta.get(function_name, {})
-            req = skill_meta.get("required_params")
-            if req and not parameters:
-                queue_message(f"DEBUG: Skipping {function_name} — empty params but requires {req}")
-                speed.log_tool(function_name, speed.stop('tool'))
-                return
-            # Build context dict for the skill
-            context = {
-                "bot_response": bot_response,
-                "user_input": user_input,
-                "source": source,
-                "has_image": has_image,
-                "config": CONFIG,
-            }
-            result = skills.execute(function_name, parameters, context)
-            # If skill returns a string, update the reply
-            if result is not None:
-                if bot_response.get("_skill_replied"):
-                    # Multiple skills returning replies — append instead of overwrite
-                    bot_response["reply"] = f"{bot_response['reply']} {result}"
-                else:
-                    bot_response["reply"] = result
-                    bot_response["_skill_replied"] = True
-        else:
-            queue_message(f"Unknown function: {function_name}")
-
+        from modules.module_toolregistry import ToolContext, get_registry
+        ctx = ToolContext(bot_response=bot_response, user_input=user_input,
+                          source=source, has_image=has_image,
+                          config=CONFIG, skill_config=None,
+                          cancel_event=threading.Event())
+        result = get_registry().dispatch(function_name, parameters, ctx)
+        if result.is_error:
+            queue_message(result.content)
+        elif result.content:
+            if bot_response.get("_skill_replied"):
+                # Multiple skills returning replies — append instead of overwrite
+                bot_response["reply"] = f"{bot_response['reply']} {result.content}"
+            else:
+                bot_response["reply"] = result.content
+                bot_response["_skill_replied"] = True
     except Exception as e:
         queue_message(f"Function execution failed for {function_name}: {e}")
 
