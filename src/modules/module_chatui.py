@@ -3034,6 +3034,83 @@ def get_movement_steps(name):
     return jsonify({"name": name, "steps": steps}), 200
 
 
+# ── Movement pool CRUD (/movements/*) — thin wrappers over the store ──
+MOVEMENT_ROUTES = ["/movements", "/movements/reset"]
+
+
+@flask_app.route('/movements', methods=['GET'])
+def movements_list():
+    """Whole pool: {id: {name, type, description, steps, steps_arms}}."""
+    from modules.module_movementstore import get_movement_store
+    return jsonify({"success": True,
+                     "movements": get_movement_store().get_all()}), 200
+
+
+@flask_app.route('/movements', methods=['POST'])
+def movements_create():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    mid = (data.get("id") or "").strip()
+    if not mid:
+        return jsonify({"error": "id required"}), 400
+    from modules.module_movementstore import get_movement_store
+    try:
+        get_movement_store().add(mid, {
+            "name": data.get("name", mid),
+            "type": data.get("type", "legs_only"),
+            "description": data.get("description", ""),
+            "steps": data.get("steps", []),
+            "steps_arms": data.get("steps_arms"),
+        })
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/movements/<mid>', methods=['PUT'])
+def movements_update(mid):
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    if store.get(mid) is None:
+        return jsonify({"error": f"Movement '{mid}' not found"}), 404
+    try:
+        store.update(mid, {
+            "name": data.get("name", mid),
+            "type": data.get("type", "legs_only"),
+            "description": data.get("description", ""),
+            "steps": data.get("steps", []),
+            "steps_arms": data.get("steps_arms"),
+        })
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/movements/<mid>', methods=['DELETE'])
+def movements_delete(mid):
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    if store.get(mid) is None:
+        return jsonify({"error": f"Movement '{mid}' not found"}), 404
+    store.delete(mid)
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/movements/reset', methods=['POST'])
+def movements_reset():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json() or {}
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    store.reset_from_defaults(prune=bool(data.get("prune", False)))
+    return jsonify({"success": True, "count": len(store.get_all())}), 200
+
+
 def start_flask_app(port=None):
     if port is None:
         port = CONFIG['ACCESS'].get('webui_port', 80)

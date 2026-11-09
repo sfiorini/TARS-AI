@@ -1,0 +1,245 @@
+<div class="tab-pane fade" id="movements" role="tabpanel">
+  <div class="builder-wrap">
+
+    <div class="builder-header">
+      <span class="section-label">MOVEMENTS</span>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-secondary" id="mvResetBtn" title="Restore every default movement; user movements are kept">↺ Reset</button>
+        <button class="hud-btn hud-btn-danger" id="mvPruneBtn" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
+      </div>
+    </div>
+
+    <div class="bld-hint">
+      <span>The whole movement pool — shipped and user-created — lives in the movement store.</span>
+      <span>Arm-gated movements are listed but only play when arm servos are installed.</span>
+    </div>
+
+    <!-- New movement -->
+    <div class="bld-section">
+      <div class="section-label">NEW MOVEMENT</div>
+      <div class="bld-save-row">
+        <input type="text" id="mvNewId" class="hud-input bld-name-input" placeholder="id (lowercase, digits, underscores)">
+        <button class="hud-btn hud-btn-primary" id="mvNewBtn">+ Create</button>
+      </div>
+    </div>
+
+    <!-- Pool list -->
+    <div class="bld-section">
+      <div class="section-label">POOL</div>
+      <div class="bld-step-list" id="mvPoolList">Loading…</div>
+    </div>
+
+    <!-- Editor -->
+    <div class="bld-section" id="mvEditor" style="display:none">
+      <div class="section-label">EDIT <span id="mvEditorId"></span></div>
+      <div class="bld-save-row">
+        <input type="text" id="mvName" class="hud-input bld-name-input" placeholder="Display name">
+        <select id="mvType" class="hud-select bld-movement-sel">
+          <option value="legs_only">legs_only</option>
+          <option value="has_arms">has_arms</option>
+        </select>
+      </div>
+      <div class="bld-save-row">
+        <input type="text" id="mvDescription" class="hud-input bld-name-input" placeholder="Description">
+      </div>
+      <div class="bld-hint"><span>steps — JSON array (builder step schema)</span></div>
+      <textarea id="mvSteps" class="hud-input" rows="8" style="width:100%; font-family:monospace;"></textarea>
+      <div class="bld-hint"><span>steps_arms — JSON array or empty for none</span></div>
+      <textarea id="mvStepsArms" class="hud-input" rows="4" style="width:100%; font-family:monospace;"></textarea>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-primary" id="mvSaveBtn">Save</button>
+        <button class="hud-btn" id="mvCancelBtn">Cancel</button>
+      </div>
+      <div class="bld-overwrite-confirm" id="mvError" style="display:none">
+        <span class="bld-confirm-msg"></span>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+    var editingId = null;
+
+    function el(id) { return document.getElementById(id); }
+
+    function feedback(msg, isError) {
+      var box = el('mvError');
+      if (!box) return;
+      box.style.display = '';
+      box.querySelector('.bld-confirm-msg').textContent = msg;
+      box.style.color = isError ? '#ff6b6b' : '';
+      if (!isError) setTimeout(function () { box.style.display = 'none'; }, 2500);
+    }
+
+    function parseSteps(text, allowEmpty) {
+      var trimmed = (text || '').trim();
+      if (!trimmed) return allowEmpty ? null : [];
+      var parsed = JSON.parse(trimmed);  // throws on bad JSON
+      if (!Array.isArray(parsed)) throw new Error('must be a JSON array');
+      return parsed;
+    }
+
+    function loadPool() {
+      fetch('/movements').then(function (r) { return r.json(); }).then(function (d) {
+        renderPool(d.movements || {});
+      }).catch(function () {
+        el('mvPoolList').textContent = 'Failed to load movements.';
+      });
+    }
+
+    function renderPool(movements) {
+      var list = el('mvPoolList');
+      list.innerHTML = '';
+      var ids = Object.keys(movements).sort();
+      if (!ids.length) { list.textContent = 'No movements.'; return; }
+      ids.forEach(function (id) {
+        var m = movements[id];
+        var row = document.createElement('div');
+        row.className = 'bld-step-row';
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;';
+        var label = document.createElement('span');
+        label.style.flex = '1';
+        label.innerHTML = '<b>' + id + '</b> <small>(' + m.type + ')</small> — ' +
+                          (m.description || '');
+        var play = document.createElement('button');
+        play.className = 'hud-btn hud-btn-secondary';
+        play.textContent = '▶';
+        play.title = 'Play';
+        play.onclick = function () { playMovement(id); };
+        var edit = document.createElement('button');
+        edit.className = 'hud-btn hud-btn-secondary';
+        edit.textContent = '✎';
+        edit.title = 'Edit';
+        edit.onclick = function () { openEditor(id, m); };
+        var del = document.createElement('button');
+        del.className = 'hud-btn hud-btn-danger';
+        del.textContent = '🗑';
+        del.title = 'Delete';
+        del.onclick = function () { deleteMovement(id); };
+        row.appendChild(label); row.appendChild(play);
+        row.appendChild(edit); row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+
+    function playMovement(id) {
+      fetch('/play_saved_sequence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: id })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) feedback('Played ' + id, false);
+        else feedback(res.d.error || 'Playback failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function deleteMovement(id) {
+      if (!window.confirm('Delete movement "' + id + '"?')) return;
+      fetch('/movements/' + encodeURIComponent(id), { method: 'DELETE' })
+        .then(function () { loadPool(); })
+        .catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function openEditor(id, m) {
+      editingId = id;
+      el('mvEditorId').textContent = '"' + id + '"';
+      el('mvName').value = m.name || '';
+      el('mvType').value = m.type || 'legs_only';
+      el('mvDescription').value = m.description || '';
+      el('mvSteps').value = JSON.stringify(m.steps || [], null, 2);
+      el('mvStepsArms').value = m.steps_arms ? JSON.stringify(m.steps_arms, null, 2) : '';
+      el('mvEditor').style.display = '';
+      feedback('', false);
+      el('mvError').style.display = 'none';
+    }
+
+    function closeEditor() {
+      editingId = null;
+      el('mvEditor').style.display = 'none';
+    }
+
+    function saveEditor() {
+      if (!editingId) return;
+      var steps, stepsArms;
+      try {
+        steps = parseSteps(el('mvSteps').value, false);
+        stepsArms = parseSteps(el('mvStepsArms').value, true);
+      } catch (e) {
+        feedback('Invalid steps JSON: ' + e.message, true);
+        return;
+      }
+      fetch('/movements/' + encodeURIComponent(editingId), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: el('mvName').value,
+          type: el('mvType').value,
+          description: el('mvDescription').value,
+          steps: steps,
+          steps_arms: stepsArms
+        })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) { closeEditor(); loadPool(); }
+        else feedback(res.d.error || 'Save failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function createMovement() {
+      var id = (el('mvNewId').value || '').trim();
+      if (!id) { feedback('Enter an id first.', true); return; }
+      fetch('/movements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: id,
+          name: id,
+          type: 'legs_only',
+          description: 'Created in the movements panel',
+          steps: [{
+            left_height: 50, right_height: 50, left_leg: 50, right_leg: 50,
+            left_main: null, left_forearm: null, left_hand: null,
+            right_main: null, right_forearm: null, right_hand: null,
+            speed: 0.9, hold_time: 0.0, movement: null
+          }],
+          steps_arms: null
+        })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) { el('mvNewId').value = ''; loadPool(); }
+        else feedback(res.d.error || 'Create failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function resetPool(prune) {
+      var msg = prune
+        ? 'Prune: restore all defaults and DELETE movements absent from the defaults?'
+        : 'Reset: restore every default movement? (edits to shipped movements are lost; user movements are kept)';
+      if (!window.confirm(msg)) return;
+      fetch('/movements/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prune: prune })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) { feedback('Done — ' + res.d.count + ' movements', false); loadPool(); }
+        else feedback(res.d.error || 'Reset failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    el('mvNewBtn').addEventListener('click', createMovement);
+    el('mvSaveBtn').addEventListener('click', saveEditor);
+    el('mvCancelBtn').addEventListener('click', closeEditor);
+    el('mvResetBtn').addEventListener('click', function () { resetPool(false); });
+    el('mvPruneBtn').addEventListener('click', function () { resetPool(true); });
+    loadPool();
+  })();
+  </script>
+</div>

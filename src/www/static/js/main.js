@@ -2739,8 +2739,8 @@ window.showToast = function (message, type, duration) {
 
 // ── MOBILE SWIPE NAV ─────────────────────────────────────────────────────────
 (function () {
-  const TAB_IDS = ['chat', 'motion', 'emotions', 'dashboard', 'config'];
-  const TAB_BTN_IDS = ['chat-tab', 'motion-tab', 'emotions-tab', 'dashboard-tab', 'config-tab'];
+  const TAB_IDS = ['chat', 'motion', 'emotions', 'dashboard', 'config', 'movements'];
+  const TAB_BTN_IDS = ['chat-tab', 'motion-tab', 'emotions-tab', 'dashboard-tab', 'config-tab', 'movements-tab'];
   let currentIndex = 0;
   let isMobile = false;
 
