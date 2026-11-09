@@ -8,6 +8,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import types
 import unittest
 from unittest import mock
@@ -293,6 +294,59 @@ class TestRegistryAndSeeding(unittest.TestCase):
         self.assertEqual(mcp.get("request_timeout"), 30)
         self.assertEqual(mcp.get("health_interval_s"), 60)
         self.assertEqual(mcp.get("restart_max_attempts"), 3)
+
+
+class TestStdioTransport(unittest.TestCase):
+    """_StdioServer against the REAL example server (S-M6-04)."""
+
+    def _make_server(self, entry=None):
+        from modules.module_mcp import _StdioServer
+        entry = entry or {"transport": "stdio", "command": sys.executable,
+                          "args": [_SERVER], "env": {}, "cwd": None}
+        return _StdioServer("example", entry)
+
+    def test_stdio_roundtrip_real_server(self):
+        server = self._make_server()
+        self.addCleanup(server.stop)
+        server.start()
+        result = server._request({"jsonrpc": "2.0", "id": 1,
+                                  "method": "initialize",
+                                  "params": {}})
+        self.assertEqual(result["result"]["protocolVersion"], "2025-06-18")
+        server._send({"jsonrpc": "2.0",
+                      "method": "notifications/initialized"})
+        listed = server._request({"jsonrpc": "2.0", "id": 2,
+                                  "method": "tools/list"})
+        self.assertEqual(sorted(t["name"] for t in listed["result"]["tools"]),
+                         ["add_numbers", "get_time"])
+
+    def test_stop_kills_process_group(self):
+        server = self._make_server()
+        server.start()
+        server.stop()
+        deadline = time.monotonic() + 3
+        while server.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertIsNotNone(server.poll(), "process did not exit")
+        # no orphan: the process-group kill covered the whole tree
+        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
+                               capture_output=True, text=True)
+        self.assertEqual(check.stdout.strip(), "",
+                         f"orphan server process: {check.stdout}")
+
+    def test_send_is_compact_single_line(self):
+        from modules.module_mcp import _StdioServer
+        sent = []
+        server = self._make_server()
+        server._proc = mock.MagicMock()
+        server._proc.stdin.write = sent.append
+        server._send({"jsonrpc": "2.0", "id": 1, "method": "x",
+                      "params": {"a": 1}})
+        self.assertEqual(len(sent), 1)
+        line = sent[0]
+        self.assertTrue(line.endswith("\n"))
+        self.assertNotIn("\n", line[:-1])  # no embedded newlines
+        self.assertNotIn('": ', line)       # compact separators
 
 
 if __name__ == "__main__":

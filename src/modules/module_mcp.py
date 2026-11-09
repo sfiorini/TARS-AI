@@ -25,6 +25,10 @@ import json
 import os
 import re
 import shutil
+import signal
+import subprocess
+import threading
+import time
 
 from modules.module_messageQue import queue_message
 
@@ -130,6 +134,111 @@ class McpManager:
             return
         shutil.copyfile(self.template_path, self.registry_path)
         queue_message("MCP: seeded mcp_servers.json from template")
+
+
+class _StdioServer:
+    """stdio transport: newline-delimited compact UTF-8 JSON-RPC over the
+    server's stdin/stdout; stderr drained (rate-limited) on a daemon
+    thread — servers are allowed to log there."""
+
+    def __init__(self, name, entry):
+        self.name = name
+        self.entry = entry
+        self._proc = None
+        self._stderr_thread = None
+
+    def start(self):
+        env = {**os.environ, **(self.entry.get("env") or {})}
+        self._proc = subprocess.Popen(
+            [self.entry["command"]] + list(self.entry.get("args") or []),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+            env=env, cwd=self.entry.get("cwd"),
+            start_new_session=True)  # process group: killpg on stop
+        self._stderr_thread = threading.Thread(
+            target=self._drain_stderr, daemon=True,
+            name=f"mcp-stderr-{self.name}")
+        self._stderr_thread.start()
+
+    def _drain_stderr(self):
+        """Server logs go to stderr (per spec) — drain with rate limiting."""
+        window_start = time.monotonic()
+        lines_in_window = 0
+        suppressed = False
+        for line in self._proc.stderr:
+            now = time.monotonic()
+            if now - window_start >= 1.0:
+                window_start, lines_in_window = now, 0
+                suppressed = False
+            lines_in_window += 1
+            if lines_in_window > 10:
+                if not suppressed:
+                    queue_message(
+                        f"MCP: stderr from '{self.name}' suppressed "
+                        f"(rate limit)")
+                    suppressed = True
+                continue
+            queue_message(f"MCP[{self.name}]: {line.rstrip()}")
+
+    def _send(self, msg):
+        """Compact JSON + newline — never pretty-printed, never embedded
+        newlines."""
+        self._proc.stdin.write(json.dumps(msg, separators=(",", ":"))
+                              + "\n")
+        self._proc.stdin.flush()
+
+    def _read(self, timeout):
+        """Line-buffered, whitespace-tolerant read of one JSON-RPC message."""
+        box = []
+
+        def reader():
+            line = self._proc.stdout.readline()
+            if line:
+                box.append(line)
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        if not box:
+            raise TimeoutError(f"MCP server '{self.name}' response timeout")
+        return json.loads(box[0].strip())
+
+    def _request(self, msg, timeout=30):
+        self._send(msg)
+        return self._read(timeout)
+
+    def poll(self):
+        """The process's return code, or None while running."""
+        if self._proc is None:
+            return None
+        return self._proc.poll()
+
+    def stop(self):
+        """Terminate the process GROUP: SIGTERM, wait 2s, SIGKILL."""
+        if self._proc is None:
+            return
+        try:
+            os.killpg(self._proc.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            self._proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(self._proc.pid, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                self._proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                pass
+        for stream in (self._proc.stdin, self._proc.stdout,
+                       self._proc.stderr):
+            try:
+                if stream and not stream.closed:
+                    stream.close()
+            except OSError:
+                pass
 
 
 _manager = None
