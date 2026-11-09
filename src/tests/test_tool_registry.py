@@ -245,6 +245,75 @@ class TestRequiredParamsGuard(_StubSkillsDirTestCase):
         self.assertEqual(stub_module.recorder, [{"query": "x"}])
 
 
+# Golden pins for the followup skills' trigger text (M3 review F2).
+# These skills' prompts drive the deferred loop's trigger reliability —
+# any reformat must be a conscious change (update the pins deliberately).
+# The followup pool is 7 skills (skill_discord has prompt "" and no
+# followup flag — its earlier "followup" grep hit was followup_text code).
+GOLDEN_FOLLOWUP_TRIGGERS = {
+    "capture_camera_view":
+        "MUST USE when user asks ANY question about vision/seeing",
+    "example": 'MUST call when the user says "skill example"',
+    "network_camera": "network/security/IP camera feed",
+    "sandbox_exec": "execute Python code to answer the user's question",
+    "take_photo": "to KEEP, not to analyze",
+    "web_search": "CRITICAL: Weather questions ALWAYS require web_search",
+    # tars_radio cannot import on py3.9 dev machines (py3.10+ syntax) —
+    # its trigger text is pinned in its source file instead
+    "tars_radio": "Use for ANY music PLAYBACK, library management, or "
+                  "radio commands",
+}
+GOLDEN_FOLLOWUP_PROMPT_LENGTHS = {
+    "capture_camera_view": 854,
+    "example": 233,
+    "network_camera": 1009,
+    "sandbox_exec": 1203,
+    "take_photo": 674,
+    "web_search": 1285,
+}
+
+
+class TestBuiltinPromptGolden(unittest.TestCase):
+    """Pin the actual builtin prompt content (M3 review F2).
+
+    test_builtin_prompt_block_byte_identical compares the wrapper to
+    get_prompt_text(), so both sides move together — this golden test
+    pins the content itself: every followup skill's distinctive trigger
+    text and per-skill prompt-block lengths.
+    """
+
+    @staticmethod
+    def _manager():
+        from modules.module_skills import SkillManager
+        manager = SkillManager()
+        manager.discover()
+        manager._disabled.clear()
+        return manager
+
+    def test_followup_trigger_text_present(self):
+        manager = self._manager()
+        prompt = manager.get_prompt_text()
+        for name, trigger in GOLDEN_FOLLOWUP_TRIGGERS.items():
+            if name in manager._skills:  # loadable in this environment
+                self.assertIn(trigger, prompt,
+                               f"{name}'s trigger text drifted")
+            else:  # not importable here (discord lib / py3.10+ syntax) —
+                with open(os.path.join(_SRC, "skills",
+                                       f"skill_{name}.py"),
+                          encoding="utf-8") as fh:
+                    self.assertIn(trigger, fh.read(),
+                                  f"{name}'s trigger text drifted")
+
+    def test_followup_prompt_lengths_pinned(self):
+        manager = self._manager()
+        for name, length in GOLDEN_FOLLOWUP_PROMPT_LENGTHS.items():
+            meta = manager._skill_meta.get(name)
+            self.assertIsNotNone(meta, f"{name} must load")
+            self.assertEqual(len(meta.get("prompt", "")), length,
+                            f"{name}'s prompt block was reformatted — "
+                            f"update the golden pin deliberately")
+
+
 class TestStartupRegistration(unittest.TestCase):
     """The builtin pool registers into the tool registry at startup
     (S-M3-05 — the same flow app.py runs after initialize_skills())."""
