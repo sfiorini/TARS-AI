@@ -18,6 +18,7 @@ don't exist on CI runners — stub them and patch load_config.
 import asyncio
 import ctypes
 import os
+import threading
 import sys
 import types
 import unittest
@@ -218,6 +219,47 @@ class TestVersionAdaptive(unittest.TestCase):
         self.assertEqual(len(chunks), 1)
         self.assertTrue(chunks[0].getvalue().startswith(b"RIFF"))
 
+    def test_piper_12x_voice_exposing_both_apis_takes_stream_raw_branch(self):
+        """piper-tts 1.2.x exposes BOTH synthesize and synthesize_stream_raw,
+        so the branch cannot be chosen by synthesize's presence (1.2.x would
+        enter the >= 1.3 branch and die on `from piper import SynthesisConfig`).
+        Key on synthesize_stream_raw's presence instead — only 1.2.x has it
+        (verified absent on 1.8.0)."""
+        calls = {"synthesize": 0, "stream_raw": 0}
+        voice = types.SimpleNamespace(config=types.SimpleNamespace(sample_rate=22050))
+        def synthesize(text, syn_config=None):
+            calls["synthesize"] += 1
+            yield types.SimpleNamespace(audio_int16_bytes=b"SYN-BRANCH-PCM")
+        def synthesize_stream_raw(text, speaker_id=None):
+            calls["stream_raw"] += 1
+            return iter([b"RAW-BRANCH-PCM"])
+        voice.synthesize = synthesize
+        voice.synthesize_stream_raw = synthesize_stream_raw
+        with mock.patch.object(module_piper, "voice", voice), \
+             mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
+             mock.patch.object(module_piper, "queue_message"):
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hi."))
+        self.assertIsNone(raised)
+        self.assertEqual(calls, {"synthesize": 0, "stream_raw": 1})
+        self.assertEqual(len(chunks), 1)
+        self.assertIn(b"RAW-BRANCH-PCM", chunks[0].getvalue())  # WAV-wrapped raw PCM
+
+    def test_synthesize_only_voice_takes_synthesis_config_branch(self):
+        """A voice exposing ONLY synthesize (piper-tts >= 1.3, e.g. the
+        robot's 1.8.0) must take the SynthesisConfig branch — regression
+        guard for the 1.2.x-first reordering."""
+        record = {}
+        voice = _stream_voice(pcm=b"SYN-BRANCH-PCM", record=record)
+        self.assertFalse(hasattr(voice, "synthesize_stream_raw"))
+        with mock.patch.object(module_piper, "voice", voice), \
+             mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
+             mock.patch.object(module_piper, "queue_message"):
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hi."))
+        self.assertIsNone(raised)
+        self.assertEqual(len(chunks), 1)
+        self.assertIn(b"SYN-BRANCH-PCM", chunks[0].getvalue())
+        self.assertIsInstance(record["syn_config"], _SynthesisConfig)
+
     def test_api_less_voice_raises_before_first_chunk(self):
         voice = types.SimpleNamespace()   # neither synthesize nor synthesize_stream_raw
         voice.config = types.SimpleNamespace(sample_rate=22050)
@@ -294,6 +336,45 @@ class TestOffLoopAndAclose(unittest.TestCase):
                 first = await agen.__anext__()
                 self.assertTrue(first.getvalue().startswith(b"RIFF"))
                 await agen.aclose()
+            asyncio.run(run())
+
+    def test_cancel_while_worker_inside_generator_does_not_raise(self):
+        """P3: barge-in / the per-utterance deadline cancels the consuming
+        task while a worker thread is still INSIDE the plain generator
+        (ONNX inference mid-sentence). The finally's it.close() then runs on
+        the event-loop thread against a RUNNING generator — close() raises
+        ValueError('generator already executing'), which the chain swallows,
+        leaving the generator never actually closed. The close must be
+        guarded: cancellation must surface as CancelledError, never
+        ValueError."""
+        inside = threading.Event()
+        release = threading.Event()
+
+        def blocking_synthesize(text, syn_config=None):
+            inside.set()                       # worker thread is INSIDE the generator
+            release.wait(10)                   # simulate ONNX inference still running
+            yield types.SimpleNamespace(audio_int16_bytes=b"\x11\x22" * 64)
+
+        voice = types.SimpleNamespace(config=types.SimpleNamespace(sample_rate=22050),
+                                      synthesize=blocking_synthesize)
+        with mock.patch.object(module_piper, "voice", voice), \
+             mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
+             mock.patch.object(module_piper, "queue_message"):
+            async def run():
+                agen = module_piper.text_to_speech_with_pipelining_piper("Hi.")
+                nxt = asyncio.ensure_future(agen.__anext__())
+                # poll ASYNC so the loop keeps running the __anext__ task
+                for _ in range(200):
+                    await asyncio.sleep(0.05)
+                    if inside.is_set():
+                        break
+                self.assertTrue(inside.is_set())   # worker is mid-synthesis
+                nxt.cancel()                        # barge-in cancels the consumer
+                try:
+                    with self.assertRaises(asyncio.CancelledError):
+                        await nxt                    # ValueError here = the P3
+                finally:
+                    release.set()                   # let the worker finish + exit
             asyncio.run(run())
 
 

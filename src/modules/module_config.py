@@ -1112,7 +1112,7 @@ CONFIG_METADATA = {
         'speechify_stream': {
             'label': 'Speechify Streaming',
             'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
-            'description': 'ON (recommended): one streamed /v1/audio/stream request per utterance — TARS starts speaking in ~0.1 s instead of one request per sentence. OFF: the legacy one-wav-request-per-sentence path (slower start).'
+            'description': 'ON (recommended): one streamed /v1/audio/stream request per utterance — server first byte ≈ 0.1 s, first playable ~1 s slice ≈ 0.9 s (measured on the robot). OFF: the legacy one-wav-request-per-sentence path (slower start).'
         },
         'speechify_output_format': {
             'label': 'Speechify Output Format',

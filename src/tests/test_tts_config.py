@@ -293,6 +293,17 @@ class TestWebuiMetadata(unittest.TestCase):
             self.assertIn(key, schema, f"webui schema missing {key}")
             self.assertTrue(parser.has_option("TTS", key), f"template missing {key}")
 
+    def test_speechify_stream_description_matches_measured_latency(self):
+        """P3: the webui tooltip claimed 'TARS starts speaking in ~0.1 s'.
+        Measured on the robot, the server's first byte is ≈ 0.105 s but the
+        first playable ~1 s slice lands ≈ 0.9 s in (the client coalesces raw
+        PCM into ~1 s slices) — the description must distinguish the two.
+        """
+        desc = module_config.CONFIG_METADATA["TTS"]["speechify_stream"]["description"]
+        self.assertNotIn("starts speaking in ~0.1 s", desc)
+        self.assertIn("0.1 s", desc)     # server first byte (measured ≈ 0.105 s)
+        self.assertIn("0.9 s", desc)     # first playable slice (measured 0.929 s)
+
     def test_elevenlabs_model_options_include_v3(self):
         """B5: the code special-cases v3 model ids ('v3' in model_id) — the
         webui options list must offer a v3 model, not just v2-era ids."""

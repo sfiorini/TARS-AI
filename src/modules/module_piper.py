@@ -6,7 +6,9 @@ Piper TTS provider for TARS-AI (local, offline).
 Streaming (D5): text_to_speech_with_pipelining_piper yields one WAV chunk per
 sentence — Piper's native per-sentence iterator (piper-tts >= 1.3, incl. the
 robot's 1.8.0, uses voice.synthesize(text, syn_config=SynthesisConfig(...));
-piper-tts 1.2.x uses synthesize_stream_raw()). Each chunk is WAV-wrapped at
+piper-tts 1.2.x uses synthesize_stream_raw(); the branch is keyed on
+synthesize_stream_raw's presence, which only 1.2.x exposes). Each chunk is
+WAV-wrapped at
 the voice's native rate (22050 Hz mono 16-bit for TARS.onnx) and optionally
 piped through the sox robot-FX chain ([TTS] piper_robot_fx / piper_fx).
 ONNX inference AND the sox subprocess run in a worker thread
@@ -165,10 +167,15 @@ def _get_piper_speaker_id(emotion):
 
 def _iter_pcm_chunks(voice_obj, text, speaker_id=None):
     """Yield raw int16 mono PCM bytes, one chunk per sentence, at
-    voice.config.sample_rate (22050 for TARS.onnx). Version-adaptive:
-    piper-tts >= 1.3 (incl. the robot's 1.8.0) uses synthesize() with
-    SynthesisConfig; 1.2.x uses synthesize_stream_raw()."""
-    if hasattr(voice_obj, "synthesize"):
+    voice.config.sample_rate (22050 for TARS.onnx). Version-adaptive, keyed
+    on synthesize_stream_raw's presence (ONLY piper-tts 1.2.x has it —
+    verified absent on 1.8.0; both versions expose synthesize()): 1.2.x uses
+    synthesize_stream_raw(); >= 1.3 (incl. the robot's 1.8.0) uses
+    synthesize() with SynthesisConfig."""
+    if hasattr(voice_obj, "synthesize_stream_raw"):    # piper-tts 1.2.x ONLY
+        for raw in voice_obj.synthesize_stream_raw(text, speaker_id=speaker_id):
+            yield raw
+    elif hasattr(voice_obj, "synthesize"):              # piper-tts >= 1.3
         try:
             from piper import SynthesisConfig          # piper-tts 1.8.0 package root
         except ImportError:
@@ -176,9 +183,6 @@ def _iter_pcm_chunks(voice_obj, text, speaker_id=None):
         cfg = SynthesisConfig(speaker_id=speaker_id)   # D6: fixes dead speaker_id
         for chunk in voice_obj.synthesize(text, syn_config=cfg):
             yield chunk.audio_int16_bytes
-    elif hasattr(voice_obj, "synthesize_stream_raw"):  # piper-tts 1.2.x
-        for raw in voice_obj.synthesize_stream_raw(text, speaker_id=speaker_id):
-            yield raw
     else:
         raise AttributeError(
             "Loaded PiperVoice exposes neither synthesize() nor synthesize_stream_raw()")
@@ -321,4 +325,11 @@ async def text_to_speech_with_pipelining_piper(text, emotion=None):
             # wave header write nor the sox subprocess may touch the loop.
             yield await asyncio.to_thread(_wrap_and_apply_fx, pcm, sample_rate, fx_chain)
     finally:
-        it.close()   # tolerate early aclose(): plain-generator close, no open resources
+        # Barge-in / the per-utterance deadline can aclose() this generator
+        # while a worker thread is still INSIDE `it` (ONNX inference):
+        # close() on a RUNNING generator raises ValueError, which the chain
+        # would swallow — leaving the generator never actually closed. Skip
+        # the close then; `it` holds no open resources and is collected once
+        # the abandoned next() returns.
+        if not getattr(it, "gi_running", False):
+            it.close()
