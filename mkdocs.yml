@@ -47,6 +47,7 @@ nav:
   - Running TARS: running.md
   - Web UI: web-ui.md
   - Agent Skills: skills.md
+  - MCP: mcp.md
   - Voice Pipeline: voice-pipeline.md
   - Movements: movements.md
   - Server Mode: server-mode.md

@@ -55,6 +55,7 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | `GET /api/console/logs` | recent lines of `src/logs/tars-ai.log` |
 | `POST /reboot_program`, `GET /boot_id` | restart the app without rebooting the Pi ([running.md](running.md)) |
 | `GET /servo_status`, `POST /servo_reinit` | **fork additions** — servo health and no-reboot recovery |
+| `GET /mcp`, `POST /mcp`, `PUT /mcp/<name>`, `DELETE /mcp/<name>`, `POST /mcp/<name>/test` | MCP server registry + live status + connection test (see [MCP](mcp.md)) |
 | `GET /api/wifi/*`, `GET /api/tunnel/*` | wifi + tunnel (QR) management |
 
 ## Motion tab

@@ -38,6 +38,14 @@ Deferred reply loop keys (all optional — old config.ini files keep working):
 - `request_timeout` (default `120`) — LLM HTTP request timeout in seconds.
 - `deferred_loop_enabled` (default `True`) — master switch; `false` = legacy blocking behavior for one release (see [Voice Pipeline](voice-pipeline.md)).
 
+### `[STANDARD_SKILLS]` — the Agent Skills pool
+
+`enabled` (default `True`, master switch), `body_char_limit` (default `4000`, how much of a skill body `load_skill` returns), `prompt_budget_chars` (default `3000`, the agent-skills prompt block budget — overflow drops entries alphabetically and logs each drop). Per-skill config values persist under `[SKILL_STD:<name>]` sections.
+
+### `[MCP]` — the MCP client
+
+`enabled` (default `True`), `prompt_budget_chars` (default `4000`, the MCP tools prompt block budget), `request_timeout` (default `30` s per JSON-RPC request), `health_interval_s` (default `60`, periodic ping; `0` disables), `restart_max_attempts` (default `3` consecutive failures before a server is degraded). See [MCP](mcp.md).
+
 ### `[STT]` — wake word + speech-to-text
 `language`, `wake_word` (2–3 syllables works best), `wake_word_processor` (`sherpa-onnx | atomik | fastrtc` on Pi5), `atomik_mode` (`auto | model | template`), `sensitivity` (**1–10: 1 = strict, 10 = lenient** — corrected in this fork; see [Voice Pipeline](voice-pipeline.md)), wake gates (`vad_transcript_verify`, `vad_speaker_verify`, `vad_presence_gate`), `stt_processor` (`sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`), `external_url`, `elevenlabs_stt_model` (`scribe_v2`), `vad_method` (`smart-turn | sherpa-onnx | silero | rms`), `use_indicators` (beeps), `enable_bargein` / `bargein_mode` (`fuzzy | voiceprint`) / `bargein_sensitivity`, `speechdelay` (tenths of a second), `speaker_id_enabled` / `speaker_id_threshold`, `mic_amp_gain`, `silence_margin`, `sherpa_onnx_denoise`, `sherpa_onnx_punctuation`.
 
