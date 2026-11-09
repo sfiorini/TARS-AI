@@ -106,6 +106,14 @@ def _fake_config(**overrides):
     return {"TTS": types.SimpleNamespace(**cfg)}
 
 
+def _legacy_config(**overrides):
+    """Config pinned to the legacy /v1/audio/speech path (speechify_stream=False)
+    so the rollback contract keeps its own coverage after streaming became the
+    default."""
+    overrides.setdefault("speechify_stream", False)
+    return _fake_config(**overrides)
+
+
 def _collect(agen):
     """Drive an async generator to completion; return (chunks, exception)."""
     async def run():
@@ -153,7 +161,7 @@ def _run(text="Hello there.", env_key=ENV_KEY, responses=None, exc=None,
 
 class TestSpeechifySuccess(unittest.TestCase):
     def test_success_decodes_base64_audio_into_bytesio_chunk(self):
-        chunks, exc, post, _, _ = _run()
+        chunks, exc, post, _, _ = _run(config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 1)
         self.assertIsInstance(chunks[0], io.BytesIO)
@@ -161,7 +169,7 @@ class TestSpeechifySuccess(unittest.TestCase):
         post.assert_called_once()
 
     def test_request_shape_url_headers_body_timeout(self):
-        _, exc, post, _, _ = _run(text="Hello there.")
+        _, exc, post, _, _ = _run(text="Hello there.", config=_legacy_config())
         self.assertIsNone(exc)
         args, kwargs = post.call_args
         self.assertEqual(args[0], SPEECHIFY_URL)
@@ -176,39 +184,40 @@ class TestSpeechifySuccess(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 30.0)
 
     def test_voice_id_from_config_at_call_time(self):
-        cfg = _fake_config(speechify_voice_id="henry")
+        cfg = _legacy_config(speechify_voice_id="henry")
         _, exc, post, _, _ = _run(config=cfg)
         self.assertIsNone(exc)
         self.assertEqual(post.call_args.kwargs["json"]["voice_id"], "henry")
 
     def test_model_from_config_at_call_time(self):
-        cfg = _fake_config(speechify_model="simba-3.5-turbo")
+        cfg = _legacy_config(speechify_model="simba-3.5-turbo")
         _, exc, post, _, _ = _run(config=cfg)
         self.assertIsNone(exc)
         self.assertEqual(post.call_args.kwargs["json"]["model"], "simba-3.5-turbo")
 
     def test_model_default_when_config_key_missing(self):
-        cfg = _fake_config()
+        cfg = _legacy_config()
         del cfg["TTS"].speechify_model  # config has no model -> default pinned
         _, exc, post, _, _ = _run(config=cfg)
         self.assertIsNone(exc)
         self.assertEqual(post.call_args.kwargs["json"]["model"], "simba-3.5")
 
     def test_explicit_voice_id_and_model_arguments_override_config(self):
-        _, exc, post, _, _ = _run(voice_id="cliff", model="simba-v1")
+        _, exc, post, _, _ = _run(voice_id="cliff", model="simba-v1",
+                                  config=_legacy_config())
         self.assertIsNone(exc)
         body = post.call_args.kwargs["json"]
         self.assertEqual(body["voice_id"], "cliff")
         self.assertEqual(body["model"], "simba-v1")
 
     def test_timeout_from_config_at_call_time(self):
-        cfg = _fake_config(tts_timeout=7.5)
+        cfg = _legacy_config(tts_timeout=7.5)
         _, exc, post, _, _ = _run(config=cfg)
         self.assertIsNone(exc)
         self.assertEqual(post.call_args.kwargs["timeout"], 7.5)
 
     def test_explicit_timeout_argument_overrides_config(self):
-        _, exc, post, _, _ = _run(config=_fake_config(tts_timeout=7.5), timeout=3.0)
+        _, exc, post, _, _ = _run(config=_legacy_config(tts_timeout=7.5), timeout=3.0)
         self.assertIsNone(exc)
         self.assertEqual(post.call_args.kwargs["timeout"], 3.0)
 
@@ -217,7 +226,7 @@ class TestSpeechifySuccess(unittest.TestCase):
         # force two separate requests/chunks.
         s1 = "This is the first long sentence that TARS needs to speak out loud today."
         s2 = "And here is the second long sentence which will not fit into the first chunk."
-        chunks, exc, post, _, _ = _run(text=f"{s1} {s2}")
+        chunks, exc, post, _, _ = _run(text=f"{s1} {s2}", config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 2)
         self.assertEqual(post.call_count, 2)
@@ -228,14 +237,16 @@ class TestSpeechifySuccess(unittest.TestCase):
     def test_base64_with_whitespace_still_decodes(self):
         b64 = base64.b64encode(WAV_BYTES).decode("ascii")
         spaced = b64[:4] + "\n" + b64[4:]
-        chunks, exc, post, _, _ = _run(responses=[_ok_response(audio_b64=spaced)])
+        chunks, exc, post, _, _ = _run(responses=[_ok_response(audio_b64=spaced)],
+                                      config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].read(), WAV_BYTES)
         post.assert_called_once()
 
     def test_200_without_audio_data_yields_no_chunk_no_exception(self):
-        chunks, exc, post, qmsg, _ = _run(responses=[_FakeResponse(200, payload={})])
+        chunks, exc, post, qmsg, _ = _run(responses=[_FakeResponse(200, payload={})],
+                                          config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
         post.assert_called_once()
@@ -243,13 +254,16 @@ class TestSpeechifySuccess(unittest.TestCase):
         self.assertTrue(any("audio_data" in str(c.args[0]) for c in warnings))
 
     def test_200_with_empty_audio_data_yields_no_chunk(self):
-        chunks, exc, post, qmsg, _ = _run(responses=[_ok_response(audio_b64="")])
+        chunks, exc, post, qmsg, _ = _run(responses=[_ok_response(audio_b64="")],
+                                        config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
         post.assert_called_once()
 
     def test_200_with_invalid_base64_yields_no_chunk_no_exception(self):
-        chunks, exc, post, qmsg, _ = _run(responses=[_ok_response(audio_b64="!!!not-base64!!!")])
+        chunks, exc, post, qmsg, _ = _run(
+            responses=[_ok_response(audio_b64="!!!not-base64!!!")],
+            config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
         post.assert_called_once()
@@ -257,7 +271,9 @@ class TestSpeechifySuccess(unittest.TestCase):
         self.assertTrue(warnings)
 
     def test_200_with_non_json_body_yields_no_chunk(self):
-        chunks, exc, post, _, _ = _run(responses=[_FakeResponse(200, payload=None, text="ok")])
+        chunks, exc, post, _, _ = _run(
+            responses=[_FakeResponse(200, payload=None, text="ok")],
+            config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
         post.assert_called_once()
@@ -268,7 +284,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
         for code in QUOTA_CODES:
             with self.subTest(code=code):
                 responses = [_err_response(402, code, f"quota via {code}")]
-                chunks, exc, post, _, backoff = _run(responses=responses)
+                chunks, exc, post, _, backoff = _run(responses=responses,
+                                                    config=_legacy_config())
                 self.assertEqual(chunks, [])
                 self.assertIsInstance(exc, module_speechify.QuotaExhausted)
                 self.assertIn(code, str(exc))
@@ -280,14 +297,15 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
         # Classification branches on error.code, not only on the status:
         # spend_cap_exceeded at a non-402 status is still QuotaExhausted.
         responses = [_err_response(400, "spend_cap_exceeded", "cap hit")]
-        chunks, exc, post, _, backoff = _run(responses=responses)
+        chunks, exc, post, _, backoff = _run(responses=responses,
+                                            config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.QuotaExhausted)
         post.assert_called_once()
         backoff.assert_not_awaited()
 
     def test_402_without_code_still_quota_exhausted(self):
         responses = [_FakeResponse(402, payload={"message": "no credit"})]
-        _, exc, post, _, _ = _run(responses=responses)
+        _, exc, post, _, _ = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.QuotaExhausted)
         self.assertEqual(exc.status_code, 402)
         post.assert_called_once()
@@ -299,7 +317,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
                     _err_response(429, code, "slow down", headers={"Retry-After": "2"}),
                     _err_response(429, code, "slow down", headers={"Retry-After": "2"}),
                 ]
-                chunks, exc, post, _, backoff = _run(responses=responses)
+                chunks, exc, post, _, backoff = _run(responses=responses,
+                                                    config=_legacy_config())
                 self.assertEqual(chunks, [])
                 self.assertIsInstance(exc, module_speechify.RateLimited)
                 self.assertEqual(exc.status_code, 429)
@@ -309,7 +328,7 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
 
     def test_429_without_code_is_rate_limited(self):
         responses = [_FakeResponse(429, payload={"message": "too many"}) for _ in range(5)]
-        _, exc, post, _, backoff = _run(responses=responses)
+        _, exc, post, _, backoff = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.RateLimited)
         self.assertEqual(post.call_count, 2)
         backoff.assert_awaited_once()  # no Retry-After -> default backoff
@@ -319,7 +338,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
             _err_response(429, "rate_limited", "slow down", headers={"Retry-After": "1"}),
             _ok_response(audio_b64=base64.b64encode(b"RIFF-after-retry").decode("ascii")),
         ]
-        chunks, exc, post, _, backoff = _run(responses=responses)
+        chunks, exc, post, _, backoff = _run(responses=responses,
+                                            config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].read(), b"RIFF-after-retry")
@@ -331,20 +351,21 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
             _err_response(429, "rate_limited", "slow down", headers={"Retry-After": "3600"}),
             _err_response(429, "rate_limited", "slow down", headers={"Retry-After": "3600"}),
         ]
-        _, exc, _, _, backoff = _run(responses=responses)
+        _, exc, _, _, backoff = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.RateLimited)
         # A huge Retry-After must not hang the chain: capped at the max.
         self.assertEqual(backoff.await_args.args[0], module_speechify._MAX_RETRY_AFTER_SECONDS)
 
     def test_retry_does_not_loop_forever_on_persistent_429(self):
         responses = [_err_response(429, "rate_limited", "slow down") for _ in range(10)]
-        _, exc, post, _, _ = _run(responses=responses)
+        _, exc, post, _, _ = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.RateLimited)
         self.assertEqual(post.call_count, 2)
 
     def test_401_raises_auth_failed_without_retry(self):
         responses = [_err_response(401, "unauthorized", "invalid api key")]
-        chunks, exc, post, _, backoff = _run(responses=responses)
+        chunks, exc, post, _, backoff = _run(responses=responses,
+                                            config=_legacy_config())
         self.assertEqual(chunks, [])
         self.assertIsInstance(exc, module_speechify.AuthFailed)
         self.assertEqual(exc.status_code, 401)
@@ -353,7 +374,7 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
 
     def test_401_without_code_still_auth_failed(self):
         responses = [_FakeResponse(401, text="unauthorized")]
-        _, exc, post, _, backoff = _run(responses=responses)
+        _, exc, post, _, backoff = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.AuthFailed)
         self.assertIn("unauthorized", str(exc))
         post.assert_called_once()
@@ -363,7 +384,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
         for status in (400, 403):
             with self.subTest(status=status):
                 responses = [_FakeResponse(status, payload={"error": {"code": "bad", "message": "nope"}})]
-                _, exc, post, _, backoff = _run(responses=responses)
+                _, exc, post, _, backoff = _run(responses=responses,
+                                                config=_legacy_config())
                 self.assertIsInstance(exc, module_speechify.AuthFailed)
                 self.assertEqual(exc.status_code, status)
                 post.assert_called_once()
@@ -376,7 +398,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
             _FakeResponse(408, payload={"error": {"code": "request_timeout", "message": "too slow"}}),
             _FakeResponse(408, payload={"error": {"code": "request_timeout", "message": "too slow"}}),
         ]
-        chunks, exc, post, _, backoff = _run(responses=responses)
+        chunks, exc, post, _, backoff = _run(responses=responses,
+                                            config=_legacy_config())
         self.assertEqual(chunks, [])
         self.assertIsInstance(exc, module_speechify.TransientError)
         self.assertEqual(exc.status_code, 408)
@@ -385,14 +408,14 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
 
     def test_408_without_error_code_retried_once_then_transient(self):
         responses = [_FakeResponse(408, text="request timeout")] * 2
-        _, exc, post, _, backoff = _run(responses=responses)
+        _, exc, post, _, backoff = _run(responses=responses, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.TransientError)
         self.assertEqual(post.call_count, 2)
         backoff.assert_awaited_once()
 
     def test_timeout_retried_once_then_transient(self):
         exc_in = module_speechify.requests.exceptions.Timeout("timed out")
-        chunks, exc, post, _, backoff = _run(exc=exc_in)
+        chunks, exc, post, _, backoff = _run(exc=exc_in, config=_legacy_config())
         self.assertEqual(chunks, [])
         self.assertIsInstance(exc, module_speechify.TransientError)
         self.assertEqual(post.call_count, 2)
@@ -400,7 +423,7 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
 
     def test_connection_error_retried_once_then_transient(self):
         exc_in = module_speechify.requests.exceptions.ConnectionError("boom")
-        _, exc, post, _, backoff = _run(exc=exc_in)
+        _, exc, post, _, backoff = _run(exc=exc_in, config=_legacy_config())
         self.assertIsInstance(exc, module_speechify.TransientError)
         self.assertEqual(post.call_count, 2)
         backoff.assert_awaited_once()
@@ -410,7 +433,8 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
             _FakeResponse(500, text="internal error"),
             _FakeResponse(503, text="unavailable"),
         ]
-        chunks, exc, post, _, backoff = _run(responses=responses)
+        chunks, exc, post, _, backoff = _run(responses=responses,
+                                            config=_legacy_config())
         self.assertEqual(chunks, [])
         self.assertIsInstance(exc, module_speechify.TransientError)
         self.assertEqual(post.call_count, 2)
@@ -418,14 +442,14 @@ class TestSpeechifyErrorCodes(unittest.TestCase):
 
     def test_5xx_then_success_yields_chunk(self):
         responses = [_FakeResponse(503, text="unavailable"), _ok_response()]
-        chunks, exc, post, _, _ = _run(responses=responses)
+        chunks, exc, post, _, _ = _run(responses=responses, config=_legacy_config())
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(post.call_count, 2)
 
     def test_error_message_never_contains_api_key(self):
         responses = [_err_response(402, "payment_required", "no credit")]
-        _, exc, post, qmsg, _ = _run(responses=responses)
+        _, exc, post, qmsg, _ = _run(responses=responses, config=_legacy_config())
         self.assertIsNotNone(exc)
         # The key must never leak into exceptions or log messages...
         self.assertNotIn(ENV_KEY, str(exc))
@@ -555,6 +579,99 @@ class TestSpeechifyStreamPreStreamErrors(unittest.TestCase):
         self.assertEqual(args[0], "https://api.speechify.ai/v1/audio/stream")
         self.assertIs(kwargs.get("stream"), True)
         self.assertEqual(kwargs["json"]["output_format"], "pcm_24000")
+
+
+class TestSpeechifyStreamingSuccess(unittest.TestCase):
+    """S-M3-07: the stream phase yields rate-derived ~1 s WAV slices.
+
+    Driven through the public function (streaming default), so these stay
+    red until the S-M3-08 dispatch lands — per the plan they land together.
+    """
+
+    def test_slice_math_and_wav_validity_at_24000(self):
+        # 4 x 16384 B = 65536 B -> one 48000-B slice + 17536-B remainder = 2 chunks
+        resp = _StreamResp([b"\x11\x22" * 8192] * 4)
+        chunks, exc, post, _, _ = _run(responses=[resp])
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 2)
+        import wave as wavemod
+        with wavemod.open(chunks[0]) as w:
+            self.assertEqual((w.getframerate(), w.getnchannels(), w.getsampwidth()),
+                             (24000, 1, 2))
+        self.assertEqual(chunks[0].getbuffer().nbytes, 44 + 48000)
+        self.assertEqual(resp.chunk_sizes, [16384])
+        post.assert_called_once()
+
+    def test_pcm_44100_slices_at_88200(self):
+        resp = _StreamResp([b"\x11\x22" * 8192] * 6)   # 98304 B -> 88200 + 10104
+        chunks, exc, post, _, _ = _run(
+            config=_fake_config(speechify_output_format="pcm_44100"), responses=[resp])
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 2)
+        import wave as wavemod
+        with wavemod.open(chunks[0]) as w:
+            self.assertEqual(w.getframerate(), 44100)
+        post.assert_called_once()
+
+    def test_odd_tail_truncated_to_even(self):
+        resp = _StreamResp([b"\x11\x22" * 3 + b"\x11"])   # 7 B -> 6-B tail
+        chunks, exc, post, _, _ = _run(responses=[resp])
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 1)
+        import wave as wavemod
+        with wavemod.open(chunks[0]) as w:
+            self.assertEqual(w.getnframes(), 3)
+        post.assert_called_once()
+
+
+class TestSpeechifyStreamDispatch(unittest.TestCase):
+    """S-M3-08: streaming default dispatch + explicit-False legacy rollback."""
+
+    def test_one_post_per_utterance_with_whole_text_and_output_format(self):
+        resp = _StreamResp([b"\x11\x22" * 24000])   # exactly one 48000-B slice
+        chunks, exc, post, _, _ = _run(text="First sentence here. Second one too.",
+                                       responses=[resp])
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 1)
+        post.assert_called_once()   # NOT one call per sentence
+        args, kwargs = post.call_args
+        self.assertEqual(args[0], "https://api.speechify.ai/v1/audio/stream")
+        self.assertEqual(kwargs["json"]["input"], "First sentence here. Second one too.")
+        self.assertEqual(kwargs["json"]["output_format"], "pcm_24000")
+        self.assertNotIn("audio_format", kwargs["json"])
+        self.assertIs(kwargs.get("stream"), True)
+        self.assertEqual(kwargs["timeout"], 30.0)
+
+    def test_invalid_format_warns_and_falls_back(self):
+        for bad in ("mp3_24000_64", ""):
+            with self.subTest(bad=bad):
+                resp = _StreamResp([b"\x11\x22" * 24000])
+                chunks, exc, post, qmsg, _ = _run(
+                    config=_fake_config(speechify_output_format=bad), responses=[resp])
+                self.assertIsNone(exc)
+                self.assertEqual(len(chunks), 1)
+                self.assertEqual(post.call_args.kwargs["json"]["output_format"], "pcm_24000")
+                self.assertTrue(any("speechify_output_format" in str(c.args[0])
+                                    for c in qmsg.call_args_list))
+
+    def test_explicit_false_bool_selects_legacy_path(self):
+        s1 = "This is the first long sentence that TARS needs to speak out loud today."
+        s2 = "And here is the second long sentence which will not fit into the first chunk."
+        chunks, exc, post, _, _ = _run(text=f"{s1} {s2}",
+                                      config=_fake_config(speechify_stream=False))
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 2)
+        self.assertEqual(post.call_count, 2)
+        self.assertEqual(post.call_args.args[0], SPEECHIFY_URL)
+        for call in post.call_args_list:
+            self.assertEqual(call.kwargs["json"]["audio_format"], "wav")
+            self.assertNotIn("output_format", call.kwargs["json"])
+
+    def test_explicit_false_string_selects_legacy_path(self):
+        chunks, exc, post, _, _ = _run(config=_fake_config(speechify_stream="False"))
+        self.assertIsNone(exc)
+        self.assertEqual(post.call_count, 1)
+        self.assertEqual(post.call_args.args[0], SPEECHIFY_URL)
 
 
 class TestResolveOutputFormat(unittest.TestCase):

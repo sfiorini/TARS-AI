@@ -393,6 +393,35 @@ async def text_to_speech_with_speechify(text, voice_id=None, model=None,
         timeout = float(DEFAULT_TTS_TIMEOUT)
 
     headers = {"Authorization": f"Bearer {api_key}"}
+
+    # _cfg is None-safe, so an explicit speechify_stream=False survives here.
+    # NEVER write `_cfg("speechify_stream", True) or True` (the falsy trap).
+    stream = str(_cfg("speechify_stream", True)).strip().lower() in ("1", "true", "yes", "on")
+    fmt_raw = _cfg("speechify_output_format", DEFAULT_SPEECHIFY_OUTPUT_FORMAT)
+    resolved = _resolve_output_format(fmt_raw)
+    if resolved is None:
+        queue_message(f"WARNING: speechify_output_format {fmt_raw!r} is not a pcm_<rate> "
+                      f"format — falling back to {DEFAULT_SPEECHIFY_OUTPUT_FORMAT}")
+        resolved = _resolve_output_format(DEFAULT_SPEECHIFY_OUTPUT_FORMAT)
+    fmt, _fmt_rate = resolved
+
+    if stream:
+        stream_text = str(text)[:_MAX_STREAM_INPUT_CHARS]
+        if len(str(text)) > _MAX_STREAM_INPUT_CHARS:
+            queue_message(f"WARNING: Speechify stream input truncated to "
+                         f"{_MAX_STREAM_INPUT_CHARS} chars")
+        payload = {
+            "input": stream_text,
+            "voice_id": voice_id,
+            "model": model,
+            "output_format": fmt,   # ALWAYS explicit; never send "audio_format" here
+        }
+        async for buffer in _synthesize_streaming(stream_text, headers, payload, timeout):
+            yield buffer
+        return
+
+    # Legacy rollback path (speechify_stream = False): byte-for-byte the old
+    # per-sentence /v1/audio/speech behavior.
     body = {
         "voice_id": voice_id,
         "audio_format": "wav",
