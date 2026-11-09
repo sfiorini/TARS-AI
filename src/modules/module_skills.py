@@ -396,6 +396,39 @@ class SkillManager:
             })
         return result
 
+    def iter_descriptors(self):
+        """Yield a ToolDescriptor per enabled skill (builtin pool, S-M3-02)."""
+        from modules.module_toolregistry import ToolDescriptor, ToolResult
+        for name in sorted(self._skill_meta.keys(), key=self._get_sort_key):
+            if name in self._disabled:
+                continue
+            meta = self._skill_meta[name]
+
+            def _make_exec(n, meta):
+                def _exec(params, ctx):
+                    # Hallucination guard (moved from execute_function_call,
+                    # module_llm.py:769-776): empty params on a skill that
+                    # declares required_params -> skip, never execute.
+                    if meta.get("required_params") and not params:
+                        queue_message(
+                            f"DEBUG: Skipping {n} — empty params but "
+                            f"requires {meta['required_params']}")
+                        return ToolResult(content="", is_error=False)
+                    result = self.execute(n, params, dict(ctx.__dict__))
+                    return ToolResult(content=result or "")
+                return _exec
+
+            yield ToolDescriptor(
+                name=name, kind="builtin",
+                description=meta.get("description", ""),
+                parameters={
+                    "properties": {k: {"type": "string"}
+                                  for k in meta.get("required_params", [])},
+                    "required": list(meta.get("required_params", [])),
+                },
+                result_bearing=bool(meta.get("followup", False)),
+                timeout_s=60.0, execute=_make_exec(name, meta))
+
     def reload_config(self):
         """Reload config from disk. Call after external changes."""
         self._load_config()

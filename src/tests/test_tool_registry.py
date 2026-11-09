@@ -128,5 +128,122 @@ class TestRegistryCore(unittest.TestCase):
         self.assertIsNot(get_registry(), first)
 
 
+STUB_SKILL_SOURCE = '''
+recorder = []
+
+
+def execute(params, context):
+    recorder.append(params)
+    return "done"
+
+
+SKILL = {
+    "name": "stub_search",
+    "required_params": ["query"],
+    "description": "stub",
+    "prompt": "stub",
+}
+'''
+
+
+class _StubSkillsDirTestCase(unittest.TestCase):
+    """A tmp skills dir with one stub skill, isolated from the real
+    `skills` package in sys.modules."""
+
+    def setUp(self):
+        super().setUp()
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.skills_dir = os.path.join(self.tmp, "skills")
+        os.makedirs(self.skills_dir)
+        # a regular package wins the sys.path scan over the real src/skills
+        with open(os.path.join(self.skills_dir, "__init__.py"), "w"):
+            pass
+        with open(os.path.join(self.skills_dir,
+                               "skill_stub_search.py"), "w") as fh:
+            fh.write(STUB_SKILL_SOURCE)
+        self._saved_skills = sys.modules.get("skills")
+        self._saved_children = {n: m for n, m in sys.modules.items()
+                                if n.startswith("skills.")}
+        sys.modules.pop("skills", None)
+        for n in list(self._saved_children):
+            del sys.modules[n]
+        sys.path.insert(0, self.tmp)
+        self.addCleanup(self._restore_skills_package)
+
+    def _restore_skills_package(self):
+        if self.tmp in sys.path:
+            sys.path.remove(self.tmp)
+        for n in [n for n in sys.modules if n.startswith("skills")]:
+            del sys.modules[n]
+        if self._saved_skills is not None:
+            sys.modules["skills"] = self._saved_skills
+        for n, m in self._saved_children.items():
+            sys.modules[n] = m
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+class TestBuiltinAdapter(unittest.TestCase):
+    """SkillManager.iter_descriptors() — the builtin pool adapter (S-M3-02)."""
+
+    @staticmethod
+    def _real_manager():
+        from modules.module_skills import SkillManager
+        manager = SkillManager()
+        manager.discover()  # the real src/skills
+        return manager
+
+    def test_builtin_descriptors_wrap_skills(self):
+        manager = self._real_manager()
+        manager._disabled.clear()  # every loaded skill yields a descriptor
+        descriptors = list(manager.iter_descriptors())
+        self.assertEqual(len(descriptors), len(manager._skills))
+        by_name = {d.name: d for d in descriptors}
+        self.assertIn("execute_movement", by_name)
+        self.assertIn("web_search", by_name)
+        self.assertEqual(by_name["execute_movement"].kind, "builtin")
+        # D2 rule: followup -> result_bearing
+        self.assertFalse(by_name["execute_movement"].result_bearing)
+        self.assertTrue(by_name["web_search"].result_bearing)
+        # parameters built from required_params
+        self.assertEqual(by_name["web_search"].parameters["required"],
+                         ["query"])
+        self.assertEqual(
+            by_name["web_search"].parameters["properties"],
+            {"query": {"type": "string"}})
+
+    def test_disabled_skills_yield_no_descriptor(self):
+        manager = self._real_manager()
+        manager._disabled.add("web_search")
+        names = [d.name for d in manager.iter_descriptors()]
+        self.assertNotIn("web_search", names)
+        self.assertIn("execute_movement", names)  # enabled ones still yield
+
+
+class TestRequiredParamsGuard(_StubSkillsDirTestCase):
+    """The hallucination guard lives in the builtin adapter (S-M3-02):
+    empty params on a skill declaring required_params must skip — the
+    skill's execute must NEVER run."""
+
+    def test_required_params_guard_skips_empty_params(self):
+        from modules.module_skills import SkillManager
+        manager = SkillManager()
+        manager.discover(self.skills_dir)
+        descriptors = {d.name: d for d in manager.iter_descriptors()}
+        self.assertIn("stub_search", descriptors)
+        stub_module = manager._skills["stub_search"]
+
+        result = descriptors["stub_search"].execute({}, ToolContext())
+        self.assertEqual(result.content, "")
+        self.assertFalse(result.is_error)
+        self.assertEqual(stub_module.recorder, [],
+                         "skills.execute must never run on empty params")
+
+        result = descriptors["stub_search"].execute({"query": "x"},
+                                                     ToolContext())
+        self.assertEqual(result.content, "done")
+        self.assertEqual(stub_module.recorder, [{"query": "x"}])
+
+
 if __name__ == "__main__":
     unittest.main()
