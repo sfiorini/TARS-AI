@@ -47,13 +47,21 @@ def _fake_module(name, **attrs):
     return mod
 
 
+class _SynthesisConfig:
+    """Stub for piper-tts >= 1.3 SynthesisConfig (records the speaker_id)."""
+    def __init__(self, speaker_id=None):
+        self.speaker_id = speaker_id
+
+
 # module_piper imports sounddevice / soundfile / piper and loads libasound at
 # import time — none of which exist on a CI runner or a dev laptop. Stub them
 # and patch load_config so no voice model is loaded/downloaded at import.
+# The stub piper package MUST carry SynthesisConfig: _iter_pcm_chunks imports
+# it lazily at synthesis time.
 _STUBS = {
     "sounddevice": _fake_module("sounddevice"),
     "soundfile": _fake_module("soundfile"),
-    "piper": _fake_module("piper"),
+    "piper": _fake_module("piper", SynthesisConfig=_SynthesisConfig),
     "piper.voice": _fake_module("piper.voice", PiperVoice=mock.MagicMock()),
 }
 _STUBS["piper"].voice = _STUBS["piper.voice"]
@@ -77,9 +85,18 @@ with mock.patch.dict(sys.modules, _STUBS), \
     from modules import module_piper  # noqa: E402
 
 
+def setUpModule():
+    # _iter_pcm_chunks imports SynthesisConfig from piper DEFERRED, i.e. at
+    # synthesis/test time — long after the import-time patch.dict above has
+    # exited and removed the stubs. Re-install them for this file's tests.
+    sys.modules.update(_STUBS)
+
+
 def tearDownModule():
     # Do not leak the stub-imported module into other test files.
     sys.modules.pop("modules.module_piper", None)
+    for _name in _STUBS:
+        sys.modules.pop(_name, None)
 
 
 def _tts_cfg(**overrides):
@@ -104,13 +121,29 @@ def _fake_voice():
     return voice
 
 
+def _stream_voice(pcm=b"\x11\x22" * 64, n=1, sample_rate=22050, record=None):
+    voice = types.SimpleNamespace()
+    voice.config = types.SimpleNamespace(sample_rate=sample_rate)
+    def synthesize(text, syn_config=None):
+        if record is not None:
+            record["text"] = text
+            record["syn_config"] = syn_config
+        for _ in range(n):
+            yield types.SimpleNamespace(audio_int16_bytes=pcm)
+    voice.synthesize = synthesize
+    return voice
+
+
 def _collect(agen):
+    """Drive an async generator to completion; return (chunks, exception)."""
     async def _run():
         out = []
-        async for chunk in agen:
-            out.append(chunk.getvalue() if hasattr(chunk, "getvalue") else chunk)
-        return out
-
+        try:
+            async for chunk in agen:
+                out.append(chunk)
+            return out, None
+        except Exception as exc:
+            return out, exc
     return asyncio.run(_run())
 
 
@@ -315,25 +348,27 @@ class TestApplyPiperFx(unittest.TestCase):
 
 class TestPiperPipelineAppliesFx(unittest.TestCase):
     def test_fx_disabled_yields_raw_wav(self):
-        with mock.patch.object(module_piper, "voice", _fake_voice()), \
+        with mock.patch.object(module_piper, "voice", _stream_voice()), \
              mock.patch.object(module_piper, "CONFIG", _tts_cfg(piper_robot_fx=False)), \
              mock.patch.object(module_piper.subprocess, "Popen") as popen, \
              mock.patch.object(module_piper, "queue_message"):
-            chunks = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello there"))
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello there"))
+        self.assertIsNone(raised)
         self.assertEqual(len(chunks), 1)
-        self.assertTrue(chunks[0].startswith(b"RIFF"))
+        self.assertTrue(chunks[0].getvalue().startswith(b"RIFF"))
         popen.assert_not_called()
 
     def test_fx_enabled_yields_sox_processed_audio(self):
         popen, _ = _sox_popen(returncode=0, out=b"PROCESSED-WAV")
-        with mock.patch.object(module_piper, "voice", _fake_voice()), \
+        with mock.patch.object(module_piper, "voice", _stream_voice()), \
              mock.patch.object(module_piper, "CONFIG",
                                _tts_cfg(piper_robot_fx=True, piper_fx=DEFAULT_FX)), \
              mock.patch.object(module_piper.shutil, "which", return_value="/usr/bin/sox"), \
              mock.patch.object(module_piper.subprocess, "Popen", popen), \
              mock.patch.object(module_piper, "queue_message"):
-            chunks = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello there"))
-        self.assertEqual(chunks, [b"PROCESSED-WAV"])
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello there"))
+        self.assertIsNone(raised)
+        self.assertEqual([c.getvalue() for c in chunks], [b"PROCESSED-WAV"])
         popen.assert_called_once()
         # sox received the raw piper wav on stdin
         self.assertTrue(popen.return_value.communicate.call_args.kwargs["input"].startswith(b"RIFF"))
@@ -342,9 +377,21 @@ class TestPiperPipelineAppliesFx(unittest.TestCase):
         with mock.patch.object(module_piper, "voice", None), \
              mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
              mock.patch.object(module_piper, "queue_message") as qmsg:
-            chunks = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
+        self.assertIsNone(raised)
         self.assertEqual(chunks, [])
         self.assertTrue(qmsg.called)
+
+    def test_synthesize_wav_only_voice_fails_over_cleanly(self):
+        # A voice exposing only synthesize_wav (piper 1.0-era) has neither
+        # synthesize nor synthesize_stream_raw -> AttributeError BEFORE the
+        # first chunk -> the chain's bare-Exception failover handles it.
+        with mock.patch.object(module_piper, "voice", _fake_voice()), \
+             mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
+             mock.patch.object(module_piper, "queue_message"):
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
+        self.assertEqual(chunks, [])
+        self.assertIsInstance(raised, AttributeError)
 
 
 class TestRobotVoiceOpsFiles(unittest.TestCase):

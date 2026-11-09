@@ -1,9 +1,31 @@
+"""
+module_piper.py
+
+Piper TTS provider for TARS-AI (local, offline).
+
+Streaming (D5): text_to_speech_with_pipelining_piper yields one WAV chunk per
+sentence — Piper's native per-sentence iterator (piper-tts >= 1.3, incl. the
+robot's 1.8.0, uses voice.synthesize(text, syn_config=SynthesisConfig(...));
+piper-tts 1.2.x uses synthesize_stream_raw()). Each chunk is WAV-wrapped at
+the voice's native rate (22050 Hz mono 16-bit for TARS.onnx) and optionally
+piped through the sox robot-FX chain ([TTS] piper_robot_fx / piper_fx).
+ONNX inference AND the sox subprocess run in a worker thread
+(asyncio.to_thread) — never on the asyncio event loop — so STT, barge-in and
+the web UI stay responsive during synthesis.
+
+BEHAVIOUR CHANGE (D6, speaker IDs): the speaker is now passed as
+SynthesisConfig(speaker_id=...) instead of a dead voice.config.speaker_id
+assignment that no piper-tts version read (multispeaker voices silently used
+speaker 0 = "anger"). piper_speaker_<emotion> actually takes effect.
+Escape hatch: set piper_multispeaker = False, or set the piper_speaker_*
+ids back to 0 to reproduce the old (accidental) sound.
+"""
 import sounddevice as sd
 import soundfile as sf
 from io import BytesIO
 from piper.voice import PiperVoice
+import asyncio
 import wave
-import re
 import os
 import ctypes
 import shlex
@@ -14,6 +36,7 @@ from urllib.request import urlretrieve
 # === Custom Modules ===
 from modules.module_config import load_config
 from modules.module_messageQue import queue_message
+from modules.module_fishaudio import _pcm_to_wav_buffer
 
 CONFIG = load_config()
 
@@ -140,6 +163,27 @@ def _get_piper_speaker_id(emotion):
             return None
 
 
+def _iter_pcm_chunks(voice_obj, text, speaker_id=None):
+    """Yield raw int16 mono PCM bytes, one chunk per sentence, at
+    voice.config.sample_rate (22050 for TARS.onnx). Version-adaptive:
+    piper-tts >= 1.3 (incl. the robot's 1.8.0) uses synthesize() with
+    SynthesisConfig; 1.2.x uses synthesize_stream_raw()."""
+    if hasattr(voice_obj, "synthesize"):
+        try:
+            from piper import SynthesisConfig          # piper-tts 1.8.0 package root
+        except ImportError:
+            from piper.config import SynthesisConfig   # alternate layout
+        cfg = SynthesisConfig(speaker_id=speaker_id)   # D6: fixes dead speaker_id
+        for chunk in voice_obj.synthesize(text, syn_config=cfg):
+            yield chunk.audio_int16_bytes
+    elif hasattr(voice_obj, "synthesize_stream_raw"):  # piper-tts 1.2.x
+        for raw in voice_obj.synthesize_stream_raw(text, speaker_id=speaker_id):
+            yield raw
+    else:
+        raise AttributeError(
+            "Loaded PiperVoice exposes neither synthesize() nor synthesize_stream_raw()")
+
+
 # Robot-voice sox recipe (user-auditioned chain C2 on the robot's speaker):
 # flanger + pitch down. Configurable via [TTS] piper_fx.
 DEFAULT_PIPER_FX = "pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
@@ -203,6 +247,30 @@ def _run_sox_chain(wav_bytes, fx_chain):
         return None
 
 
+def _resolve_fx_chain():
+    """The sox FX chain to apply, or None when FX is disabled.
+    An EMPTY piper_fx falls back to DEFAULT_PIPER_FX — unchanged semantics."""
+    if not piper_robot_fx_enabled():
+        return None
+    chain = (_tts_config_value('piper_fx', '') or DEFAULT_PIPER_FX).strip()
+    return chain or None
+
+
+def _wrap_and_apply_fx(pcm_bytes, sample_rate, fx_chain):
+    """BLOCKING: wrap PCM in a WAV header, then pipe through sox. Runs in a
+    worker thread. Any sox failure returns the unprocessed WAV — speech is
+    never lost."""
+    wav = _pcm_to_wav_buffer(pcm_bytes, sample_rate=sample_rate)
+    if not fx_chain:
+        return wav
+    processed = _run_sox_chain(wav.getvalue(), fx_chain)
+    if processed is None:
+        return wav
+    out = BytesIO(processed)
+    out.seek(0)
+    return out
+
+
 def apply_piper_fx(wav_buffer):
     """Apply the configured sox robot-FX chain to a synthesized wav buffer.
 
@@ -211,9 +279,7 @@ def apply_piper_fx(wav_buffer):
     returns the original buffer unchanged so speech is never lost.
     """
     try:
-        if not piper_robot_fx_enabled():
-            return wav_buffer
-        fx_chain = (_tts_config_value('piper_fx', '') or DEFAULT_PIPER_FX).strip()
+        fx_chain = _resolve_fx_chain()
         if not fx_chain:
             return wav_buffer
         processed = _run_sox_chain(wav_buffer.getvalue(), fx_chain)
@@ -227,58 +293,32 @@ def apply_piper_fx(wav_buffer):
         return wav_buffer
 
 
-async def synthesize(voice, chunk, speaker_id=None):
-    """
-    Synthesize a chunk of text into a BytesIO buffer.
-    """
-    wav_buffer = BytesIO()
-    with wave.open(wav_buffer, 'wb') as wav_file:
-        wav_file.setnchannels(1)  # Mono
-        wav_file.setsampwidth(2)  # 16-bit samples
-        wav_file.setframerate(voice.config.sample_rate)
-        try:
-            # Set speaker on the voice config for multispeaker models
-            if speaker_id is not None:
-                voice.config.speaker_id = speaker_id
-
-            # need both methods for compatibility
-            if hasattr(voice, "synthesize_wav"):
-                voice.synthesize_wav(chunk, wav_file)
-            elif hasattr(voice, "synthesize"):
-                voice.synthesize(chunk, wav_file)
-            else:
-                raise AttributeError("Neither synthesize_wav nor synthesize found in voice object")
-
-        except Exception as e:
-            queue_message(f"ERROR during synthesis: {e}")
-    wav_buffer.seek(0)
-    return wav_buffer
-
 async def text_to_speech_with_pipelining_piper(text, emotion=None):
-    """
-    Converts text to speech using the Piper model and streams audio as it's generated.
-    When piper_multispeaker is enabled, selects speaker based on detected emotion.
-    """
+    """Piper TTS: one WAV chunk per sentence, synthesized OFF the event loop."""
+    if not text or not str(text).strip():
+        return                                   # NEW guard: matches the other providers
     if not _ensure_voice_loaded():
         queue_message("[Piper] Cannot synthesize - voice model not loaded. Check logs for details.")
         return
 
     speaker_id = _get_piper_speaker_id(emotion)
-    queue_message(f"DEBUG: [Piper] emotion={emotion or 'none'}, speaker_id={speaker_id}, multispeaker={CONFIG['TTS']['piper_multispeaker']}")
+    queue_message(f"DEBUG: [Piper] emotion={emotion or 'none'}, speaker_id={speaker_id}, "
+                  f"multispeaker={_tts_config_value('piper_multispeaker')}")
 
-    # Split text into smaller chunks
-    # Split at sentence boundaries and commas for faster first-chunk playback
-    chunks = re.split(r'(?<=[.!?;])\s+|,\s+', text)
-
-    #chunks = [c.strip() for c in chunks if len(c.strip()) >= 3]
-    #fix for missing "hi" or "hey"
-    chunks = [c.strip() for c in chunks if c.strip()]
-    # If splitting produced nothing (e.g. short text like "Hi"), use original text
-    if not chunks and text.strip():
-        chunks = [text.strip()]
-
-    # Yield each audio chunk as soon as it's ready
-    for chunk in chunks:
-        if chunk.strip():  # Ignore empty chunks
-            wav_buffer = await synthesize(voice, chunk.strip(), speaker_id=speaker_id)
-            yield apply_piper_fx(wav_buffer)  # sox robot-FX post-processing when piper_robot_fx is enabled
+    fx_chain = _resolve_fx_chain()               # config read on the LOOP (cheap)
+    sample_rate = voice.config.sample_rate        # 22050 for TARS.onnx
+    it = _iter_pcm_chunks(voice, str(text), speaker_id=speaker_id)
+    sentinel = object()
+    try:
+        while True:
+            # ONNX inference for one sentence runs in a worker thread (D5)
+            pcm = await asyncio.to_thread(next, it, sentinel)
+            if pcm is sentinel:
+                break
+            if not pcm:
+                continue
+            # WAV-wrap + sox FX in the SAME worker thread (D5): neither the
+            # wave header write nor the sox subprocess may touch the loop.
+            yield await asyncio.to_thread(_wrap_and_apply_fx, pcm, sample_rate, fx_chain)
+    finally:
+        it.close()   # tolerate early aclose(): plain-generator close, no open resources

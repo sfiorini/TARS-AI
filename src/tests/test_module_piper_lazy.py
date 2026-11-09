@@ -11,7 +11,6 @@ don't exist on CI runners — stub them and patch load_config.
 """
 import asyncio
 import ctypes
-import io
 import os
 import sys
 import types
@@ -86,7 +85,8 @@ class TestPiperLazyLoad(unittest.TestCase):
         async def run():
             with mock.patch.object(mp.os.path, "isfile", return_value=True), \
                  mock.patch.object(mp, "_is_lfs_pointer", return_value=False), \
-                 mock.patch.object(mp, "synthesize", new=mock.AsyncMock(return_value=io.BytesIO(b"RIFFfake"))):
+                 mock.patch.object(mp, "_iter_pcm_chunks",
+                                   return_value=(b"\x11\x22" * 64 for _ in range(1))):
                 agen = mp.text_to_speech_with_pipelining_piper("Hello there.")
                 return [c async for c in agen]
         chunks = asyncio.run(run())
