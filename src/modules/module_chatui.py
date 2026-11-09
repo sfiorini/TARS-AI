@@ -2934,6 +2934,7 @@ def save_sequence():
 
     from modules.module_movementstore import get_movement_store
     store = get_movement_store()
+    existing = store.get(name)
     seq_type = data.get('type', 'legs_only')
     if seq_type == 'movement':
         # legacy builder value (the old type select no longer exists)
@@ -2943,7 +2944,9 @@ def save_sequence():
         "type": seq_type,
         "description": "Created in the web UI builder",
         "steps": data.get('steps', []),
-        "steps_arms": None,
+        # re-saving a has_arms movement from the builder must keep its
+        # arm choreography (review F4)
+        "steps_arms": existing.get("steps_arms") if existing is not None else None,
     }
     try:
         if store.get(name) is not None:

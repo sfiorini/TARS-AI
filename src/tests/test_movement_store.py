@@ -613,6 +613,16 @@ class TestThermalVentilateWiring(unittest.TestCase):
                           src)
 
 
+class TestBuilderPreservation(unittest.TestCase):
+    """Re-saving a has_arms movement from the builder must keep its
+    steps_arms (review F4: the hardcoded None wiped arm choreography)."""
+
+    def test_save_sequence_preserves_existing_steps_arms(self):
+        route = _route_source("save_sequence", _chatui_source())
+        self.assertIn('existing.get("steps_arms")', route)
+        self.assertNotIn('"steps_arms": None', route)
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 
