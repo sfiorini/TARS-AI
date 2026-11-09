@@ -909,16 +909,22 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         except Exception as write_err:
                             write_error = write_err
                         finally:
-                            # F8 (accepted residual): cleared when write() returns,
-                            # while the stream's ring buffer may still be draining
-                            # the slice tail — a brief window where is_tts_playing()
-                            # is False during audible output. Accepted: latency='low'
-                            # keeps the buffered tail tiny, and holding the flag
-                            # until full drain would block the between-chunk
-                            # barge-in window this path relies on.
-                            # Pinned by test_flag_cleared_when_write_returns_documented_residual
+                            # Keep the flag SET while more audio is queued. Streaming
+                            # providers yield ~1 s slices, so clearing per write
+                            # opened a barge-in window between slices; the barge-in
+                            # loop (module_stt) then collected the robot's own voice
+                            # and cancelled playback mid-sentence. Clear only once the
+                            # utterance's audio has actually drained.
+                            # Trade-off: mic-based barge-in is no longer available
+                            # mid-utterance while a stream is continuously fed — it
+                            # becomes available once audio drains. Wake-word
+                            # interruption uses a separate path (stop_tts_playback)
+                            # and is unaffected.
+                            # Pinned by test_flag_held_while_pending_cleared_when_drained_documented_residual
+                            # and test_flag_does_not_flicker_between_streamed_slices
                             # (src/tests/test_tts_playback_recovery.py).
-                            _tts_playing.clear()
+                            if audio_queue.empty() and synthesis_done.is_set():
+                                _tts_playing.clear()
                         if write_error is not None:
                             # The persistent stream is dead (e.g. wedged USB
                             # card) — abort it and fall through to the sd.play

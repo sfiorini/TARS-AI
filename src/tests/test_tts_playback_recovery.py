@@ -2,9 +2,10 @@
 
 Covers the audit findings (ai_plan/2026-11-07-code-docs-audit/plan.md):
   A1 — is_tts_playing() must be True while the persistent OutputStream is
-       actually writing audio (set BEFORE out_stream.write, cleared after
-       and in the outer finally) so STT's barge-in / self-hearing checks
-       do not treat TTS as over mid-utterance.
+       actually writing audio (set BEFORE out_stream.write, held across
+       streamed slices, cleared once the audio drains and in the outer
+       finally) so STT's barge-in / self-hearing checks do not treat TTS
+       as over mid-utterance.
   A3 — a persistent-stream write failure must abort the stream and fall
        through to the existing sd.play recovery ladder (-9985 recovery,
        sound-server restart, pw-play fallback); _recover_sound_server must
@@ -234,29 +235,69 @@ class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
         self.assertEqual(observed, [True])
         self.assertTrue(len(fake.writes) == 1)
 
-    def test_flag_cleared_when_write_returns_documented_residual(self):
-        """F2/F8: accepted residual, pinned. The flag is set during
-        write() (A1) and cleared as soon as write() returns — the
-        PortAudio ring buffer may still be draining the slice tail, a
-        brief window where is_tts_playing() is False during audible
-        output. Intended semantics: latency='low' keeps the tail tiny and
-        holding the flag until full drain would starve the between-chunk
-        barge-in window (see the F8 comment in module_tts.py). If this
-        test ever fails, the timing contract changed — re-evaluate the F8
-        comment, do not just flip the assertion."""
-        during_write = []
-        after_write = []
+    def test_flag_held_while_pending_cleared_when_drained_documented_residual(self):
+        """F8 (revised residual), pinned. The flag is set during write()
+        (A1) and now HELD across consecutive streamed slices: it is
+        cleared only once the utterance's audio has actually drained
+        (queue empty AND synthesis done), with the outer A1 finally as
+        backstop. Residual semantics: while audio is still queued the
+        PortAudio ring buffer may drain the previous slice's tail with
+        the flag already cleared — accepted, latency='low' keeps the
+        tail tiny. Trade-off, stated honestly: mic-based barge-in is no
+        longer available mid-utterance while a stream is continuously
+        fed — it becomes available once audio drains. Wake-word
+        interruption (stop_tts_playback) is a separate path and is
+        unaffected. If this test ever fails, the drain contract changed
+        — re-evaluate the F8 comment in module_tts.py, do not just flip
+        the assertion."""
+        samples = []
         fake = _FakeOutputStream()
-        fake.on_write = lambda stream: during_write.append(tts.is_tts_playing())
-        with self._play_ctx([_wav_chunk(0.05)],
+
+        def on_write(stream):
+            # Make the producer outrun the consumer: while the first
+            # slice plays, the generator finishes, so the second write
+            # is the one that drains the queue (deterministic ordering —
+            # the event loop is free during the to_thread write).
+            if len(fake.writes) == 1:
+                time.sleep(0.05)
+
+        fake.on_write = on_write
+        with self._play_ctx([_wav_chunk(0.05), _wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake)):
+            # _tts_needs_flush.set() runs right after each successful
+            # write's finally clause — sample the flag there.
+            with mock.patch.object(tts, "_tts_needs_flush") as flush:
+                flush.set.side_effect = \
+                    lambda: samples.append(tts.is_tts_playing())
+                asyncio.run(tts.play_audio_chunks("hello", {}))
+        # slice 1: chunk 2 still pending -> flag held (no mid-sentence
+        # barge-in window)
+        # slice 2: queue drained + synthesis done -> flag cleared in the
+        # write's finally
+        self.assertEqual(samples, [True, False])
+        self.assertEqual(len(fake.writes), 2)
+        self.assertFalse(tts.is_tts_playing())  # never left set (A1)
+
+    def test_flag_does_not_flicker_between_streamed_slices(self):
+        """Regression (live bug): streaming providers yield ~1 s slices,
+        and the old unconditional _tts_playing.clear() after EVERY write
+        made the flag flicker False roughly once per second
+        MID-SENTENCE — module_stt's barge-in loop then collected the
+        robot's own voice during each gap and cancelled playback
+        mid-sentence. The flag must stay set between consecutive slices
+        while the utterance continues."""
+        after_first_write = []
+        fake = _FakeOutputStream()
+        with self._play_ctx([_wav_chunk(0.05), _wav_chunk(0.05)],
                             stream_factory=mock.Mock(return_value=fake)) as ctx:
-            # mark_first_audio runs right after the successful write,
-            # i.e. after the finally clause cleared the flag.
+            # mark_first_audio runs right after the FIRST write's finally
+            # clause — the exact moment the old code flickered the flag.
             ctx.mark_first_audio.side_effect = \
-                lambda: after_write.append(tts.is_tts_playing())
+                lambda: after_first_write.append(tts.is_tts_playing())
             asyncio.run(tts.play_audio_chunks("hello", {}))
-        self.assertEqual(during_write, [True])   # set during the write (A1)
-        self.assertEqual(after_write, [False])   # cleared on write() return (F8)
+        self.assertEqual(after_first_write, [True])  # no flicker between slices
+        self.assertEqual(len(fake.writes), 2)         # both slices played
+        self.assertFalse(tts.is_tts_playing())       # cleared once drained (A1)
 
     def test_is_tts_playing_cleared_after_playback(self):
         fake = _FakeOutputStream()
