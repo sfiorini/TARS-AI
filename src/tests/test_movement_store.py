@@ -580,6 +580,28 @@ class TestRobotMoveDispatch(unittest.TestCase):
                              f"bare movement call '{bare}' must be gone")
 
 
+class TestThermalVentilateWiring(unittest.TestCase):
+    """CPU ventilation wiring (review F2: module_main imported ventilate_on
+    from servoctl, which no longer re-exports it — thermal monitoring was
+    silently dead)."""
+
+    def test_ventilate_on_lives_in_module_movements(self):
+        from modules.module_movements import ventilate_on
+        self.assertTrue(callable(ventilate_on))
+        import modules.module_servoctl as servoctl
+        self.assertFalse(hasattr(servoctl, "ventilate_on"),
+                         "servoctl must not re-export ventilate_on")
+
+    def test_module_main_imports_ventilate_on_from_module_movements(self):
+        with open(os.path.join(_SRC, "modules", "module_main.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("from modules.module_movements import ventilate_on",
+                      src)
+        self.assertNotIn("from modules.module_servoctl import ventilate_on",
+                          src)
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 

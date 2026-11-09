@@ -586,7 +586,7 @@ def startup_initialization():
                 set_ventilate_callback, 
                 start_thermal_monitoring
             )
-            from modules.module_servoctl import ventilate_on
+            from modules.module_movements import ventilate_on
             cpu_temp_module = CPUTempModule()
             set_cpu_temp_instance(cpu_temp_module)
             set_ventilate_callback(ventilate_on)
