@@ -142,8 +142,8 @@ async def _send_long_message(channel, text, max_len=2000):
         await channel.send(text)
 
 
-def _run_side_effects_sync(reply, user_message):
-    """Run LLM side effects synchronously so follow-up replies get sent back."""
+def _run_side_effects_sync(reply, user_message, send_followup=None):
+    """Run LLM side effects; result-bearing tools enter the deferred loop."""
     if not isinstance(reply, dict):
         return
     fc = reply.get("function_calls", [])
@@ -151,8 +151,21 @@ def _run_side_effects_sync(reply, user_message):
     ca = reply.get("current_activity")
     if fc or nm or ca:
         try:
-            from modules.module_llm import llm_execute_side_effects
-            llm_execute_side_effects(reply, user_message, source="discord")
+            from modules.module_llm import (llm_execute_side_effects,
+                                            write_turn_memories)
+            from modules.module_toolloop import (bump_epoch,
+                                                 get_loop_runner,
+                                                 TurnCallbacks)
+            bump_epoch('discord')
+            started = get_loop_runner().start_turn(
+                reply, user_message, 'discord',
+                TurnCallbacks(speak=send_followup or (lambda text: None)))
+            if started:
+                # result-bearing turn: the loop path never runs
+                # llm_execute_side_effects — write memories directly
+                write_turn_memories(reply, user_message)
+            else:
+                llm_execute_side_effects(reply, user_message, source="discord")
         except Exception as e:
             queue_message(f"ERROR: Discord side effects failed: {e}")
 
@@ -225,15 +238,16 @@ async def on_message(message):
 
     # Run side effects inline so follow-up replies (web search, camera, etc.) get sent back
     if isinstance(reply, dict):
-        initial_reply = reply.get('reply', '')
+        _loop = asyncio.get_running_loop()
+        _channel = message.channel
+        def _send_followup(text):
+            clean = re.sub(r'<!DOCTYPE.*?</span>', '', text, flags=re.DOTALL).strip()
+            if clean:
+                asyncio.run_coroutine_threadsafe(
+                    _send_long_message(_channel, clean), _loop)
         await asyncio.get_event_loop().run_in_executor(
-            None, lambda: _run_side_effects_sync(reply, user_message)
+            None, lambda: _run_side_effects_sync(reply, user_message, _send_followup)
         )
-        updated_reply = reply.get('reply', '')
-        if updated_reply and updated_reply != initial_reply:
-            followup_text = re.sub(r'<think>.*?</think>', '', updated_reply, flags=re.DOTALL).strip()
-            if followup_text:
-                await _send_long_message(message.channel, followup_text)
 
 
 # ── Auto-start on import (if enabled + token set) ───────────────────────────

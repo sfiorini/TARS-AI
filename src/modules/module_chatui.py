@@ -679,8 +679,6 @@ def _process_chat_message(msg, img_b64):
         except Exception:
             pass
         _audio_streamed = False
-        _reply_changed = False
-        _followup_reply = None
         if img_b64:
             vision_mode = CONFIG['VISION'].get('vision_processor', 'blip')
 
@@ -780,13 +778,25 @@ def _process_chat_message(msg, img_b64):
 
         if isinstance(parsed, dict):
             reply = parsed.get("reply", "") or ""
-            # Run side effects — may update parsed["reply"] (e.g. web search)
-            from modules.module_llm import llm_execute_side_effects
-            llm_execute_side_effects(parsed, msg, source="webui", has_image=img_b64 is not None)
-            updated_reply = parsed.get("reply", "") or ""
-            _reply_changed = (updated_reply != reply)
-            if _reply_changed:
-                _followup_reply = updated_reply
+            # Side effects: result-bearing tools → deferred loop (D1);
+            # otherwise today's synchronous side-effect path
+            from modules.module_toolloop import (bump_epoch, get_loop_runner,
+                                                 TurnCallbacks)
+            from modules.module_llm import (llm_execute_side_effects,
+                                            write_turn_memories)
+            bump_epoch('webui')
+            started = get_loop_runner().start_turn(
+                parsed, msg, 'webui',
+                TurnCallbacks(speak=lambda text: socketio.emit(
+                    'bot_message', {'message': text, 'audio_streamed': True})))
+            if started:
+                # result-bearing turn: the loop path never runs
+                # llm_execute_side_effects — write memories directly
+                threading.Thread(target=write_turn_memories,
+                                 args=(parsed, msg), daemon=True).start()
+            else:
+                llm_execute_side_effects(parsed, msg, source="webui",
+                                        has_image=img_b64 is not None)
         else:
             reply = parsed or ""
 
@@ -825,18 +835,8 @@ def _process_chat_message(msg, img_b64):
         if _audio_streamed:
             pipeline.join()
 
-        # If side effects produced new content (e.g. search results), show + speak as follow-up
-        if _reply_changed and _followup_reply:
-            followup = SentenceTTSPipeline(
-                CONFIG['TTS']['ttsoption'],
-                sanitize=_sanitize_tts,
-                play_func=_browser_tts_play,
-            )
-            followup.start()
-            followup.feed(_followup_reply)
-            followup.finish()
-            socketio.emit('bot_message', {'message': _followup_reply, 'audio_streamed': True})
-            followup.join()
+        # Deferred follow-ups now arrive as a fresh bot_message emit via the
+        # loop's speak callback (D1) — no inline follow-up block here
 
         # Always emit bot_audio_done so voice mode mic can restart
         socketio.emit('bot_audio_done', {})
