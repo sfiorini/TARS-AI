@@ -163,6 +163,14 @@ fishaudio_reference_id =
 speechify_voice_id = george
 # Speechify model
 speechify_model = simba-3.5
+# Stream Speechify audio as it is generated (one /v1/audio/stream request per
+# utterance, ~1s WAV slices) — much lower time-to-first-audio. False = legacy
+# one wav request per sentence.
+speechify_stream = True
+# Speechify output format: pcm_24000 (default, fastest first audio) | pcm_44100
+# | other pcm_<rate>. Streaming supports only pcm_*; anything else falls back
+# to pcm_24000 with a warning.
+speechify_output_format = pcm_24000
 # OpenAI TTS voice: alloy | echo | fable | onyx | nova | shimmer
 openai_voice = onyx
 # Enable multi-speaker Piper model — maps detected emotion to a speaker ID (True/False)

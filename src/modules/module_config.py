@@ -254,6 +254,8 @@ DEFAULT_TTS_FALLBACK_LIST = "external,piper,espeak"
 DEFAULT_FISHAUDIO_MODEL = "s2.1-pro-free"
 DEFAULT_SPEECHIFY_VOICE_ID = "george"
 DEFAULT_SPEECHIFY_MODEL = "simba-3.5"
+DEFAULT_SPEECHIFY_STREAM = True
+DEFAULT_SPEECHIFY_OUTPUT_FORMAT = "pcm_24000"
 DEFAULT_TTS_TIMEOUT = 30.0
 
 
@@ -323,6 +325,8 @@ class TTSConfig:
     speechify_api_key: Optional[str] = None
     speechify_voice_id: Optional[str] = None
     speechify_model: Optional[str] = None
+    speechify_stream: bool = True
+    speechify_output_format: Optional[str] = None
     tts_timeout: float = DEFAULT_TTS_TIMEOUT
     tts_volume: float = 1.0
 
@@ -381,6 +385,8 @@ class TTSConfig:
             speechify_api_key=config_dict.get('speechify_api_key'),
             speechify_voice_id=config_dict.get('speechify_voice_id') or DEFAULT_SPEECHIFY_VOICE_ID,
             speechify_model=config_dict.get('speechify_model') or DEFAULT_SPEECHIFY_MODEL,
+            speechify_stream=_as_bool(config_dict.get('speechify_stream', DEFAULT_SPEECHIFY_STREAM), True),
+            speechify_output_format=config_dict.get('speechify_output_format') or DEFAULT_SPEECHIFY_OUTPUT_FORMAT,
             tts_timeout=_parse_tts_timeout(config_dict.get('tts_timeout', DEFAULT_TTS_TIMEOUT)),
             tts_volume=config_dict.get('tts_volume', 1.0),
         )
@@ -597,6 +603,8 @@ def load_config():
             "speechify_api_key": os.getenv('SPEECHIFY_API_KEY'),
             "speechify_voice_id": config.get('TTS', 'speechify_voice_id', fallback=DEFAULT_SPEECHIFY_VOICE_ID),
             "speechify_model": config.get('TTS', 'speechify_model', fallback=DEFAULT_SPEECHIFY_MODEL),
+            "speechify_stream": config.getboolean('TTS', 'speechify_stream', fallback=True),
+            "speechify_output_format": config.get('TTS', 'speechify_output_format', fallback=DEFAULT_SPEECHIFY_OUTPUT_FORMAT),
             "tts_timeout": config.get('TTS', 'tts_timeout', fallback=DEFAULT_TTS_TIMEOUT),
             "tts_volume": config.getfloat('TTS', 'tts_volume', fallback=1.0),
         }),
@@ -1100,6 +1108,16 @@ CONFIG_METADATA = {
             'label': 'Speechify Model',
             'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
             'description': 'Speechify model sent in the request body. Default "simba-3.5" (latest generation).'
+        },
+        'speechify_stream': {
+            'label': 'Speechify Streaming',
+            'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
+            'description': 'ON (recommended): one streamed /v1/audio/stream request per utterance — TARS starts speaking in ~0.1 s instead of one request per sentence. OFF: the legacy one-wav-request-per-sentence path (slower start).'
+        },
+        'speechify_output_format': {
+            'label': 'Speechify Output Format',
+            'depends_on': [{'field': 'ttsoption', 'values': ['speechify']}],
+            'description': 'Speechify streaming output format, pcm_<rate>. Default pcm_24000 (fastest time-to-first-audio); pcm_44100 avoids the local resample. Non-pcm values fall back to pcm_24000 with a warning.'
         },
         'openai_voice': {
             'depends_on': [{'field': 'ttsoption', 'values': ['openai']}],
