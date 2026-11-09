@@ -1243,12 +1243,31 @@ class TestPidfileTracking(_ManagerTestCase):
         # the shipped server + the pidfile sweep are present
         self.assertIn("_pkill_escalate(\"mcp_example_server\")", src)
         self.assertIn("mcp_pids", src)
-        # audit B6-residual: the pidfile path is derived from THIS
-        # script's location (a non-standard checkout must work), not
-        # hardcoded ~/TARS-AI
+        # audit F1 (round 3): the derivation must RESOLVE to the
+        # manager's write location — a substring check passed on the
+        # buggy double-dirname; this executes the real expression and
+        # compares the two actual paths
         self.assertNotIn("~/TARS-AI", src)
-        self.assertIn("os.path.dirname(os.path.abspath(__file__))",
-                      src)
+        app_stop = os.path.join(_REPO_ROOT, "App-Stop.py")
+        # extract the `pidfile = <expr>` assignment (with continuations)
+        lines = src.splitlines()
+        idx = next(i for i, ln in enumerate(lines)
+                   if ln.lstrip().startswith("pidfile = "))
+        expr = lines[idx].split("=", 1)[1].strip()
+        while not expr.endswith(")"):
+            idx += 1
+            expr += " " + lines[idx].strip()
+        resolved = eval(expr, {"os": os, "__file__": app_stop})
+        from modules.module_mcp import McpManager
+        manager = McpManager(
+            os.path.join(_SRC, "mcp_servers.json"),
+            os.path.join(_SRC, "mcp_servers.json.template"))
+        self.assertEqual(
+            os.path.realpath(resolved),
+            os.path.realpath(manager._pidfile_path()),
+            f"App-Stop derives {resolved} but the manager writes "
+            f"{manager._pidfile_path()} — the orphan sweep would "
+            f"silently no-op")
 
 
 class TestHealthTaskRescheduling(_ManagerTestCase):

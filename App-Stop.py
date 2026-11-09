@@ -68,10 +68,12 @@ def stop_tars_ai():
     # unrelated processes and missed custom servers).
     _pkill_escalate("mcp_example_server")
     # the pidfile lives next to the MCP registry — derived from THIS
-    # script's own location so a non-standard checkout works (audit
-    # B6-residual; the manager writes it beside src/mcp_servers.json)
+    # script's own location so a non-standard checkout works (audit F1:
+    # App-Stop.py sits at the REPO ROOT, so ONE dirname is the root; the
+    # manager writes <repo>/src/mcp_pids.txt beside mcp_servers.json —
+    # the two paths must be identical or the sweep silently no-ops)
     pidfile = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        os.path.dirname(os.path.abspath(__file__)),
         "src", "mcp_pids.txt")
     if os.path.exists(pidfile):
         try:
