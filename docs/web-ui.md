@@ -51,7 +51,7 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence` | builder sequences (see [Movements](movements.md)) |
 | `GET /get_movement_steps/<name>` | one movement's step list for the builder editor (see [Movements](movements.md)) |
 | `GET /agent_skills`, `POST /agent_skills`, `PUT /agent_skills/<name>`, `DELETE /agent_skills/<name>`, `POST /agent_skills/install`, `POST /agent_skills/<name>/scripts`, `POST /agent_skills/reset` | the Agent Skills pool (see [Agent Skills](skills.md)) |
-| `GET /movements`, `POST /movements`, `PUT /movements/<id>`, `DELETE /movements/<id>`, `POST /movements/reset` | movement pool CRUD — whole pool list, create/update (400 with the reason on invalid entries), delete (404 unknown), reset with `{"prune": false\|true}` (see [Movements](movements.md)) |
+| `GET /movements`, `POST /movements`, `PUT /movements/<mid>`, `DELETE /movements/<mid>`, `POST /movements/reset` | movement pool CRUD — whole pool list, create/update (400 with the reason on invalid entries), delete (404 unknown), reset with `{"prune": false\|true}` (see [Movements](movements.md)) |
 | `POST /process_llm` | send a text chat through the LLM pipeline |
 | `POST /upload`, `GET /camera_feed`, `GET /audio_stream`, `GET /get_next_audio_chunk` | camera + audio streaming |
 | `GET /api/console/logs` | recent lines of `src/logs/tars-ai.log` |
