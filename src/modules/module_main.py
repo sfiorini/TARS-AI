@@ -358,6 +358,10 @@ def utterance_callback(message):
         if ui_manager:
             ui_manager.update_streaming_data(reply)
 
+        # Reply-0 drain gate (review F2): the deferred follow-up must never
+        # speak over reply-0 TTS — set after the pipeline/preemptive play below
+        _reply0_drained = threading.Event()
+
         # Handle side effects: result-bearing tools → deferred loop (D1);
         # fire-and-forget → the existing background side-effect thread (the
         # single dispatcher — the loop never dispatches them)
@@ -389,7 +393,8 @@ def utterance_callback(message):
                     pass
 
             started = get_loop_runner().start_turn(parsed, user_text, 'voice',
-                                                   TurnCallbacks(speak=_speak_followup))
+                                                   TurnCallbacks(speak=_speak_followup,
+                                                                 wait_for_reply0=_reply0_drained))
             if started:
                 # result-bearing turn: the loop path never runs
                 # llm_execute_side_effects — write memories directly
@@ -434,6 +439,9 @@ def utterance_callback(message):
             if stt_manager:
                 stt_manager.stop_bargein_monitor()
             was_interrupted = pipeline.interrupted
+
+        # Reply-0 TTS has drained — deferred follow-ups may now speak
+        _reply0_drained.set()
 
         # Deferred follow-ups now arrive via _speak_followup on the tool
         # loop's turn thread (D1) — no inline follow-up speaking here

@@ -26,7 +26,7 @@ twice).
 import concurrent.futures
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from modules.module_messageQue import queue_message
@@ -38,17 +38,28 @@ FALLBACK_LINE = "I hit a snag finishing that — check the logs."
 HOLDING_LINE = "On it — I'll report back."
 LEGACY_UNAVAILABLE_LINE = "That tool isn't available in legacy mode."
 TOOL_RESULT_CHAR_LIMIT = 10000  # result text truncated before the follow-up
-
-STATES = ("IDLE", "CLASSIFY", "TOOLS_RUNNING", "FOLLOWUP_LLM",
-          "SPEAK_FOLLOWUP", "CANCELLED", "TIMEOUT")
+REPLY0_GATE_TIMEOUT = 120  # bounded wait on the reply-0 gate (seconds)
 
 
 @dataclass
 class TurnCallbacks:
     """Per-turn delivery: speak is the harness's TTS/emit/send channel;
-    on_state is a UI/log hook (default no-op)."""
+    on_state is a UI/log hook (default no-op); wait_for_reply0 is the
+    voice harness's reply-0-drained gate — speak blocks on it (bounded)
+    so the follow-up never talks over reply-0 TTS (None = no gate)."""
     speak: Callable[[str], None]
     on_state: Callable[[str], None] = lambda state: None
+    wait_for_reply0: Optional[threading.Event] = None
+
+
+def _wait_for_reply0(callbacks):
+    """Block until the caller's reply-0 TTS has drained (bounded wait —
+    a missing set can never hang the turn thread forever)."""
+    gate = callbacks.wait_for_reply0
+    if gate is None:
+        return
+    if not gate.wait(timeout=REPLY0_GATE_TIMEOUT):
+        queue_message("TOOLLOOP: reply-0 gate never set — speaking anyway")
 
 
 # ── epoch cancellation ──────────────────────────────────────────────
@@ -159,8 +170,20 @@ class ToolLoopRunner:
         result_calls = self._result_bearing_calls(all_calls)
         if not result_calls:
             return False
+        # Daemon thread, NOT inline: the caller (module_main) cannot reach
+        # pipeline.join — which sets the reply-0 gate — until start_turn
+        # returns; a synchronous gate wait would deadlock the voice harness.
+        threading.Thread(target=self._blocking_legacy_turn,
+                         args=(parsed, user_text, source, callbacks),
+                         daemon=True, name=f"toolloop-legacy-{source}").start()
+        return True
+
+    def _blocking_legacy_turn(self, parsed, user_text, source, callbacks):
+        all_calls = parsed.get("function_calls") or []
         ctx = ToolContext(bot_response=parsed, user_input=user_text,
                           source=source, config=load_config())
+        # the follow-up must never speak over reply-0 TTS (review F2)
+        _wait_for_reply0(callbacks)
         result_results = []
         for call in all_calls:
             name = call.get("function", "")
@@ -320,6 +343,8 @@ class ToolLoopRunner:
     def _speak(callbacks, source, epoch, reply):
         if _current_epoch(source) != epoch:
             return ToolLoopRunner._cancel(callbacks, source)
+        # the follow-up must never speak over reply-0 TTS (review F2)
+        _wait_for_reply0(callbacks)
         callbacks.on_state("SPEAK_FOLLOWUP")
         try:
             callbacks.speak(reply)

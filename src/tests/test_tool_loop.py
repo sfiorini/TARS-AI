@@ -461,6 +461,7 @@ class TestRollbackSwitch(_LoopTestCase):
                 self._parsed([{"function": "search", "parameters": {}}]),
                 "hello", "voice", self.callbacks)
         self.assertTrue(started)
+        self._wait_turn()  # legacy turn runs on a daemon thread
         self.assertEqual(self.followup_calls, [])  # the loop is bypassed
         self.assertIn("search results here", self.spoken)
 
@@ -474,6 +475,7 @@ class TestRollbackSwitch(_LoopTestCase):
                                 "parameters": {}}]),
                 "hello", "voice", self.callbacks)
         self.assertTrue(started)
+        self._wait_turn()  # legacy turn runs on a daemon thread
         self.assertEqual(self.followup_calls, [])
         self.assertIn(LEGACY_UNAVAILABLE, self.spoken)
         self.assertNotIn("12:00", self.spoken)
@@ -570,6 +572,63 @@ class TestMixedTurnDispatch(unittest.TestCase):
             self.assertIn("fire_and_forget_calls(", src,
                           f"{rel} must dispatch the fire-and-forget share "
                           f"in its started-branch")
+
+
+class TestReply0Gate(_LoopTestCase):
+    """Review F2: the follow-up must never speak over reply-0 TTS —
+    speak blocks on the caller's reply-0-drained gate (bounded wait)."""
+
+    def test_speak_waits_for_reply0_gate(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor("search"))
+        gate = threading.Event()
+        callbacks = TurnCallbacks(speak=self.spoken.append,
+                                  on_state=self._on_state,
+                                  wait_for_reply0=gate)
+        started = self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {}}]),
+            "hello", "voice", callbacks)
+        self.assertTrue(started)
+        # turn reaches the gate and blocks — speak NOT called yet
+        deadline = time.time() + 2
+        while time.time() < deadline and not self.states:
+            time.sleep(0.01)
+        time.sleep(0.2)
+        self.assertEqual(self.spoken, [],
+                         "speak must not fire before reply-0 drains")
+        gate.set()
+        self._wait_turn()
+        self.assertEqual(self.spoken, ["final answer"])  # exactly once
+
+    def test_gate_never_set_bounded_wait(self):
+        """A missing set can never hang the turn thread forever."""
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor("search"))
+        gate = threading.Event()  # never set
+        callbacks = TurnCallbacks(speak=self.spoken.append,
+                                  on_state=self._on_state,
+                                  wait_for_reply0=gate)
+        patcher = mock.patch.object(toolloop, "REPLY0_GATE_TIMEOUT", 0.2)
+        patcher.start()
+        self.addCleanup(patcher.stop)  # stays patched until the test ends
+        started = self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {}}]),
+            "hello", "voice", callbacks)
+        self.assertTrue(started)
+        self._wait_turn(timeout=5)
+        self.assertEqual(self.spoken, ["final answer"])  # spoke anyway
+
+    def test_voice_wiring_passes_gate(self):
+        # source pin: module_main creates the gate, passes it in TurnCallbacks
+        # and sets it after the reply-0 TTS drains
+        with open(os.path.join(_SRC, "modules", "module_main.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn("wait_for_reply0=", src)
+        self.assertIn("_reply0_drained.set()", src)
+        # the set happens AFTER the pipeline join, not before start_turn
+        self.assertLess(src.index("started = get_loop_runner().start_turn"),
+                        src.index("_reply0_drained.set()"))
 
 
 if __name__ == "__main__":
