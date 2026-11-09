@@ -96,9 +96,16 @@ class McpManager:
         state = self._state.setdefault(
             name, {"attempts": 0, "next_at": 0.0, "degraded": False})
         if state["degraded"]:
-            raise McpServerError(
-                f"MCP server '{name}' is degraded (restart attempts "
-                f"exhausted)")
+            # audit B2: degraded is not forever — after the retry window
+            # (set when degraded was armed), one re-attempt runs; a
+            # failure re-arms the window, a success clears degraded
+            if time.monotonic() < state["next_at"]:
+                raise McpServerError(
+                    f"MCP server '{name}' is degraded (restart attempts "
+                    f"exhausted; retrying after the backoff window)")
+            state["degraded"] = False
+            state["attempts"] = 0
+            queue_message(f"MCP: re-attempting degraded server '{name}'")
         if time.monotonic() < state["next_at"]:
             raise McpServerError(
                 f"MCP server '{name}' is restarting — retry later")
@@ -146,6 +153,9 @@ class McpManager:
             state["attempts"] += 1
             if state["attempts"] >= self._restart_max_attempts():
                 state["degraded"] = True
+                # the bounded recovery window (audit B2)
+                state["next_at"] = time.monotonic() + min(
+                    self._backoff_base * 2 ** (state["attempts"] - 1), 60.0)
                 queue_message(
                     f"MCP: server '{name}' marked degraded after "
                     f"{state['attempts']} consecutive restart attempts")
@@ -472,6 +482,13 @@ class McpManager:
             return False, [f"unknown server '{name}'"]
         if not enabled:
             self._stop_and_forget(name)  # audit A5/B3: no stale child
+        elif name in self._state and self._state[name].get("degraded"):
+            # audit B2: explicit recovery — enable clears degraded
+            self._state[name]["degraded"] = False
+            self._state[name]["attempts"] = 0
+            self._state[name]["next_at"] = 0.0
+            queue_message(f"MCP: server '{name}' re-enabled — degraded "
+                          f"state cleared")
         self.servers[name]["enabled"] = bool(enabled)
         self.save_registry()
         return True, []

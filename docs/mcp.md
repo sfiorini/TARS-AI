@@ -38,7 +38,7 @@ Tools are exposed to the model as **`mcp_<server>_<tool>`** — e.g. `mcp_exampl
 
 - **Start at boot**: enabled servers are listed and started at app boot (prompt-based tool discovery requires the `tools/list`); disable a server to opt out of that cost.
 - **Health**: before every call the process is polled; a periodic `ping` runs every `[MCP] health_interval_s` (default 60).
-- **Restart with backoff**: exponential 1→2→4…→60s; after `[MCP] restart_max_attempts` (default 3) consecutive failures the server is marked **degraded** (one log line, tools removed from the prompt). Any successful call resets the backoff.
+- **Restart with backoff**: exponential 1→2→4…→60s; after `[MCP] restart_max_attempts` (default 3) consecutive failures the server is marked **degraded** (one log line, tools removed from the prompt). Any successful call resets the backoff. **Degraded is not forever**: after a bounded retry window the server is re-attempted automatically, and re-enabling it (`app-mcp.py enable <name>` or the UI) clears the degraded state immediately — a success brings its tools back to the prompt without an app restart.
 - **Shutdown**: the app installs a SIGTERM handler (it had none) so `App-Stop.py` now stops it gracefully — MCP servers are killed as process groups (`SIGTERM`, 2 s, then `SIGKILL`), leaving no orphans.
 
 ## The shipped example (copy this)

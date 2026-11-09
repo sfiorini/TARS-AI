@@ -666,10 +666,20 @@ class TestLifecycle(_ManagerTestCase):
                 self.assertTrue(result.is_error)
                 time.sleep(0.02)  # wait out the tiny test-scale backoff
         self.assertTrue(manager.status()["broken"]["degraded"])
-        degraded_lines = [c for c in qm.call_args_list
-                          if "degraded" in c.args[0]]
-        self.assertEqual(len(degraded_lines), 1,
-                         f"exactly one degraded log line, got {len(degraded_lines)}")
+        messages = [c.args[0] for c in qm.call_args_list]
+        # the FIRST degraded arming logs once; audit B2 recovery means
+        # later re-attempt cycles may re-arm and log again — each arming
+        # is a distinct transition, never spam within a cycle
+        arming_lines = [m for m in messages
+                        if "marked degraded" in m]
+        self.assertGreaterEqual(len(arming_lines), 1)
+        retry_lines = [m for m in messages
+                       if "re-attempting degraded" in m]
+        # the 0.02s test sleeps exceed the tiny retry window, so the
+        # recovery path ran at least once
+        self.assertGreaterEqual(len(retry_lines), 1,
+                                f"expected recovery re-attempts, "
+                                f"got: {messages}")
         # degraded servers are excluded from the prompt flag
         self.assertFalse(manager.status()["broken"]["in_prompt"])
 
@@ -1144,6 +1154,68 @@ class TestRemoveStopsTransport(_ManagerTestCase):
         self.assertTrue(ok, errors)
         tools = manager.list_tools("example")
         self.assertEqual(len(tools), 2)
+
+
+class TestDegradedRecovery(_ManagerTestCase):
+    """Audit B2: a degraded server must have a recovery path — 'any
+    successful call resets the backoff' is the documented contract."""
+
+    def test_degraded_server_recovers_after_retry_window(self):
+        from modules.module_mcp import McpManager
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "flaky": {"transport": "stdio", "command": sys.executable,
+                          "args": [self._write_fake_server(
+                              '{"content": [{"type": "text", "text": "ok"}], '
+                              '"isError": False}')],
+                          "env": {}, "cwd": None, "enabled": True}}}, fh)
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        manager._backoff_base = 0.01
+        # force it degraded with a bad command
+        with mock.patch.object(manager, "_restart_max_attempts",
+                              return_value=2):
+            manager.servers["flaky"]["command"] = "/no/such/binary"
+            for _ in range(2):
+                result = manager.call_tool("flaky", "x", {})
+                self.assertTrue(result.is_error)
+                time.sleep(0.02)
+        self.assertTrue(manager.status()["flaky"]["degraded"])
+        # deterministic: hold the retry window open so the refusal is
+        # observable before the recovery path is exercised
+        manager._state["flaky"]["next_at"] = time.monotonic() + 60
+        result = manager.call_tool("flaky", "x", {})
+        self.assertIn("degraded", result.content)
+        # recovery path 1: set_enabled(True) clears degraded explicitly
+        manager.servers["flaky"]["command"] = sys.executable
+        ok, errors = manager.set_enabled("flaky", True)
+        self.assertTrue(ok, errors)
+        self.assertFalse(manager.status()["flaky"]["degraded"])
+        result = manager.call_tool("flaky", "x", {})
+        self.assertFalse(result.is_error, result.content)
+
+    def test_degraded_retries_after_window(self):
+        from modules.module_mcp import McpManager, McpServerError
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        manager._state["ghost"] = {"attempts": 3, "next_at": 0.0,
+                                   "degraded": True}
+        manager.servers["ghost"] = {"transport": "stdio",
+                                   "command": "/no/such/binary",
+                                   "args": [], "env": {}, "cwd": None,
+                                   "enabled": True}
+        # window elapsed (next_at in the past) -> the retry path runs
+        # (it fails again, but it TRIED — degraded is re-armed, not stuck)
+        result = manager.call_tool("ghost", "x", {})
+        self.assertTrue(result.is_error)
+        # the degraded gate was PASSED and a real start attempt ran (the
+        # FileNotFoundError is the actual spawn failure) — not a refusal
+        self.assertNotIn("degraded", result.content,
+                         "the retry window elapsed — the server must be "
+                         "re-attempted, not refused")
+        self.assertIn("call failed", result.content)
 
 
 if __name__ == "__main__":
