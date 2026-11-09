@@ -392,14 +392,20 @@ def utterance_callback(message):
                 except Exception:
                     pass
 
+            # P0 scope fix: this local import MUST run before the
+            # started/elif/else chain — an import anywhere in a function
+            # makes the name local for the WHOLE function, so placing it
+            # inside `if started:` made the elif branch read it before
+            # assignment (UnboundLocalError) and no tool ever executed
+            # on fire-and-forget voice turns (same pattern as chatui)
+            from modules.module_llm import (llm_execute_side_effects,
+                                            write_turn_memories)
             started = get_loop_runner().start_turn(parsed, user_text, 'voice',
                                                    TurnCallbacks(speak=_speak_followup,
                                                                  wait_for_reply0=_reply0_drained))
             if started:
                 # result-bearing turn: the loop path never runs
                 # llm_execute_side_effects — write memories directly
-                from modules.module_llm import (llm_execute_side_effects,
-                                                write_turn_memories)
                 from modules.module_toolloop import fire_and_forget_calls
                 threading.Thread(target=write_turn_memories, args=(parsed, user_text), daemon=True).start()
                 # fire-and-forget calls still dispatch exactly once (design
