@@ -219,13 +219,19 @@ def save_offset_to_config(offset_name, value):
 
     return True
 
+def _execute_movement_id(mid):
+    """Registry movement buttons dispatch through the movement store."""
+    from modules.module_movementstore import get_movement_store
+    return get_movement_store().execute(mid)
+
+
 def reload_and_test():
     try:
         global config
         config = load_config()
         servoctl.refresh_config()
 
-        globals().update({name: getattr(servoctl, name) for name in dir(servoctl) if not name.startswith('_')})
+        globals().update({name: getattr(servoctl, name) for name in ("move_legs", "move_arm", "reset_positions", "disable_all_servos")})
 
         reset_positions()
         return True
@@ -1615,8 +1621,10 @@ class ServoControllerGUI:
 
                 self.set_status(f"LOADING Executing {action_name}...")
                 try:
-                    func = globals()[function_name]
-                    func()
+                    if function_name == "reset_positions":
+                        reset_positions()
+                    else:
+                        _execute_movement_id(function_name)
                     self.set_status(f"OK {action_name} complete")
                 except Exception as e:
                     self.set_status(f"WARNING Error: {str(e)}")
@@ -1845,8 +1853,10 @@ def control():
             if 0 <= choice < len(actions):
                 display_name, function_name = actions[choice]
                 print(f"Executing {display_name}...")
-                func = globals()[function_name]
-                func()
+                if function_name == "reset_positions":
+                    reset_positions()
+                else:
+                    _execute_movement_id(function_name)
                 print(f"OK {display_name} complete")
             else:
                 print("Invalid selection")
