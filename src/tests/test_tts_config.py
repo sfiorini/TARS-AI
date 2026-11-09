@@ -243,6 +243,26 @@ class TestLoadConfigEnvKeys(unittest.TestCase):
         self.assertIs(tts.speechify_stream, True)
         self.assertEqual(tts.speechify_output_format, "pcm_24000")
 
+    def test_load_config_reads_speechify_keys_from_ini(self):
+        # S-M2-06 fix: pin the ini READ, not just the fallbacks. The template
+        # ships True / pcm_24000 — identical to load_config()'s fallbacks — so
+        # reading defaults proves nothing: a typo'd key name in the ini read
+        # (module_config.py) would silently fall back and still pass. Assert
+        # against values that DIFFER from the fallbacks so a typo yields the
+        # fallback and fails here.
+        ini = os.path.join(_TMP, "config-nondefault.ini")
+        with open(_CONFIG_INI, encoding="utf-8") as fh:
+            text = fh.read()
+        text = text.replace("speechify_stream = True", "speechify_stream = False")
+        text = text.replace("speechify_output_format = pcm_24000",
+                            "speechify_output_format = pcm_44100")
+        with open(ini, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        cfg = self._reload({"TARS_CONFIG_PATH": ini}, clear=True)
+        tts = cfg["TTS"]
+        self.assertIs(tts.speechify_stream, False)
+        self.assertEqual(tts.speechify_output_format, "pcm_44100")
+
 
 class TestWebuiMetadata(unittest.TestCase):
     def test_ttsoption_options_include_new_providers(self):
