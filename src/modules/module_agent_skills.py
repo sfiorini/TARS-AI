@@ -595,6 +595,41 @@ class AgentSkillStore:
                           f"prompt block (budget {budget} chars)")
         return render(entries), [e[0] for e in entries], dropped
 
+    def read_skill(self, name):
+        """Full detail for the UI editor: {name, description, body} with
+        the body UNTRUNCATED (the editor must never overwrite a body it
+        never showed — review F5)."""
+        if not self._is_installed(name):
+            return None
+        data, errors = self._read_skill(name)
+        if data is None or errors:
+            return None
+        return {"name": name,
+                "description": data.get("description", ""),
+                "body": self._raw_body(name)}
+
+    def add_script(self, name, filename, content):
+        """Write an uploaded script into <skill>/scripts/<filename>.
+
+        The filename obeys the same rules as run_skill_script's script
+        argument: bare filename, no separators, no .., no absolute paths —
+        and the resolved path must stay inside the pool (review F4)."""
+        if not self._is_installed(name):
+            return False, [f"unknown skill '{name}'"]
+        if (not filename or "/" in filename or "\\" in filename
+                or ".." in filename or os.path.isabs(filename)):
+            return False, [f"invalid script filename '{filename}'"]
+        scripts_dir = os.path.join(self._skill_path(name), "scripts")
+        os.makedirs(scripts_dir, exist_ok=True)
+        script_path = os.path.join(scripts_dir, filename)
+        if not os.path.realpath(script_path).startswith(
+                os.path.realpath(self.pool_dir) + os.sep):
+            return False, ["script path escapes the skill pool"]
+        with open(script_path, "w", encoding="utf-8") as fh:
+            fh.write(content or "")
+        queue_message(f"SKILLS: uploaded script '{filename}' to '{name}'")
+        return True, []
+
     def uninstall(self, name):
         """Remove an installed skill (its whole folder)."""
         # traversal gate (review F2): rmtree must never see a name that

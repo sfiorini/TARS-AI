@@ -691,5 +691,40 @@ class TestUninstallSecurity(_PoolTestCase):
         self.assertTrue(os.path.exists(self.tmp))
 
 
+class TestScriptUpload(_PoolTestCase):
+    """M5 review F4: script upload writes into <skill>/scripts/ only —
+    the filename obeys the same traversal rules as run_skill_script."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+
+    def test_upload_writes_script(self):
+        ok, errors = self.store.add_script("dice-roll", "hello.py",
+                                          "print('hi')\n")
+        self.assertTrue(ok, errors)
+        path = os.path.join(self.pool, "dice-roll", "scripts", "hello.py")
+        self.assertTrue(os.path.isfile(path))
+        with open(path) as fh:
+            self.assertEqual(fh.read(), "print('hi')\n")
+        # and it is runnable through the normal contract
+        result = self.store.run_skill_script("dice-roll", "hello.py", [])
+        self.assertFalse(result.is_error)
+        self.assertEqual(result.content, "hi")
+
+    def test_upload_traversal_rejected(self):
+        for bad in ("../evil.py", "/abs.py", "sub/dir.py", "..\\evil.py",
+                    ""):
+            ok, errors = self.store.add_script("dice-roll", bad, "x")
+            self.assertFalse(ok, f"{bad!r} must be rejected")
+        # nothing escaped the pool
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, "evil.py")))
+
+    def test_upload_unknown_skill_rejected(self):
+        ok, errors = self.store.add_script("no-such-skill", "x.py", "x")
+        self.assertFalse(ok, errors)
+
+
 if __name__ == "__main__":
     unittest.main()

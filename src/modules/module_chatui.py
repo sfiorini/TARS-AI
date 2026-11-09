@@ -3193,6 +3193,34 @@ def agent_skills_delete(name):
     return jsonify({"success": True}), 200
 
 
+@flask_app.route('/agent_skills/<name>', methods=['GET'])
+def agent_skills_detail(name):
+    """Full detail for the editor (body UNTRUNCATED — review F5)."""
+    from modules.module_agent_skills import get_agent_skill_store
+    skill = get_agent_skill_store().read_skill(name)
+    if skill is None:
+        return jsonify({"error": f"Skill '{name}' not found"}), 404
+    return jsonify({"success": True, "skill": skill}), 200
+
+
+@flask_app.route('/agent_skills/<name>/scripts', methods=['POST'])
+def agent_skills_upload_script(name):
+    """Upload a script into <skill>/scripts/ (review F4)."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    filename = (data.get("filename") or "").strip()
+    content = data.get("content") or ""
+    if not filename:
+        return jsonify({"error": "filename required"}), 400
+    from modules.module_agent_skills import get_agent_skill_store
+    ok, errors = get_agent_skill_store().add_script(name, filename,
+                                                    content)
+    if not ok:
+        return jsonify({"error": "; ".join(errors)}), 400
+    return jsonify({"success": True}), 200
+
+
 @flask_app.route('/agent_skills/reset', methods=['POST'])
 def agent_skills_reset():
     from modules.module_agent_skills import get_agent_skill_store
