@@ -3106,6 +3106,100 @@ def movements_reset():
     return jsonify({"success": True, "count": len(store.get_all())}), 200
 
 
+# ── Agent Skills pool (/agent_skills/*) — thin wrappers over the store ──
+AGENT_SKILLS_ROUTES = ["/agent_skills", "/agent_skills/install",
+                       "/agent_skills/reset"]
+
+
+@flask_app.route('/agent_skills', methods=['GET'])
+def agent_skills_list():
+    """[{name, description, has_parameters, enabled, in_prompt}]."""
+    from modules.module_agent_skills import get_agent_skill_store
+    store = get_agent_skill_store()
+    try:
+        _text, included, _dropped = store.build_prompt_block()
+    except Exception:
+        included = []
+    skills = [{"name": s["name"], "description": s["description"],
+              "has_parameters": s["has_parameters"],
+              "enabled": s["enabled"],
+              "in_prompt": s["name"] in included}
+             for s in store.list_skills()]
+    return jsonify({"success": True, "skills": skills}), 200
+
+
+@flask_app.route('/agent_skills/install', methods=['POST'])
+def agent_skills_install():
+    """Install from a folder path or .zip (force = overwrite conflict)."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    path = (data.get("path") or "").strip()
+    force = bool(data.get("force", False))
+    if not path:
+        return jsonify({"error": "path required"}), 400
+    from modules.module_agent_skills import get_agent_skill_store
+    store = get_agent_skill_store()
+    if path.lower().endswith(".zip"):
+        ok, errors = store.install_from_zip(path, force=force)
+    else:
+        ok, errors = store.install_from_folder(path, force=force)
+    if not ok:
+        conflict = any("already installed" in e for e in errors)
+        status = 409 if conflict else 400
+        return jsonify({"error": "; ".join(errors)}), status
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/agent_skills', methods=['POST'])
+def agent_skills_create():
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    from modules.module_agent_skills import get_agent_skill_store
+    ok, errors = get_agent_skill_store().create(
+        (data.get("name") or "").strip(),
+        data.get("description") or "",
+        data.get("body") or "")
+    if not ok:
+        return jsonify({"error": "; ".join(errors)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/agent_skills/<name>', methods=['PUT'])
+def agent_skills_update(name):
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    from modules.module_agent_skills import get_agent_skill_store
+    store = get_agent_skill_store()
+    if not any(s["name"] == name for s in store.list_skills()):
+        return jsonify({"error": f"Skill '{name}' not found"}), 404
+    ok, errors = store.edit(name,
+                            description=data.get("description"),
+                            body=data.get("body"))
+    if not ok:
+        return jsonify({"error": "; ".join(errors)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/agent_skills/<name>', methods=['DELETE'])
+def agent_skills_delete(name):
+    from modules.module_agent_skills import get_agent_skill_store
+    store = get_agent_skill_store()
+    if not any(s["name"] == name for s in store.list_skills()):
+        return jsonify({"error": f"Skill '{name}' not found"}), 404
+    store.uninstall(name)
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/agent_skills/reset', methods=['POST'])
+def agent_skills_reset():
+    from modules.module_agent_skills import get_agent_skill_store
+    get_agent_skill_store().reset()
+    return jsonify({"success": True}), 200
+
+
 def start_flask_app(port=None):
     if port is None:
         port = CONFIG['ACCESS'].get('webui_port', 80)

@@ -1,0 +1,204 @@
+<div class="tab-pane fade" id="skills-std" role="tabpanel">
+  <div class="builder-wrap">
+
+    <div class="builder-header">
+      <span class="section-label">AGENT SKILLS</span>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-danger" id="stdResetBtn" title="Wipe the pool and re-copy from the shipped defaults — user-created skills are DELETED">↺ Reset</button>
+      </div>
+    </div>
+
+    <div class="bld-hint" style="color:#ff6b6b">
+      <span><b>Security:</b> imported scripts run with TARS's privileges — no sandbox. Only install skills you trust.</span>
+    </div>
+
+    <!-- Install -->
+    <div class="bld-section">
+      <div class="section-label">INSTALL FROM FOLDER OR ZIP</div>
+      <div class="bld-save-row">
+        <input type="text" id="stdInstallPath" class="hud-input bld-name-input" placeholder="path on the robot, e.g. /home/pi/my-skill or /tmp/skill.zip">
+        <label style="display:flex;align-items:center;gap:4px"><input type="checkbox" id="stdInstallForce"> overwrite</label>
+        <button class="hud-btn hud-btn-primary" id="stdInstallBtn">Install</button>
+      </div>
+    </div>
+
+    <!-- Create -->
+    <div class="bld-section">
+      <div class="section-label">CREATE</div>
+      <div class="bld-save-row">
+        <input type="text" id="stdNewName" class="hud-input bld-name-input" placeholder="name (kebab-case, 1-64 chars)">
+        <input type="text" id="stdNewDescription" class="hud-input bld-name-input" placeholder="description (shown to the AI)">
+      </div>
+      <textarea id="stdNewBody" class="hud-input" rows="4" style="width:100%; font-family:monospace;" placeholder="SKILL.md body — instructions for the AI (Markdown)"></textarea>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-primary" id="stdCreateBtn">+ Create</button>
+      </div>
+    </div>
+
+    <!-- Pool list -->
+    <div class="bld-section">
+      <div class="section-label">POOL</div>
+      <div class="bld-step-list" id="stdPoolList">Loading…</div>
+    </div>
+
+    <!-- Editor -->
+    <div class="bld-section" id="stdEditor" style="display:none">
+      <div class="section-label">EDIT <span id="stdEditorName"></span></div>
+      <textarea id="stdEditDescription" class="hud-input" rows="2" style="width:100%"></textarea>
+      <textarea id="stdEditBody" class="hud-input" rows="8" style="width:100%; font-family:monospace;"></textarea>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-primary" id="stdSaveBtn">Save</button>
+        <button class="hud-btn" id="stdCancelBtn">Cancel</button>
+      </div>
+    </div>
+
+    <div class="bld-overwrite-confirm" id="stdError" style="display:none">
+      <span class="bld-confirm-msg"></span>
+    </div>
+
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+    var editingName = null;
+
+    function el(id) { return document.getElementById(id); }
+
+    function feedback(msg, isError) {
+      var box = el('stdError');
+      box.style.display = '';
+      box.querySelector('.bld-confirm-msg').textContent = msg;
+      box.style.color = isError ? '#ff6b6b' : '';
+      if (!isError) setTimeout(function () { box.style.display = 'none'; }, 2500);
+    }
+
+    function loadPool() {
+      fetch('/agent_skills').then(function (r) { return r.json(); }).then(function (d) {
+        renderPool(d.skills || []);
+      }).catch(function () {
+        el('stdPoolList').textContent = 'Failed to load skills.';
+      });
+    }
+
+    function renderPool(skills) {
+      var list = el('stdPoolList');
+      list.innerHTML = '';
+      if (!skills.length) { list.textContent = 'No skills installed.'; return; }
+      skills.forEach(function (s) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;';
+        var label = document.createElement('span');
+        label.style.flex = '1';
+        var promptBadge = s.in_prompt ? ' <small>[in prompt]</small>' : '';
+        var paramsBadge = s.has_parameters ? ' <small>[params]</small>' : '';
+        label.innerHTML = '<b>' + s.name + '</b>' + paramsBadge + promptBadge +
+                          ' — ' + (s.description || '');
+        var edit = document.createElement('button');
+        edit.className = 'hud-btn hud-btn-secondary';
+        edit.textContent = '✎';
+        edit.onclick = function () { openEditor(s.name, s.description); };
+        var del = document.createElement('button');
+        del.className = 'hud-btn hud-btn-danger';
+        del.textContent = '🗑';
+        del.onclick = function () { deleteSkill(s.name); };
+        row.appendChild(label); row.appendChild(edit); row.appendChild(del);
+        list.appendChild(row);
+      });
+    }
+
+    function openEditor(name, description) {
+      editingName = name;
+      el('stdEditorName').textContent = '"' + name + '"';
+      el('stdEditDescription').value = description || '';
+      fetch('/agent_skills').then(function (r) { return r.json(); }).then(function (d) {
+        // body edit loads current body via load_skill? keep description-only
+        // for the panel; body editing starts from the create-form content
+        el('stdEditBody').value = '';
+      });
+      el('stdEditor').style.display = '';
+    }
+
+    function closeEditor() {
+      editingName = null;
+      el('stdEditor').style.display = 'none';
+    }
+
+    function saveEditor() {
+      if (!editingName) return;
+      var payload = { description: el('stdEditDescription').value };
+      var body = el('stdEditBody').value;
+      if (body.trim()) payload.body = body;
+      fetch('/agent_skills/' + encodeURIComponent(editingName), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) { closeEditor(); loadPool(); feedback('Saved'); }
+        else feedback(res.d.error || 'Save failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function deleteSkill(name) {
+      if (!window.confirm('Delete skill "' + name + '"?')) return;
+      fetch('/agent_skills/' + encodeURIComponent(name), { method: 'DELETE' })
+        .then(function () { loadPool(); })
+        .catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function install() {
+      var path = (el('stdInstallPath').value || '').trim();
+      if (!path) { feedback('Enter a path first.', true); return; }
+      fetch('/agent_skills/install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path, force: el('stdInstallForce').checked })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) { el('stdInstallPath').value = ''; loadPool(); feedback('Installed'); }
+        else feedback(res.d.error || 'Install failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function create() {
+      fetch('/agent_skills', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: el('stdNewName').value,
+          description: el('stdNewDescription').value,
+          body: el('stdNewBody').value
+        })
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) {
+          el('stdNewName').value = ''; el('stdNewDescription').value = '';
+          el('stdNewBody').value = '';
+          loadPool(); feedback('Created');
+        } else feedback(res.d.error || 'Create failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function resetPool() {
+      if (!window.confirm('Reset the pool from the shipped defaults? User-created skills are DELETED.')) return;
+      fetch('/agent_skills/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      }).then(function () { loadPool(); feedback('Pool reset'); })
+        .catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    el('stdInstallBtn').addEventListener('click', install);
+    el('stdCreateBtn').addEventListener('click', create);
+    el('stdSaveBtn').addEventListener('click', saveEditor);
+    el('stdCancelBtn').addEventListener('click', closeEditor);
+    el('stdResetBtn').addEventListener('click', resetPool);
+    loadPool();
+  })();
+  </script>
+</div>
