@@ -31,7 +31,7 @@ allowed-tools: ...
 
 TARS-specific data cannot be a top-level field, so it lives under `metadata:` as **JSON-encoded strings**:
 
-- `tars_parameters` — a JSON schema string (`{"properties": {...}, "required": [...]}`). A skill with `tars_parameters` becomes **directly callable in one hop**: its line in the prompt carries a compact `Params: {...}` spec, and calling it renders the body's `run_skill_script` line with your arguments.
+- `tars_parameters` — a JSON schema string (`{"properties": {...}, "required": [...]}`). A skill with `tars_parameters` becomes **directly callable in one hop**: its line in the prompt carries a compact `Params: {...}` spec **plus a "call it directly (no need for `run_skill_script`)" hint** — the skill itself is the callable function — and calling it renders the body's `run_skill_script` line with your arguments.
 - `tars_config` — a config schema string; persisted values live in `[SKILL_STD:<name>]` in `config.ini`.
 
 Both values must parse as JSON or the skill is rejected at validation.
@@ -55,6 +55,7 @@ python3 <skill_dir>/scripts/<script> <args...>
 - **Non-zero exit** → error result carrying the script's stderr.
 - **Timeout** (past `[LLM] tool_call_timeout`) → error result.
 - `script` must be a bare filename — paths with `..` or separators are rejected before anything executes.
+- **Unknown script or skill → the error names the recovery path**: a wrong script name lists the skill's actual scripts (bounded), a wrong skill name lists the installed skills (bounded). The deferred loop feeds the error back to the AI, which can retry correctly on the next hop instead of giving up.
 
 !!! danger "Security — read this before importing anything"
     **Imported scripts run with the app's privileges. There is no sandbox.**

@@ -546,6 +546,79 @@ class TestDescriptorsAndPrompt(_PoolTestCase):
                         r'"sides": number\}'))
 
 
+class TestErrorRecoveryHints(_PoolTestCase):
+    """Live robot defect (voice "roll a d20"): the model hallucinated
+    script name 'roll.py', got a bare unknown-script error, and apologised
+    instead of retrying. D1's isError feedback only self-corrects the loop
+    if the error names the recovery path — available scripts, valid skill
+    names — and the prompt must say a parameterized skill IS the callable
+    function (no run_skill_script hop needed)."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+
+    def test_unknown_script_lists_available_scripts(self):
+        # the exact live failure: 'roll.py' hallucinated, roll_dice.py real
+        result = self.store.run_skill_script("dice-roll", "roll.py", [])
+        self.assertTrue(result.is_error)
+        self.assertIn("unknown script 'roll.py'", result.content)
+        self.assertIn("available scripts", result.content)
+        self.assertIn("roll_dice.py", result.content)
+
+    def test_unknown_skill_lists_installed_names(self):
+        result = self.store.run_skill_script("no-such-skill", "x.py", [])
+        self.assertTrue(result.is_error)
+        self.assertIn("Unknown skill 'no-such-skill'", result.content)
+        self.assertIn("dice-roll", result.content)
+
+    def test_missing_scripts_dir_clear_message(self):
+        ok, _ = self.store.create("bare-skill", "a skill with no scripts",
+                                  "body")
+        self.assertTrue(ok)
+        result = self.store.run_skill_script("bare-skill", "x.py", [])
+        self.assertTrue(result.is_error)
+        self.assertIn("has no scripts directory", result.content)
+
+    def test_empty_scripts_dir_clear_message(self):
+        ok, _ = self.store.create("hollow-skill", "a skill with an empty "
+                                   "scripts dir", "body")
+        self.assertTrue(ok)
+        os.makedirs(os.path.join(self.pool, "hollow-skill", "scripts"))
+        result = self.store.run_skill_script("hollow-skill", "x.py", [])
+        self.assertTrue(result.is_error)
+        self.assertIn("scripts directory is empty", result.content)
+
+    def test_available_scripts_listing_is_bounded(self):
+        scripts = os.path.join(self.pool, "dice-roll", "scripts")
+        for i in range(10):
+            with open(os.path.join(scripts, f"pad-{i:02d}.py"), "w") as fh:
+                fh.write("")
+        result = self.store.run_skill_script("dice-roll", "roll.py", [])
+        self.assertTrue(result.is_error)
+        self.assertLessEqual(len(result.content), 200)
+
+    def test_parameterized_skill_line_has_direct_call_hint(self):
+        block, included, _dropped = self.store.build_prompt_block()
+        self.assertIn("dice-roll", included)
+        line = next(ln for ln in block.splitlines()
+                    if '"dice-roll"' in ln)
+        self.assertIn("Params:", line)  # the spec stays
+        self.assertIn("call it directly", line)
+        self.assertIn("no need for run_skill_script", line)
+
+    def test_non_callable_skill_line_keeps_load_skill_no_hint(self):
+        ok, _ = self.store.create("plain-skill", "a plain skill", "body")
+        self.assertTrue(ok)
+        block, included, _dropped = self.store.build_prompt_block()
+        self.assertIn("plain-skill", included)
+        line = next(ln for ln in block.splitlines()
+                    if '"plain-skill"' in ln)
+        self.assertIn('load_skill("plain-skill")', line)
+        self.assertNotIn("call it directly", line)
+
+
 import subprocess  # noqa: E402
 
 _REPO = os.path.abspath(os.path.join(_SRC, ".."))

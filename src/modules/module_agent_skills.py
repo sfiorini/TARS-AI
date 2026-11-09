@@ -474,10 +474,15 @@ class AgentSkillStore:
                 or os.path.isabs(script)):
             return ToolResult(is_error=True,
                               content=f"invalid script name '{script}'")
-        # traversal gate on the SKILL name (review F1 — LLM-reachable)
+        # traversal gate on the SKILL name (review F1 — LLM-reachable).
+        # The error lists the installed names (bounded) so the model can
+        # retry correctly on the next hop instead of giving up.
         if not self._is_installed(skill):
-            return ToolResult(is_error=True,
-                              content=f"Unknown skill '{skill}'")
+            valid = ", ".join(sorted(s["name"]
+                                     for s in self.list_skills()))[:200]
+            return ToolResult(
+                is_error=True,
+                content=f"Unknown skill '{skill}'. Valid: {valid or '(none)'}")
         script_path = os.path.join(self._skill_path(skill), "scripts",
                                    script)
         # belt-and-braces containment: the resolved path must stay inside
@@ -487,9 +492,31 @@ class AgentSkillStore:
             return ToolResult(is_error=True,
                               content=f"script path escapes the skill pool")
         if not os.path.isfile(script_path):
+            # live defect (voice "roll a d20"): the model hallucinated a
+            # script name and, given a bare error, apologised instead of
+            # retrying — the error must name the recovery path (the real
+            # scripts), bounded to a few names
+            scripts_dir = os.path.join(self._skill_path(skill), "scripts")
+            if not os.path.isdir(scripts_dir):
+                return ToolResult(
+                    is_error=True,
+                    content=(f"unknown script '{script}' in skill '{skill}' "
+                             f"— the skill has no scripts directory"))
+            names = sorted(n for n in os.listdir(scripts_dir)
+                           if os.path.isfile(
+                               os.path.join(scripts_dir, n)))
+            if not names:
+                return ToolResult(
+                    is_error=True,
+                    content=(f"unknown script '{script}' in skill '{skill}' "
+                             f"— the skill's scripts directory is empty"))
+            listing = ", ".join(names[:5])
+            if len(names) > 5:
+                listing += ", …"
             return ToolResult(
                 is_error=True,
-                content=f"unknown script '{script}' in skill '{skill}'")
+                content=(f"unknown script '{script}' in skill '{skill}' — "
+                         f"available scripts: {listing[:150]}"))
         timeout = load_config().get("LLM", {}).get("tool_call_timeout", 60)
         try:
             proc = subprocess.run(
@@ -619,9 +646,15 @@ class AgentSkillStore:
                     spec = "{" + ", ".join(
                         f'"{key}": {value.get("type", "string")}'
                         for key, value in sorted(props.items())) + "}"
+                    # live defect: a parameterized skill IS the callable
+                    # function — the line must say so, or the model hops
+                    # through run_skill_script and hallucinates the
+                    # script name
                     entries.append((skill["name"],
                                     f'* "{skill["name"]}" — {desc} '
-                                    f'Params: {spec}'))
+                                    f'Params: {spec} '
+                                    f'— call it directly (no need for '
+                                    f'run_skill_script)'))
                 else:
                     entries.append(
                         (skill["name"],
