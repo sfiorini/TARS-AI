@@ -840,7 +840,11 @@ class TestMcpCli(unittest.TestCase):
         super().setUp()
         self.tmp = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
-        self.registry = os.path.join(self.tmp, "mcp_servers.json")
+        # the registry lives in src/ (production layout) so the template's
+        # registry-relative script path resolves (review F2 semantics)
+        self.registry = os.path.join(_SRC, "mcp_servers_test_cli.json")
+        self.addCleanup(lambda: os.path.exists(self.registry)
+                        and os.remove(self.registry))
         shutil.copyfile(os.path.join(_SRC, "mcp_servers.json.template"),
                         self.registry)
         self.env = dict(os.environ)
@@ -937,6 +941,38 @@ class TestOrphanCleanup(unittest.TestCase):
         self.assertEqual(check.stdout.strip(), "",
                          f"orphaned MCP process survived the failed "
                          f"handshake: {check.stdout}")
+
+
+class TestTemplatePathResolution(unittest.TestCase):
+    """M6 review F2: the SHIPPED template entry must resolve regardless of
+    the app's cwd — the app chdirs to src/, so relative args must resolve
+    against the registry's directory, not the process cwd."""
+
+    def test_template_entry_resolves_from_any_cwd(self):
+        from modules.module_mcp import McpManager
+        # a registry INSIDE src/ (the production layout) seeded from the
+        # ACTUAL shipped template — gitignored-adjacent, cleaned up
+        registry = os.path.join(_SRC, "mcp_servers_test_f2.json")
+        self.addCleanup(lambda: os.path.exists(registry)
+                        and os.remove(registry))
+        shutil.copyfile(os.path.join(_SRC, "mcp_servers.json.template"),
+                        registry)
+        manager = McpManager(
+            registry, os.path.join(_SRC, "mcp_servers.json.template"))
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        # run from a cwd that is NOT the repo root and NOT src/
+        other_cwd = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, other_cwd, ignore_errors=True)
+        saved_cwd = os.getcwd()
+        os.chdir(other_cwd)
+        self.addCleanup(os.chdir, saved_cwd)
+        tools = manager.list_tools("example")
+        self.assertEqual(sorted(t["name"] for t in tools),
+                         ["add_numbers", "get_time"])
+        # the child cwd defaulted to the registry's directory (src/)
+        self.assertEqual(manager._transports["example"].child_cwd,
+                         os.path.dirname(registry))
 
 
 if __name__ == "__main__":

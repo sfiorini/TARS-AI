@@ -4,7 +4,7 @@
     "example": {
       "transport": "stdio",
       "command": "python3",
-      "args": ["src/mcp_example_server.py"],
+      "args": ["mcp_example_server.py"],
       "env": {},
       "cwd": null,
       "enabled": true,

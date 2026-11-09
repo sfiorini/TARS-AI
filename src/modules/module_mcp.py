@@ -92,7 +92,9 @@ class McpManager:
             raise ValueError(f"unknown MCP server '{name}'")
         try:
             if entry.get("transport") == "stdio":
-                transport = _StdioServer(name, entry)
+                transport = _StdioServer(
+                    name, entry,
+                    default_cwd=os.path.dirname(self.registry_path))
             else:
                 transport = _HttpServer(name, entry)
             transport.start()
@@ -571,19 +573,25 @@ class _StdioServer:
     server's stdin/stdout; stderr drained (rate-limited) on a daemon
     thread — servers are allowed to log there."""
 
-    def __init__(self, name, entry):
+    def __init__(self, name, entry, default_cwd=None):
         self.name = name
         self.entry = entry
+        # when the registry entry has no cwd, the child runs in the
+        # REGISTRY's directory so relative args resolve against it (the
+        # app chdirs to src/ — review F2), not against the process cwd
+        self.default_cwd = default_cwd
+        self.child_cwd = None
         self._proc = None
         self._stderr_thread = None
 
     def start(self):
         env = {**os.environ, **(self.entry.get("env") or {})}
+        self.child_cwd = (self.entry.get("cwd") or self.default_cwd)
         self._proc = subprocess.Popen(
             [self.entry["command"]] + list(self.entry.get("args") or []),
             stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True,
-            env=env, cwd=self.entry.get("cwd"),
+            env=env, cwd=self.child_cwd,
             start_new_session=True)  # process group: killpg on stop
         self._stderr_thread = threading.Thread(
             target=self._drain_stderr, daemon=True,
