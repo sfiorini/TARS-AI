@@ -2924,22 +2924,6 @@ def dashboard_prompt():
 
 # ── Movement Builder ─────────────────────────────────────────────────────────
 
-_SEQUENCES_FILE = Path(__file__).parent.parent / "custom_sequences.json"
-
-
-def _load_sequences():
-    if not _SEQUENCES_FILE.exists():
-        return {}
-    try:
-        return json.loads(_SEQUENCES_FILE.read_text())
-    except Exception:
-        return {}
-
-
-def _save_sequences(data):
-    _SEQUENCES_FILE.write_text(json.dumps(data, indent=2))
-
-
 @flask_app.route('/get_arms_status', methods=['GET'])
 def get_arms_status():
     import modules.module_servoctl as _sc
@@ -2964,19 +2948,36 @@ def save_sequence():
     if not name:
         return jsonify({"error": "name required"}), 400
 
-    steps = data.get('steps', [])
-    seq_type = data.get('type', 'movement')
-    quick = bool(data.get('quick', False))
-
-    sequences = _load_sequences()
-    sequences[name] = {"type": seq_type, "quick": quick, "steps": steps}
-    _save_sequences(sequences)
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    seq_type = data.get('type', 'legs_only')
+    if seq_type == 'movement':
+        # legacy builder value (the old type select no longer exists)
+        seq_type = 'legs_only'
+    entry = {
+        "name": name,
+        "type": seq_type,
+        "description": "Created in the web UI builder",
+        "steps": data.get('steps', []),
+        "steps_arms": None,
+    }
+    try:
+        if store.get(name) is not None:
+            store.update(name, entry)
+        else:
+            store.add(name, entry)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
     return jsonify({"success": True, "name": name}), 200
 
 
 @flask_app.route('/get_saved_sequences', methods=['GET'])
 def get_saved_sequences():
-    return jsonify(_load_sequences()), 200
+    from modules.module_movementstore import get_movement_store
+    entries = get_movement_store().get_all()
+    return jsonify({mid: {"type": e["type"], "quick": False,
+                           "steps": e["steps"]}
+                     for mid, e in entries.items()}), 200
 
 
 @flask_app.route('/delete_saved_sequence', methods=['POST'])
@@ -2986,12 +2987,12 @@ def delete_saved_sequence():
 
     data = request.get_json()
     name = data.get('name', '').strip()
-    sequences = _load_sequences()
-    if name not in sequences:
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    if store.get(name) is None:
         return jsonify({"error": f"'{name}' not found"}), 404
 
-    del sequences[name]
-    _save_sequences(sequences)
+    store.delete(name)
     return jsonify({"success": True}), 200
 
 
@@ -3002,13 +3003,14 @@ def play_saved_sequence():
 
     data = request.get_json()
     name = data.get('name', '').strip()
-    sequences = _load_sequences()
-    if name not in sequences:
+    from modules.module_movementstore import get_movement_store
+    store = get_movement_store()
+    if store.get(name) is None:
         return jsonify({"error": f"'{name}' not found"}), 404
 
-    entry = sequences[name]
-    steps = entry.get('steps', []) if isinstance(entry, dict) else entry
-    return _execute_steps(steps)
+    if not store.execute(name):
+        return jsonify({"error": "Robot is already moving"}), 409
+    return jsonify({"success": True}), 200
 
 
 def _execute_steps(steps):
