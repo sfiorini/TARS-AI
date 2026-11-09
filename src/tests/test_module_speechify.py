@@ -674,6 +674,56 @@ class TestSpeechifyStreamDispatch(unittest.TestCase):
         self.assertEqual(post.call_args.args[0], SPEECHIFY_URL)
 
 
+class TestSpeechifyMidStreamAbort(unittest.TestCase):
+    """S-M3-09 (D7): a truncated Speechify stream ends the utterance cleanly.
+
+    Once audio has been yielded, the chain must see a clean generator end —
+    NOT an exception: the already-spoken slices are kept, `pending` is
+    dropped (never flushed), a WARNING with the received byte count is
+    logged, and the response is closed. No mid-utterance voice switch."""
+
+    def test_mid_stream_exception_ends_utterance_without_raising(self):
+        class _AbortingStream:
+            status_code = 200
+            headers = {}
+            close = mock.MagicMock()
+
+            def iter_content(self, chunk_size=None):
+                yield b"\x11\x22" * 24000        # one full 48000-B slice first
+                yield b"\x11\x22" * 10           # partial slice -> pending; must be DROPPED
+                raise module_speechify.requests.exceptions.ChunkedEncodingError("closed")
+
+        chunks, exc, post, qmsg, _ = _run(responses=[_AbortingStream()])
+        self.assertIsNone(exc)                    # generator ends cleanly, no raise (D7)
+        # exactly the pre-abort slice: the 20-B `pending` was NOT flushed
+        self.assertEqual(len(chunks), 1)
+        import wave as wavemod
+        with wavemod.open(chunks[0]) as w:
+            self.assertEqual(w.getnframes(), 24000)
+        warnings = [str(c.args[0]) for c in qmsg.call_args_list
+                    if "aborted mid-utterance" in str(c.args[0])]
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("48020", warnings[0])   # received byte count (48000+20) is logged
+        _AbortingStream.close.assert_called_once()
+
+    def test_early_aclose_closes_response_without_exception(self):
+        resp = _StreamResp([b"\x11\x22" * 24000] * 4)
+        with mock.patch.dict(os.environ, {"SPEECHIFY_API_KEY": ENV_KEY}), \
+             mock.patch.object(module_speechify, "CONFIG", _fake_config()), \
+             mock.patch.object(module_speechify, "_session") as session, \
+             mock.patch.object(module_speechify, "queue_message"):
+            session.post.return_value = resp
+
+            async def run():
+                agen = module_speechify.text_to_speech_with_speechify("Hello there.")
+                first = await agen.__anext__()
+                self.assertIsInstance(first, io.BytesIO)
+                await agen.aclose()
+
+            asyncio.run(run())
+        resp.close.assert_called_once()
+
+
 class TestResolveOutputFormat(unittest.TestCase):
     def test_valid_pcm_formats(self):
         self.assertEqual(module_speechify._resolve_output_format("pcm_24000"), ("pcm_24000", 24000))

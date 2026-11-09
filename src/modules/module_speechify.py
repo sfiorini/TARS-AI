@@ -334,26 +334,36 @@ async def _synthesize_streaming(text, headers, payload, timeout):
     fmt, sample_rate = _resolve_output_format(payload["output_format"])
     slice_bytes = sample_rate * 2   # 1 s of 16-bit mono PCM (48000 @ 24k, 88200 @ 44.1k)
     received = 0
-    iterator = response.iter_content(chunk_size=16384)
-    pending = bytearray()
-    while True:
-        piece = await asyncio.to_thread(next, iterator, None)
-        if piece is None:
-            break
-        received += len(piece)
-        pending.extend(piece)
-        while len(pending) >= slice_bytes:
-            yield _pcm_to_wav_buffer(bytes(pending[:slice_bytes]), sample_rate)
-            del pending[:slice_bytes]
-    if pending:
-        # even-length guard: a truncated L16 stream may end mid-frame
-        even_len = len(pending) // 2 * 2
-        if even_len:
-            yield _pcm_to_wav_buffer(bytes(pending[:even_len]), sample_rate)
-        if len(pending) % 2:
-            queue_message("DEBUG: Speechify stream dropped a trailing odd byte")
-    queue_message(f"DEBUG: Speechify stream complete: {received} bytes "
-                  f"(~{received / (sample_rate * 2):.1f}s at {sample_rate} Hz)")
+    try:
+        iterator = response.iter_content(chunk_size=16384)
+        pending = bytearray()
+        while True:
+            piece = await asyncio.to_thread(next, iterator, None)
+            if piece is None:
+                break
+            received += len(piece)
+            pending.extend(piece)
+            while len(pending) >= slice_bytes:
+                yield _pcm_to_wav_buffer(bytes(pending[:slice_bytes]), sample_rate)
+                del pending[:slice_bytes]
+        if pending:
+            # even-length guard: a truncated L16 stream may end mid-frame
+            even_len = len(pending) // 2 * 2
+            if even_len:
+                yield _pcm_to_wav_buffer(bytes(pending[:even_len]), sample_rate)
+            if len(pending) % 2:
+                queue_message("DEBUG: Speechify stream dropped a trailing odd byte")
+        queue_message(f"DEBUG: Speechify stream complete: {received} bytes "
+                      f"(~{received / (sample_rate * 2):.1f}s at {sample_rate} Hz)")
+    except requests.exceptions.RequestException as exc:
+        # D7: mid-stream failures are silent server-side connection closes; the
+        # typed contract cannot apply past the first byte. End the utterance —
+        # do NOT flush `pending`, do NOT raise (the chain sees a clean end).
+        queue_message(f"WARNING: Speechify stream aborted mid-utterance after "
+                      f"{received} bytes ({exc.__class__.__name__}) — ending utterance")
+        return
+    finally:
+        response.close()   # synchronous — safe under GeneratorExit (design §7.10)
     return
 
 
