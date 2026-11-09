@@ -213,7 +213,7 @@ class TestRegistryAndSeeding(unittest.TestCase):
         from modules.module_mcp import McpManager
         self._write_registry({"Bad-Name": {
             "transport": "stdio", "command": "python3", "args": [],
-            "env": {}, "cwd": None, "enabled": True, "auto_start": False}})
+            "env": {}, "cwd": None, "enabled": True}})
         manager = McpManager(self.registry_path, self.template_path)
         errors = manager.load_registry()
         self.assertTrue(any("Bad-Name" in e for e in errors), errors)
@@ -223,11 +223,11 @@ class TestRegistryAndSeeding(unittest.TestCase):
         manager = McpManager(self.registry_path, self.template_path)
         ok, errors = manager.add_server("example", {
             "transport": "stdio", "command": "python3", "args": [],
-            "env": {}, "cwd": None, "enabled": True, "auto_start": False})
+            "env": {}, "cwd": None, "enabled": True})
         self.assertTrue(ok, errors)
         ok, errors = manager.add_server("example", {
             "transport": "stdio", "command": "python3", "args": [],
-            "env": {}, "cwd": None, "enabled": True, "auto_start": False})
+            "env": {}, "cwd": None, "enabled": True})
         self.assertFalse(ok)
         self.assertTrue(any("already" in e.lower() for e in errors),
                         errors)
@@ -236,7 +236,7 @@ class TestRegistryAndSeeding(unittest.TestCase):
         from modules.module_mcp import McpManager
         self._write_registry({"weird": {
             "transport": "carrier-pigeon", "command": "x", "args": [],
-            "env": {}, "cwd": None, "enabled": True, "auto_start": False}})
+            "env": {}, "cwd": None, "enabled": True}})
         manager = McpManager(self.registry_path, self.template_path)
         errors = manager.load_registry()
         self.assertTrue(any("carrier-pigeon" in e for e in errors), errors)
@@ -411,7 +411,7 @@ class _ManagerTestCase(unittest.TestCase):
             json.dump({"version": 1, "servers": {
                 name: {"transport": "stdio", "command": sys.executable,
                        "args": [script], "env": {}, "cwd": None,
-                       "enabled": True, "auto_start": False}}}, fh)
+                       "enabled": True}}}, fh)
         manager = McpManager(self.registry_path, self.template_path)
         self.assertEqual(manager.load_registry(), [])
         self.addCleanup(manager.shutdown)
@@ -423,7 +423,7 @@ class _ManagerTestCase(unittest.TestCase):
             json.dump({"version": 1, "servers": {
                 "example": {"transport": "stdio", "command": sys.executable,
                              "args": [_SERVER], "env": {}, "cwd": None,
-                             "enabled": True, "auto_start": False}}}, fh)
+                             "enabled": True}}}, fh)
         manager = McpManager(self.registry_path, self.template_path)
         self.assertEqual(manager.load_registry(), [])
         self.addCleanup(manager.shutdown)
@@ -583,8 +583,7 @@ class TestHttpTransport(unittest.TestCase):
             json.dump({"version": 1, "servers": {
                 "httpfake": {"transport": "http",
                              "url": f"http://127.0.0.1:{fixture.port}/",
-                             "env": {}, "cwd": None, "enabled": True,
-                             "auto_start": False}}}, fh)
+                             "env": {}, "cwd": None, "enabled": True}}}, fh)
         manager = McpManager(registry_path,
                              os.path.join(_SRC, "mcp_servers.json.template"))
         self.assertEqual(manager.load_registry(), [])
@@ -654,8 +653,7 @@ class TestLifecycle(_ManagerTestCase):
             json.dump({"version": 1, "servers": {
                 "broken": {"transport": "stdio", "command": sys.executable,
                            "args": ["-c", "raise SystemExit(1)"],
-                           "env": {}, "cwd": None, "enabled": True,
-                           "auto_start": False}}}, fh)
+                           "env": {}, "cwd": None, "enabled": True}}}, fh)
         manager = McpManager(self.registry_path, self.template_path)
         self.assertEqual(manager.load_registry(), [])
         self.addCleanup(manager.shutdown)
@@ -684,7 +682,7 @@ class TestLifecycle(_ManagerTestCase):
             json.dump({"version": 1, "servers": {
                 "flaky": {"transport": "stdio", "command": sys.executable,
                           "args": [script], "env": {}, "cwd": None,
-                          "enabled": True, "auto_start": False}}}, fh)
+                          "enabled": True}}}, fh)
         manager = McpManager(self.registry_path, self.template_path)
         self.assertEqual(manager.load_registry(), [])
         self.addCleanup(manager.shutdown)
@@ -973,6 +971,27 @@ class TestTemplatePathResolution(unittest.TestCase):
         # the child cwd defaulted to the registry's directory (src/)
         self.assertEqual(manager._transports["example"].child_cwd,
                          os.path.dirname(registry))
+
+
+class TestAutoStartRemoved(unittest.TestCase):
+    """M6 review F3 (D4a): auto_start is REMOVED — enabled servers are
+    listed and started at app boot; disable a server to opt out."""
+
+    def test_template_has_no_auto_start(self):
+        with open(os.path.join(_SRC, "mcp_servers.json.template")) as fh:
+            self.assertNotIn("auto_start", fh.read())
+
+    def test_docs_have_no_auto_start(self):
+        for page in ("mcp.md", "configuration.md", "web-ui.md"):
+            with open(os.path.join(_REPO_ROOT, "docs", page)) as fh:
+                self.assertNotIn("auto_start", fh.read(),
+                                 f"docs/{page} still mentions auto_start")
+
+    def test_docs_state_boot_start_semantics(self):
+        with open(os.path.join(_REPO_ROOT, "docs", "mcp.md")) as fh:
+            doc = fh.read()
+        self.assertIn("at app boot", doc)
+        self.assertIn("disable", doc)
 
 
 if __name__ == "__main__":

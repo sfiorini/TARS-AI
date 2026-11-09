@@ -3252,7 +3252,6 @@ def mcp_list():
             "name": name,
             "transport": entry.get("transport"),
             "enabled": bool(entry.get("enabled", True)),
-            "auto_start": bool(entry.get("auto_start", False)),
             "status": ("degraded" if st.get("degraded")
                        else "running" if st.get("running") else "stopped"),
             "tools": tools,
@@ -3264,16 +3263,15 @@ def mcp_list():
 
 @flask_app.route('/mcp', methods=['POST'])
 def mcp_create():
-    """Add a server: {name, transport, command?, args?, url?, env?,
-    auto_start} → 200 / 400 invalid / 409 duplicate."""
+    """Add a server: {name, transport, command?, args?, url?, env?}
+    → 200 / 400 invalid / 409 duplicate."""
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
     data = request.get_json()
     name = (data.get("name") or "").strip()
     transport = (data.get("transport") or "").strip()
     entry = {"transport": transport, "env": data.get("env") or {},
-             "cwd": None, "enabled": True,
-             "auto_start": bool(data.get("auto_start", False))}
+             "cwd": None, "enabled": True}
     if transport == "stdio":
         if not data.get("command"):
             return jsonify({"error": "command required for stdio"}), 400

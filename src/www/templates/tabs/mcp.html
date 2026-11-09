@@ -137,7 +137,7 @@
     function addServer() {
       var transport = el('mcpTransport').value;
       var payload = { name: el('mcpName').value.trim(), transport: transport,
-                      auto_start: false };
+                      };
       if (transport === 'stdio') {
         payload.command = el('mcpCommand').value.trim();
         payload.args = el('mcpArgs').value.trim().split(/\s+/).filter(Boolean);

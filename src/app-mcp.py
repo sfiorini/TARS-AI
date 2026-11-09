@@ -2,7 +2,7 @@
 """TARS MCP CLI — manage MCP servers (D4).
 
 Commands:
-  list                       registry entries: name, transport, enabled, auto_start, status
+  list                       registry entries: name, transport, enabled, status
   add <name> stdio <command> [args...]   add a stdio server
   add <name> http <url>                 add a Streamable HTTP server
   remove <name>              remove a server from the registry
@@ -56,8 +56,6 @@ def cmd_list(manager, args):
         flags = []
         if not entry.get("enabled", True):
             flags.append("disabled")
-        if entry.get("auto_start"):
-            flags.append("auto_start")
         suffix = f" ({', '.join(flags)})" if flags else ""
         print(f"{name}\t{entry.get('transport')}\t{state}{suffix}")
     return 0
@@ -72,10 +70,10 @@ def cmd_add(manager, args):
     if transport == "stdio":
         entry = {"transport": "stdio", "command": args[2],
                  "args": list(args[3:]), "env": {}, "cwd": None,
-                 "enabled": True, "auto_start": False}
+                 "enabled": True}
     elif transport == "http":
         entry = {"transport": "http", "url": args[2], "env": {},
-                 "cwd": None, "enabled": True, "auto_start": False}
+                 "cwd": None, "enabled": True}
     else:
         print(f"mcp: transport must be stdio or http, got {transport!r}",
               file=sys.stderr)

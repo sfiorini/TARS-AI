@@ -21,11 +21,10 @@ Two transports (decision D4):
 "example": {
   "transport": "stdio",
   "command": "python3",
-  "args": ["src/mcp_example_server.py"],
+  "args": ["mcp_example_server.py"],
   "env": {},
   "cwd": null,
-  "enabled": true,
-  "auto_start": false
+  "enabled": true
 }
 ```
 
@@ -37,7 +36,7 @@ Tools are exposed to the model as **`mcp_<server>_<tool>`** — e.g. `mcp_exampl
 
 ## Lifecycle
 
-- **Lazy start** on first use (or at boot with `auto_start: true`).
+- **Start at boot**: enabled servers are listed and started at app boot (prompt-based tool discovery requires the `tools/list`); disable a server to opt out of that cost.
 - **Health**: before every call the process is polled; a periodic `ping` runs every `[MCP] health_interval_s` (default 60).
 - **Restart with backoff**: exponential 1→2→4…→60s; after `[MCP] restart_max_attempts` (default 3) consecutive failures the server is marked **degraded** (one log line, tools removed from the prompt). Any successful call resets the backoff.
 - **Shutdown**: the app installs a SIGTERM handler (it had none) so `App-Stop.py` now stops it gracefully — MCP servers are killed as process groups (`SIGTERM`, 2 s, then `SIGKILL`), leaving no orphans.

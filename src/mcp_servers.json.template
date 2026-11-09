@@ -7,8 +7,7 @@
       "args": ["mcp_example_server.py"],
       "env": {},
       "cwd": null,
-      "enabled": true,
-      "auto_start": false
+      "enabled": true
     }
   }
 }
