@@ -51,7 +51,14 @@ def _get_tools_prompt_text():
                         .build_prompt_block()[0]
             except Exception:
                 block_agent_skills = ""
-            block_mcp = ""           # MCP pool (M6)
+            # block 3: MCP tools (M6) — omitted when disabled
+            block_mcp = ""
+            try:
+                if load_config().get("MCP", {}).get("enabled", True):
+                    from modules.module_mcp import get_mcp_manager
+                    block_mcp = get_mcp_manager().build_prompt_block()
+            except Exception:
+                block_mcp = ""
             blocks = [b for b in (block_builtin, block_agent_skills,
                                    block_mcp) if b]
             return "\n".join(blocks)

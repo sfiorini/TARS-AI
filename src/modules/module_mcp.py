@@ -230,6 +230,97 @@ class McpManager:
             schedule_recurring(f"mcp_health_{name}", interval,
                                self._health_check, args=(name,))
 
+    # ── descriptors + prompt block 3 (S-M6-09) ─────────────────
+
+    def _prompt_budget(self):
+        try:
+            from modules.module_config import load_config
+            return load_config().get("MCP", {}).get("prompt_budget_chars",
+                                                    4000)
+        except Exception:
+            return 4000
+
+    def iter_descriptors(self):
+        """One ToolDescriptor per tools/list entry: mcp_<server>_<tool>.
+        Disabled and degraded servers contribute nothing."""
+        from modules.module_toolregistry import ToolDescriptor
+        for name, entry in self.servers.items():
+            if not entry.get("enabled", True):
+                continue
+            if self._state.get(name, {}).get("degraded"):
+                continue  # degraded servers' tools leave the prompt
+            try:
+                tools = self.list_tools(name)
+            except Exception as exc:  # noqa: BLE001 — one bad server
+                queue_message(f"MCP: no descriptors from '{name}': {exc}")
+                continue
+            for tool in tools:
+                tool_name = tool.get("name", "")
+                if not tool_name:
+                    continue
+                schema = tool.get("inputSchema") or {
+                    "type": "object", "properties": {}}
+                yield ToolDescriptor(
+                    name=f"mcp_{name}_{tool_name}", kind="mcp",
+                    description=tool.get("description", ""),
+                    parameters=schema, result_bearing=True,
+                    timeout_s=None,
+                    execute=self._make_mcp_exec(self, name, tool_name))
+
+    @staticmethod
+    def _make_mcp_exec(manager, server, tool):
+        # capture the bound manager instance (not the singleton) so the
+        # descriptor dispatches through the manager that listed the tool
+        def _exec(params, ctx):
+            return manager.call_tool(server, tool, params or {})
+        return _exec
+
+    def build_prompt_block(self):
+        """Prompt block 3: one line per tool from tools/list, bounded by
+        [MCP] prompt_budget_chars — same truncate-then-drop-and-log
+        mechanic as the agent-skills block."""
+        budget = self._prompt_budget()
+        entries = []  # (descriptor_name, line)
+        for name, entry in self.servers.items():
+            if not entry.get("enabled", True):
+                continue
+            if self._state.get(name, {}).get("degraded"):
+                continue
+            try:
+                tools = self.list_tools(name)
+            except Exception as exc:  # noqa: BLE001
+                queue_message(f"MCP: '{name}' excluded from prompt: {exc}")
+                continue
+            for tool in tools:
+                descriptor_name = f"mcp_{name}_{tool.get('name', '')}"
+                entries.append((descriptor_name, tool))
+
+        def render(items, desc_limit):
+            lines = []
+            for descriptor_name, tool in items:
+                desc = (tool.get("description") or "")[:desc_limit]
+                schema = tool.get("inputSchema") or {}
+                props = schema.get("properties", {})
+                spec = "{" + ", ".join(
+                    f'"{key}": {value.get("type", "string")}'
+                    for key, value in sorted(props.items())) + "}"
+                lines.append(f'* "{descriptor_name}" — {desc} '
+                             f'Params: {spec}')
+            return "\n".join(lines)
+
+        items = entries
+        limit = 200
+        for limit in (200, 100, 50):          # 1) truncate descriptions
+            if len(render(items, limit)) <= budget:
+                break
+        dropped = []
+        while items and len(render(items, limit)) > budget:
+            dropped.append(items.pop(0)[0])   # 2) drop alphabetically
+        for descriptor_name in dropped:
+            queue_message(f"MCP: '{descriptor_name}' dropped from MCP "
+                          f"prompt block (budget {budget} chars)")
+        return render(items, limit)
+
     def _health_check(self, name):
         """Periodic ping: any JSON-RPC response counts as alive; a dead
         or silent transport is stopped so the next call restarts it."""

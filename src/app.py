@@ -324,6 +324,16 @@ if __name__ == "__main__":
     except Exception as e:
         queue_message(f"WARNING: Agent skill registration failed: {e}")
 
+    # === MCP: register tool descriptors (mcp_<server>_<tool>, S-M6-09) ===
+    try:
+        from modules.module_toolregistry import get_registry
+        from modules.module_mcp import get_mcp_manager
+        for d in get_mcp_manager().iter_descriptors():
+            get_registry().register(d)
+        queue_message("LOAD: MCP tool descriptors registered")
+    except Exception as e:
+        queue_message(f"WARNING: MCP descriptor registration failed: {e}")
+
     # Shutdown event
     shutdown_event = threading.Event()
 

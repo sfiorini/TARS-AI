@@ -768,5 +768,70 @@ class TestShutdown(_ManagerTestCase):
                         src.index('_pkill_escalate("App-Start.py")'))
 
 
+class TestDescriptorsAndPromptBlock(_ManagerTestCase):
+    """MCP descriptors + prompt block 3 + budget (S-M6-09)."""
+
+    def test_mcp_descriptor_real_call(self):
+        from modules.module_toolregistry import ToolRegistry, ToolContext
+        manager = self._real_manager()
+        registry = ToolRegistry()
+        for d in manager.iter_descriptors():
+            registry.register(d)
+        names = {d.name for d in registry.iter_descriptors()}
+        self.assertIn("mcp_example_get_time", names)
+        self.assertIn("mcp_example_add_numbers", names)
+        # D7 end-to-end: the REAL server runs through the descriptor
+        result = registry.dispatch("mcp_example_add_numbers",
+                                   {"a": 2, "b": 3}, ToolContext())
+        self.assertFalse(result.is_error, result.content)
+        self.assertIn("5", result.content)
+
+    def test_mcp_iserror_fed_back(self):
+        from modules.module_toolregistry import ToolRegistry, ToolContext
+        manager = self._real_manager()
+        registry = ToolRegistry()
+        for d in manager.iter_descriptors():
+            registry.register(d)
+        result = registry.dispatch("mcp_example_add_numbers",
+                                   {"a": "x", "b": 1}, ToolContext())
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.content, "a and b must be numbers")
+
+    def test_prompt_block3_budget(self):
+        manager = self._real_manager()
+        many_tools = [{"name": f"tool_{i:02d}",
+                       "description": "x" * 300,
+                       "inputSchema": {"type": "object",
+                                       "properties": {}}}
+                      for i in range(40)]
+        with mock.patch.object(manager, "list_tools",
+                              return_value=many_tools), \
+             mock.patch("modules.module_mcp.queue_message") as qm, \
+             mock.patch.object(manager, "_prompt_budget",
+                              return_value=600):
+            block = manager.build_prompt_block()
+        self.assertLessEqual(len(block), 600)
+        messages = [call.args[0] for call in qm.call_args_list]
+        dropped = [m for m in messages if "dropped from MCP prompt" in m]
+        self.assertTrue(dropped, f"expected drop logs, got: {messages}")
+
+    def test_degraded_server_excluded_from_prompt(self):
+        manager = self._real_manager()
+        manager.list_tools("example")  # starts it
+        manager._state["example"]["degraded"] = True
+        self.assertEqual([], list(manager.iter_descriptors()))
+        self.assertEqual("", manager.build_prompt_block())
+        # and status reflects it
+        self.assertFalse(manager.status()["example"]["in_prompt"])
+
+    def test_prompt_block_line_shape(self):
+        manager = self._real_manager()
+        block = manager.build_prompt_block()
+        self.assertIn('* "mcp_example_get_time" — ', block)
+        self.assertIn('Params: {}', block)
+        self.assertIn('* "mcp_example_add_numbers" — ', block)
+        self.assertIn('"a": number', block)
+
+
 if __name__ == "__main__":
     unittest.main()
