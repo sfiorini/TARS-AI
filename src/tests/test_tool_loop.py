@@ -85,5 +85,181 @@ class TestLoopConfig(unittest.TestCase):
         self.assertIs(config['LLM']['deferred_loop_enabled'], True)
 
 
+import time  # noqa: E402
+import threading  # noqa: E402
+
+from modules.module_toolregistry import (  # noqa: E402
+    ToolDescriptor, ToolRegistry, ToolResult, ToolContext, reset_registry,
+)
+from modules.module_toolloop import (  # noqa: E402
+    ToolLoopRunner, TurnCallbacks, bump_epoch, FALLBACK_LINE,
+)
+
+
+def _descriptor(name, result_bearing=True, execute=None, timeout_s=5.0):
+    return ToolDescriptor(
+        name=name, kind="builtin", description="", parameters=None,
+        result_bearing=result_bearing, timeout_s=timeout_s,
+        execute=execute or (lambda params, ctx: "tool result"))
+
+
+class _LoopTestCase(unittest.TestCase):
+    """A runner with a fake followup_fn over a fresh registry."""
+
+    TERMINAL = ("IDLE", "CANCELLED", "TIMEOUT")
+
+    def setUp(self):
+        super().setUp()
+        reset_registry()
+        self.addCleanup(reset_registry)
+        self.registry = ToolRegistry()
+        # NOTE: the runner reads get_registry() — patch it to our fresh one
+        import modules.module_toolloop as toolloop
+        self._patcher = mock.patch.object(toolloop, "get_registry",
+                                         return_value=self.registry)
+        self._patcher.start()
+        self.addCleanup(self._patcher.stop)
+        self.followup_calls = []
+        self.spoken = []
+        self.states = []
+        self.done = threading.Event()
+        self.callbacks = TurnCallbacks(
+            speak=self.spoken.append,
+            on_state=self._on_state)
+
+    def _on_state(self, state):
+        self.states.append(state)
+        if state in self.TERMINAL:
+            self.done.set()
+
+    def _followup(self, user_input, prior_reply, tool_results_text, source):
+        call = (user_input, prior_reply, tool_results_text, source)
+        self.followup_calls.append(call)
+        return self._next_followup(*call)
+
+    def _next_followup(self, *args):
+        return {"reply": "final answer"}
+
+    def _runner(self):
+        return ToolLoopRunner(self._followup)
+
+    def _wait_turn(self, timeout=5.0):
+        if not self.done.wait(timeout):
+            self.fail(f"turn did not finish; states={self.states}")
+
+    @staticmethod
+    def _parsed(calls, reply="checking"):
+        return {"reply": reply, "function_calls": calls,
+                "new_memories": []}
+
+
+class TestToolLoopRunner(_LoopTestCase):
+    """Runner state machine (S-M4-03)."""
+
+    def test_fire_and_forget_bypasses_loop(self):
+        exec_calls = []
+        self.registry.register(_descriptor(
+            "move", result_bearing=False,
+            execute=lambda p, c: exec_calls.append(p) or "moved"))
+        started = self._runner().start_turn(
+            self._parsed([{"function": "move", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self.assertFalse(started)  # classification only — ZERO dispatch
+        self.assertEqual(exec_calls, [])
+        self.assertEqual(self.followup_calls, [])
+        self.assertEqual(self.spoken, [])
+
+    def test_result_bearing_runs_followup(self):
+        self.registry.register(_descriptor("search"))
+        started = self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {"q": 1}}],
+                         reply="let me check"),
+            "what is the weather", "voice", self.callbacks)
+        self.assertTrue(started)
+        self._wait_turn()
+        self.assertEqual(len(self.followup_calls), 1)
+        user_input, prior_reply, tool_text, source = self.followup_calls[0]
+        self.assertEqual(user_input, "what is the weather")
+        self.assertEqual(prior_reply, "let me check")
+        self.assertIn("search: tool result", tool_text)
+        self.assertEqual(source, "voice")
+        self.assertEqual(self.spoken, ["final answer"])
+        self.assertIn("SPEAK_FOLLOWUP", self.states)
+
+    def test_is_error_fed_to_model(self):
+        def boom(params, ctx):
+            raise ValueError("search exploded")
+        self.registry.register(_descriptor("search", execute=boom))
+        self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertIn("ERROR: search exploded",
+                      self.followup_calls[0][2])
+
+    def test_timeout_fallback(self):
+        def slow(params, ctx):
+            time.sleep(1.0)
+            return "late"
+        self.registry.register(_descriptor("slow", execute=slow,
+                                           timeout_s=0.1))
+        self._runner().start_turn(
+            self._parsed([{"function": "slow", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertIn("ERROR: timeout", self.followup_calls[0][2])
+        # the follow-up still runs and is spoken
+        self.assertEqual(self.spoken, ["final answer"])
+
+    def test_hop_bound(self):
+        # followup_fn always returns NEW result-bearing calls
+        self.registry.register(_descriptor("search"))
+        def next_followup(user_input, prior_reply, tool_text, source):
+            self.followup_calls.append((user_input, prior_reply, tool_text,
+                                        source))
+            return {"reply": "partial",
+                    "function_calls": [{"function": "search",
+                                        "parameters": {}}]}
+        runner = ToolLoopRunner(next_followup)
+        runner.start_turn(
+            self._parsed([{"function": "search", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        # max_hops default 2 -> exactly 2 follow-up completions, then the
+        # fallback line is spoken
+        self.assertEqual(len(self.followup_calls), 2)
+        self.assertEqual(self.spoken, [FALLBACK_LINE])
+        self.assertIn("TIMEOUT", self.states)
+
+    def test_epoch_cancellation(self):
+        def interrupting(params, ctx):
+            bump_epoch("voice")  # user spoke again mid-tool
+            return "result"
+        self.registry.register(_descriptor("search",
+                                           execute=interrupting))
+        started = self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self.assertTrue(started)
+        self._wait_turn()
+        self.assertEqual(self.spoken, [])  # stale results discarded
+        self.assertEqual(self.followup_calls, [])
+        self.assertIn("CANCELLED", self.states)
+
+    def test_followup_garbage_survived(self):
+        self.registry.register(_descriptor("search"))
+        for garbage in (None, 42, {"no_reply": True}):
+            self.done.clear()
+            self.states.clear()
+            runner = ToolLoopRunner(lambda *a: garbage)
+            started = runner.start_turn(
+                self._parsed([{"function": "search", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertTrue(started)
+            self._wait_turn()
+        # never raised, and a speak happened for every garbage turn
+        self.assertEqual(len(self.spoken), 3)
+
+
 if __name__ == "__main__":
     unittest.main()
