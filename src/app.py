@@ -309,6 +309,7 @@ if __name__ == "__main__":
     try:
         from modules.module_mcp import get_mcp_manager
         get_mcp_manager().seed_if_absent()
+        get_mcp_manager().register_health_checks()
     except Exception as e:
         queue_message(f"WARNING: MCP registry seeding failed: {e}")
 

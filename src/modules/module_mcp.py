@@ -39,6 +39,10 @@ _SERVER_NAME_RE = re.compile(r"^[a-z0-9_]{1,32}\Z")
 _TRANSPORTS = ("stdio", "http")
 
 
+class McpServerError(Exception):
+    """A server-level failure (degraded / restarting) surfaced to callers."""
+
+
 class McpManager:
     """Registry + transports + lifecycle for MCP servers (D4)."""
 
@@ -48,36 +52,89 @@ class McpManager:
         self.servers = {}   # name -> registry entry
         self._transports = {}  # name -> transport object
         self._tools_cache = {}  # name -> merged tools/list result
+        # lifecycle state (S-M6-07): consecutive start failures, backoff
+        # deadline, degraded flag
+        self._state = {}
+        self._backoff_base = 1.0  # production: 1→2→4…→60s (tests shrink it)
+
+    def _restart_max_attempts(self):
+        try:
+            from modules.module_config import load_config
+            return load_config().get("MCP", {}).get(
+                "restart_max_attempts", 3)
+        except Exception:
+            return 3
 
     # ── handshake + tools/list + tools/call (S-M6-05) ────────────
 
     def ensure_started(self, name):
-        """Lazy start + legacy handshake. Returns the live transport."""
+        """Lazy start + legacy handshake with restart backoff (S-M6-07).
+
+        poll() health check first; a dead transport takes the restart
+        path.  Exponential backoff 1→2→4…→60s between attempts; after
+        `restart_max_attempts` CONSECUTIVE failures the server is marked
+        degraded (one log line, excluded from the prompt) until a
+        successful call resets the counters."""
         transport = self._transports.get(name)
         if transport is not None and transport.poll() is None:
             return transport
+        state = self._state.setdefault(
+            name, {"attempts": 0, "next_at": 0.0, "degraded": False})
+        if state["degraded"]:
+            raise McpServerError(
+                f"MCP server '{name}' is degraded (restart attempts "
+                f"exhausted)")
+        if time.monotonic() < state["next_at"]:
+            raise McpServerError(
+                f"MCP server '{name}' is restarting — retry later")
         entry = self.servers.get(name)
         if entry is None:
             raise ValueError(f"unknown MCP server '{name}'")
-        if entry.get("transport") == "stdio":
-            transport = _StdioServer(name, entry)
-        else:
-            transport = _HttpServer(name, entry)  # S-M6-06
-        transport.start()
-        result = transport._request({
-            "jsonrpc": "2.0", "id": _next_id(), "method": "initialize",
-            "params": {"protocolVersion": PROTOCOL_VERSION,
-                       "capabilities": {},
-                       "clientInfo": {"name": "tars", "version": "3.0"}}},
-            timeout=_request_timeout())
-        negotiated = (result.get("result", {}).get("protocolVersion")
-                      or PROTOCOL_VERSION)
-        # legacy handshake: notifications/initialized after the result
-        transport._send({"jsonrpc": "2.0",
-                         "method": "notifications/initialized"})
-        transport.negotiated_version = negotiated
-        # NOTE: the HTTP transport captures MCP-Session-Id from the
-        # initialize response headers itself (_post) — do not clobber it
+        try:
+            if entry.get("transport") == "stdio":
+                transport = _StdioServer(name, entry)
+            else:
+                transport = _HttpServer(name, entry)
+            transport.start()
+            result = transport._request({
+                "jsonrpc": "2.0", "id": _next_id(), "method": "initialize",
+                "params": {"protocolVersion": PROTOCOL_VERSION,
+                           "capabilities": {},
+                           "clientInfo": {"name": "tars", "version": "3.0"}}},
+                timeout=_request_timeout())
+            negotiated = (result.get("result", {}).get("protocolVersion")
+                          or PROTOCOL_VERSION)
+            # legacy handshake: notifications/initialized after the result
+            transport._send({"jsonrpc": "2.0",
+                             "method": "notifications/initialized"})
+            transport.negotiated_version = negotiated
+            # NOTE: the HTTP transport captures MCP-Session-Id from the
+            # initialize response headers itself (_post) — do not clobber
+        except Exception as exc:
+            # start/handshake failed: stop the half-open transport
+            failed = self._transports.pop(name, None)
+            if failed is not None:
+                try:
+                    failed.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+            state["attempts"] += 1
+            if state["attempts"] >= self._restart_max_attempts():
+                state["degraded"] = True
+                queue_message(
+                    f"MCP: server '{name}' marked degraded after "
+                    f"{state['attempts']} consecutive restart attempts")
+            else:
+                delay = min(self._backoff_base
+                            * 2 ** (state["attempts"] - 1), 60.0)
+                state["next_at"] = time.monotonic() + delay
+                queue_message(
+                    f"MCP: server '{name}' failed to start (attempt "
+                    f"{state['attempts']}): {exc} — retrying in {delay:g}s")
+            raise
+        # any successful start resets the backoff
+        state["attempts"] = 0
+        state["next_at"] = 0.0
         self._transports[name] = transport
         self._tools_cache.pop(name, None)  # re-fetch on restart
         return transport
@@ -108,18 +165,89 @@ class McpManager:
     def call_tool(self, name, tool, args):
         """tools/call → ToolResult.  `isError: true` is a SUCCESSFUL
         JSON-RPC response → ToolResult(is_error=True), fed back to the
-        model per D1 — never an exception."""
-        transport = self.ensure_started(name)
-        response = transport._request(
-            {"jsonrpc": "2.0", "id": _next_id(), "method": "tools/call",
-             "params": {"name": tool, "arguments": args or {}}},
-            timeout=_request_timeout())
+        model per D1 — never an exception.  Server-level failures
+        (degraded, restarting, dead transport) also surface as
+        is_error results — the loop feeds them back to the model."""
+        try:
+            transport = self.ensure_started(name)
+            response = transport._request(
+                {"jsonrpc": "2.0", "id": _next_id(), "method": "tools/call",
+                 "params": {"name": tool, "arguments": args or {}}},
+                timeout=_request_timeout())
+        except McpServerError as exc:
+            return ToolResult(is_error=True, content=str(exc))
+        except Exception as exc:  # noqa: BLE001 — transport failure
+            # non-JSON stdout / dead pipe: the transport is failed — the
+            # next call takes the restart path
+            self._mark_transport_failed(name)
+            return ToolResult(is_error=True,
+                              content=f"MCP server '{name}' call failed: "
+                                      f"{exc}")
         if "error" in response:
             error = response["error"] or {}
             return ToolResult(is_error=True,
                               content=f"MCP error: "
                                       f"{error.get('message', 'unknown')}")
         return _result_from_content(response.get("result") or {})
+
+    def _mark_transport_failed(self, name):
+        transport = self._transports.pop(name, None)
+        self._tools_cache.pop(name, None)
+        if transport is not None:
+            try:
+                transport.stop()
+            except Exception:  # noqa: BLE001 — best-effort cleanup
+                pass
+
+    def status(self):
+        """Per-server lifecycle state for the UI and CLI (S-M6-07)."""
+        out = {}
+        for name, entry in self.servers.items():
+            state = self._state.get(name, {})
+            transport = self._transports.get(name)
+            running = transport is not None and transport.poll() is None
+            degraded = bool(state.get("degraded"))
+            enabled = bool(entry.get("enabled", True))
+            out[name] = {"running": running,
+                         "degraded": degraded,
+                         "enabled": enabled,
+                         "in_prompt": enabled and not degraded}
+        return out
+
+    def register_health_checks(self):
+        """Register the periodic health ping per server (app startup).
+        Recurring tasks are not persisted — the app re-registers each
+        start (module_heartbeat contract)."""
+        try:
+            from modules.module_config import load_config
+            from modules.module_heartbeat import schedule_recurring
+        except Exception:
+            return
+        interval = load_config().get("MCP", {}).get("health_interval_s", 60)
+        if not interval or interval <= 0:
+            return
+        for name in self.servers:
+            schedule_recurring(f"mcp_health_{name}", interval,
+                               self._health_check, args=(name,))
+
+    def _health_check(self, name):
+        """Periodic ping: any JSON-RPC response counts as alive; a dead
+        or silent transport is stopped so the next call restarts it."""
+        transport = self._transports.get(name)
+        if transport is None:
+            return  # never started — lazy start stays lazy
+        if transport.poll() is not None:
+            self._mark_transport_failed(name)
+            queue_message(f"MCP: health check found '{name}' dead — "
+                          f"it will restart on next use")
+            return
+        try:
+            transport._request({"jsonrpc": "2.0", "id": _next_id(),
+                                "method": "ping"},
+                               timeout=_request_timeout())
+        except Exception as exc:  # noqa: BLE001
+            self._mark_transport_failed(name)
+            queue_message(f"MCP: health ping to '{name}' failed: {exc}")
 
     def shutdown(self):
         """Stop every running transport (S-M6-08 wires this into the

@@ -627,5 +627,98 @@ class TestHttpTransport(unittest.TestCase):
         self.assertEqual(result.content, "http result")
 
 
+class TestLifecycle(_ManagerTestCase):
+    """Health, restart backoff, degraded state (S-M6-07)."""
+
+    def _real_manager_small_backoff(self):
+        manager = self._real_manager()
+        manager._backoff_base = 0.01  # production: 1→2→4…→60s
+        return manager
+
+    def test_kill_then_restart_recovers(self):
+        manager = self._real_manager_small_backoff()
+        result = manager.call_tool("example", "add_numbers", {"a": 1, "b": 1})
+        self.assertFalse(result.is_error)
+        # kill the underlying process — next call transparently restarts
+        manager._transports["example"]._proc.kill()
+        manager._transports["example"]._proc.wait(timeout=5)
+        result = manager.call_tool("example", "add_numbers", {"a": 2, "b": 3})
+        self.assertFalse(result.is_error, result.content)
+        self.assertIn("5", result.content)
+
+    def test_degraded_after_max_attempts(self):
+        from modules.module_mcp import McpManager
+        # a server that always fails to start (immediate exit)
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "broken": {"transport": "stdio", "command": sys.executable,
+                           "args": ["-c", "raise SystemExit(1)"],
+                           "env": {}, "cwd": None, "enabled": True,
+                           "auto_start": False}}}, fh)
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        manager._backoff_base = 0.01
+        with mock.patch.object(manager, "_restart_max_attempts",
+                              return_value=2), \
+             mock.patch("modules.module_mcp.queue_message") as qm:
+            for _ in range(4):
+                result = manager.call_tool("broken", "any", {})
+                self.assertTrue(result.is_error)
+                time.sleep(0.02)  # wait out the tiny test-scale backoff
+        self.assertTrue(manager.status()["broken"]["degraded"])
+        degraded_lines = [c for c in qm.call_args_list
+                          if "degraded" in c.args[0]]
+        self.assertEqual(len(degraded_lines), 1,
+                         f"exactly one degraded log line, got {len(degraded_lines)}")
+        # degraded servers are excluded from the prompt flag
+        self.assertFalse(manager.status()["broken"]["in_prompt"])
+
+    def test_backoff_resets_on_success(self):
+        from modules.module_mcp import McpManager
+        script = self._write_fake_server(
+            '{"content": [{"type": "text", "text": "ok"}], '
+            '"isError": False}')
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "flaky": {"transport": "stdio", "command": sys.executable,
+                          "args": [script], "env": {}, "cwd": None,
+                          "enabled": True, "auto_start": False}}}, fh)
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        manager._backoff_base = 0.01
+        # failure 1: bad command
+        manager.servers["flaky"]["command"] = "/no/such/binary"
+        result = manager.call_tool("flaky", "x", {})
+        self.assertTrue(result.is_error)
+        self.assertEqual(manager._state["flaky"]["attempts"], 1)
+        # success resets the counter (after the tiny backoff window)
+        time.sleep(0.02)
+        manager.servers["flaky"]["command"] = sys.executable
+        result = manager.call_tool("flaky", "x", {})
+        self.assertFalse(result.is_error, result.content)
+        self.assertEqual(manager._state["flaky"]["attempts"], 0)
+        # failure again -> backoff starts from the base again (attempts 1);
+        # kill the live transport so the restart path runs with the bad
+        # command (an alive transport short-circuits ensure_started)
+        manager.servers["flaky"]["command"] = "/no/such/binary"
+        manager._transports["flaky"].stop()
+        result = manager.call_tool("flaky", "x", {})
+        self.assertTrue(result.is_error)
+        self.assertEqual(manager._state["flaky"]["attempts"], 1,
+                         "any successful call resets the backoff")
+        self.assertTrue(result.is_error)
+        self.assertEqual(manager._state["flaky"]["attempts"], 1,
+                         "any successful call resets the backoff")
+
+    def test_status_reports_running(self):
+        manager = self._real_manager_small_backoff()
+        self.assertFalse(manager.status()["example"]["running"])
+        manager.list_tools("example")
+        self.assertTrue(manager.status()["example"]["running"])
+        self.assertTrue(manager.status()["example"]["in_prompt"])
+
+
 if __name__ == "__main__":
     unittest.main()
