@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """AST exporter: module_movements.py -> src/movements_defaults.json (S-M1-01).
 
-Generates the tracked movement defaults file once, so it can become the
-source of truth for the movement store (D5).  The existing regex parser
+HISTORICAL PROVENANCE (audit A6-caveat): this script generated the
+movement defaults ONCE, in M1, from the original 33 movement functions.
+Those functions were deleted in M2 when the movement store took over —
+src/movements_defaults.json is now the AUTHORITATIVE, hand-edited source
+of truth, and this script can no longer regenerate it (its input no
+longer exists).  It is retained so the file's derivation remains
+reproducible from git history.  The existing regex parser
 (_parse_movement_steps in module_chatui.py) cannot represent ARMS_PRESENT
 branches, HOLD or skip semantics — this exporter walks the real AST instead:
 

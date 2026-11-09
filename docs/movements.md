@@ -2,7 +2,7 @@
 
 Physical motion is driven by the **movement store**: two JSON files with one schema.
 
-- **`src/movements_defaults.json`** — tracked in git, hand-editable, generated once from the original movement code by `scripts/export_movement_defaults.py` (an AST extractor; run it to re-derive the file). This is the source of truth for the shipped movements.
+- **`src/movements_defaults.json`** — tracked in git, hand-editable, and **the source of truth** for the shipped movements. It was generated once (in M1) from the original movement code by `scripts/export_movement_defaults.py`; those functions were deleted when the store took over, so the exporter is retained as historical provenance for how the file was first derived — it can no longer regenerate it. Edit the JSON directly (the golden structural tests in `src/tests/test_movement_store.py` pin its invariants).
 - **`src/movements.json`** — the **live store**, gitignored per-robot state. On first app start it is **seeded from the defaults** (one log line: `MOVEMENTS: seeded movements.json from defaults`). Every load validates it; a corrupt or invalid file never stops the robot: the offending entry is logged (`MOVEMENTS: invalid entry '<id>': <reason>`) and the defaults content is used instead.
 
 Playback goes through `module_movementstore.py`: `execute(id)` picks the right branch (`steps_arms` when arm servos are present, else `steps`), honours the `swap_turn_directions` config for the four turn ids, and plays the step list with `play_steps()`. The MOVING flag is claimed/released through the locked helpers (`acquire_moving()` / `set_moving()`), so a second movement is refused while one is running.
