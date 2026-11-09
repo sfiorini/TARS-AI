@@ -415,6 +415,26 @@ def process_completion(prompt, image_b64=None):
 
     return _get_parsed(prompt)
 
+
+def followup_completion(user_input, prior_reply, tool_results_text, source="voice"):
+    """Follow-up completion carrying tool results back to the model (D1).
+
+    Single build_prompt call whose user text is the original input plus the
+    previous reply and the tool results; the reply goes through the same
+    llm_parse_response repair chain.  Returns the parsed dict, or None on
+    request failure (the runner then speaks its fallback line).
+    """
+    augmented = (f"{user_input}\n\n[Your previous reply: {prior_reply}]\n"
+                 f"[Tool results:\n{tool_results_text}\n]\n"
+                 "Produce the final short spoken reply for the user using these results.\n"
+                 "Do not call functions again unless strictly necessary.")
+    prompt = build_prompt(augmented, character_manager, memory_manager, CONFIG, debug=False)
+    bot_reply = raw_complete_llm(prompt)
+    if bot_reply is None:
+        return None
+    return llm_parse_response(bot_reply)
+
+
 _emotion_cache = {}
 _EMOTION_CACHE_MAX = 128
 

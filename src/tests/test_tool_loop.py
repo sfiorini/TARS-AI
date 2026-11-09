@@ -306,5 +306,50 @@ class TestHoldingLine(_LoopTestCase):
         self.assertEqual(self.spoken, ["final answer"])
 
 
+class TestFollowupCompletion(unittest.TestCase):
+    """followup_completion prompt shape (S-M4-05) — the model's behavior
+    depends on the augmentation format, so it is pinned exactly."""
+
+    def test_followup_completion_prompt_shape(self):
+        from modules import module_llm
+        captured = {}
+
+        def fake_build_prompt(user_text, *args, **kwargs):
+            captured["user_text"] = user_text
+            return "stub-prompt"
+
+        canned = '{"reply": "the answer", "function_calls": [], "new_memories": []}'
+        with mock.patch.object(module_llm, "build_prompt",
+                              side_effect=fake_build_prompt), \
+             mock.patch.object(module_llm, "raw_complete_llm",
+                               return_value=canned) as post:
+            result = module_llm.followup_completion(
+                "what is the weather", "checking", "search: sunny, 21C",
+                "voice")
+        self.assertIn("[Your previous reply: checking]",
+                      captured["user_text"])
+        self.assertIn("[Tool results:\nsearch: sunny, 21C\n]",
+                      captured["user_text"])
+        self.assertIn("Produce the final short spoken reply for the user "
+                      "using these results.", captured["user_text"])
+        self.assertIn("Do not call functions again unless strictly "
+                      "necessary.", captured["user_text"])
+        self.assertTrue(captured["user_text"].startswith(
+            "what is the weather"))
+        post.assert_called_once_with("stub-prompt")
+        self.assertEqual(result, {"reply": "the answer",
+                                  "function_calls": [],
+                                  "new_memories": []})
+
+    def test_followup_completion_request_failure_returns_none(self):
+        from modules import module_llm
+        with mock.patch.object(module_llm, "build_prompt",
+                              return_value="stub"), \
+             mock.patch.object(module_llm, "raw_complete_llm",
+                               return_value=None):
+            result = module_llm.followup_completion("u", "r", "t", "voice")
+        self.assertIsNone(result)  # runner speaks the timeout fallback
+
+
 if __name__ == "__main__":
     unittest.main()
