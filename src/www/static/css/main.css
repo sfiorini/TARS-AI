@@ -2586,6 +2586,19 @@ body::after {
   height: 100%;
 }
 
+/* Content wrapper for the Movements / Agent Skills / MCP tabs — mirrors
+   .nexus-wrap so the new screens sit in the same framed column instead of
+   stretching edge-to-edge. */
+.builder-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
 /* ── Status strip (top metrics bar) ── */
 .nexus-status-strip {
   display: flex;
@@ -2878,7 +2891,9 @@ body::after {
 
   /* enable internal scrolling on tabs that need it */
   #wifi.tab-pane, #emotions.tab-pane, #nexus.tab-pane,
-  #config.tab-pane, #motion.tab-pane, #dashboard.tab-pane { overflow-y: auto; }
+  #config.tab-pane, #motion.tab-pane, #dashboard.tab-pane,
+  #builder.tab-pane, #movements.tab-pane, #skills-std.tab-pane,
+  #mcp.tab-pane { overflow-y: auto; }
 
   /* ── CHAT TAB MOBILE ── */
   .chat-wrap {
@@ -3135,6 +3150,7 @@ body::after {
 
   /* ── NEXUS TAB MOBILE ── */
   .nexus-wrap { padding: 10px 10px; gap: 10px; }
+  .builder-wrap { padding: 10px 10px; gap: 10px; }
 
   .nexus-status-strip {
     flex-direction: column;
@@ -3181,7 +3197,9 @@ body::after {
   .tab-pane, .tab-pane.fade:not(.show) { position: relative; inset: auto; flex: 0 0 100%; width: 100%; height: 100%; opacity: 1; visibility: visible; pointer-events: none; transition: none; overflow: hidden; }
   .tab-pane.active { pointer-events: auto; }
   #wifi.tab-pane, #emotions.tab-pane, #nexus.tab-pane,
-  #config.tab-pane, #motion.tab-pane, #dashboard.tab-pane { overflow-y: auto; }
+  #config.tab-pane, #motion.tab-pane, #dashboard.tab-pane,
+  #builder.tab-pane, #movements.tab-pane, #skills-std.tab-pane,
+  #mcp.tab-pane { overflow-y: auto; }
 
   /* Motion: side-by-side in landscape */
   .motion-wrap { flex-direction: row; }

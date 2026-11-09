@@ -245,6 +245,67 @@ class TestCrud(_StoreTestCase):
         self.assertEqual(other.get_all(), self.store.get_all())
 
 
+class TestPartialStepNormalisation(_StoreTestCase):
+    """The UI sends partial steps; the store must complete and persist them.
+
+    Live bug: POST /movements with the movements panel's payload returned
+    400 "steps[0] has missing keys [...]" because validation demanded all 13
+    keys while playback already tolerated partial steps.
+    """
+
+    def _ui_payload(self):
+        # exactly what movements.html createMovement sends
+        return {
+            "name": "ui_move", "type": "legs_only",
+            "description": "created from the UI",
+            "steps": [{
+                "left_height": 50, "right_height": 50,
+                "left_leg": 50, "right_leg": 50,
+                "speed": 0.9, "hold_time": 0.0,
+            }],
+            "steps_arms": None,
+        }
+
+    def test_partial_step_is_accepted_and_completed(self):
+        self.store.load()
+        self.store.add("ui_move", self._ui_payload())
+        stored = self.store.get("ui_move")
+        step = stored["steps"][0]
+        self.assertEqual(step["left_main"], None)
+        self.assertEqual(step["right_hand"], None)
+        self.assertEqual(step["movement"], None)
+        self.assertEqual(step["speed"], 0.9)
+        self.assertEqual(step["hold_time"], 0.0)
+        # every schema key present after normalisation
+        self.assertEqual(set(step), set(type(self.store)._STEP_DEFAULTS))
+
+    def test_partial_step_survives_a_reload(self):
+        self.store.load()
+        self.store.add("ui_move", self._ui_payload())
+        self.store.load()
+        step = self.store.get("ui_move")["steps"][0]
+        self.assertEqual(set(step), set(type(self.store)._STEP_DEFAULTS))
+
+    def test_wrong_typed_value_still_rejected(self):
+        self.store.load()
+        bad = self._ui_payload()
+        bad["steps"][0]["left_height"] = "high"
+        with self.assertRaises(ValueError):
+            self.store.add("ui_bad", bad)
+
+    def test_unknown_step_key_still_rejected(self):
+        self.store.load()
+        bad = self._ui_payload()
+        bad["steps"][0]["sneaky"] = 1
+        with self.assertRaises(ValueError):
+            self.store.add("ui_bad", bad)
+
+    def test_full_schema_payload_still_works(self):
+        self.store.load()
+        self.store.add("ui_full", _valid_entry())
+        self.assertIsNotNone(self.store.get("ui_full"))
+
+
 class TestResetSemantics(_StoreTestCase):
     """D5 reset semantics: delete + re-insert from defaults (S-M1-04)."""
 

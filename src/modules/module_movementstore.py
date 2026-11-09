@@ -176,6 +176,7 @@ class MovementStore:
         return copy.deepcopy(entry) if entry is not None else None
 
     def add(self, mid, entry):
+        entry = self._normalize_steps(entry)
         self.validate_entry(mid, entry)
         if mid in self.movements:
             raise ValueError(f"duplicate movement id '{mid}'")
@@ -189,6 +190,7 @@ class MovementStore:
         self._refresh_registry()
 
     def update(self, mid, entry):
+        entry = self._normalize_steps(entry)
         self.validate_entry(mid, entry)
         if mid not in self.movements:
             raise ValueError(f"unknown movement id '{mid}'")
@@ -306,6 +308,10 @@ class MovementStore:
             if branch is None:
                 continue
             for idx, step in enumerate(branch):
+                # a partial step is accepted and completed with the
+                # documented defaults (same normalisation playback uses);
+                # wrong-typed values are still rejected by _step_defaults
+                step = self._step_defaults(step)
                 self._validate_step(f"{branch_name}[{idx}]", step, known_ids)
 
     def _validate_step(self, where, step, known_ids):
@@ -395,6 +401,25 @@ class MovementStore:
         merged = dict(cls._STEP_DEFAULTS)
         merged.update(step)
         return merged
+
+    @classmethod
+    def _normalize_steps(cls, entry):
+        """Return a copy of `entry` whose steps carry the full schema.
+
+        The UI (and hand-written JSON) may send partial steps; persisting
+        them complete keeps the stored file uniform and lets every consumer
+        assume all keys are present.
+        """
+        if not isinstance(entry, dict):
+            return entry
+        out = dict(entry)
+        for branch in ("steps", "steps_arms"):
+            steps = out.get(branch)
+            if isinstance(steps, list):
+                out[branch] = [cls._step_defaults(step)
+                               if isinstance(step, dict) else step
+                               for step in steps]
+        return out
 
     def play_steps(self, steps, tail_neutral=False):
         """Play a step list on the servos.  Returns False if the robot
