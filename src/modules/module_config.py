@@ -1159,7 +1159,7 @@ CONFIG_METADATA = {
         'piper_fx': {
             'label': 'sox FX Chain',
             'depends_on': [{'field': 'ttsoption', 'values': ['piper']}, {'field': 'piper_robot_fx', 'values': ['true', 'True']}],
-            'description': 'sox effect chain applied after each Piper sentence when Robot Voice FX is ON. The default is a robot-voice recipe: chorus + overdrive + pitch down.'
+            'description': 'sox effect chain applied after each Piper sentence when Robot Voice FX is ON. The default is a robot-voice recipe: flanger + pitch down.'
         },
     },
     'EMOTION': {
