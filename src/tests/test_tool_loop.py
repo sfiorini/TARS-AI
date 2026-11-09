@@ -266,6 +266,120 @@ class TestToolLoopRunner(_LoopTestCase):
                                        FALLBACK_LINE])
 
 
+class TestSuccessLogging(_LoopTestCase):
+    """Successful tool turns are verifiable in the log (robot defect 6):
+    the loop must log turn start, per-tool outcome, follow-up outcome and
+    turn done — failures-only logging made a successful turn
+    indistinguishable from a turn that called no tool at all."""
+
+    def _lines(self, qm):
+        return [call.args[0] for call in qm.call_args_list
+                if call.args and isinstance(call.args[0], str)]
+
+    @staticmethod
+    def _matching(lines, pattern):
+        import re
+        return [line for line in lines
+                if re.fullmatch(pattern, line)]
+
+    def test_successful_turn_logs_success_lines(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor("search"))
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            started = self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertTrue(started)
+            self._wait_turn()
+        lines = self._lines(qm)
+        # turn start names the source and the tools
+        self.assertIn(
+            "TOOLLOOP: turn start (source=voice) — tools: search", lines)
+        # per-tool ok line: name, duration (1 decimal), outcome
+        self.assertTrue(
+            self._matching(lines, r"TOOLLOOP: tool search ok in "
+                             r"\d+\.\ds \(11 chars\)"),
+            "per-tool ok line missing")
+        # follow-up ok line: hop number and reply size
+        self.assertIn("TOOLLOOP: hop 1 follow-up ok (reply 12 chars)",
+                      lines)
+        # turn done line: source, hops, duration
+        self.assertTrue(
+            self._matching(lines, r"TOOLLOOP: turn done "
+                             r"\(source=voice, hops=1, \d+\.\ds\)"),
+            "turn done line missing")
+
+    def test_turn_start_line_lists_all_tools(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor("search"))
+        self.registry.register(_descriptor("lookup"))
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            started = self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}},
+                              {"function": "lookup", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertTrue(started)
+            self._wait_turn()
+        lines = self._lines(qm)
+        self.assertIn(
+            "TOOLLOOP: turn start (source=voice) — tools: search, lookup",
+            lines)
+
+    def test_error_tool_logs_error_line(self):
+        import modules.module_toolloop as toolloop
+
+        def boom(params, ctx):
+            raise ValueError("search exploded")
+        self.registry.register(_descriptor("search", execute=boom))
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            started = self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertTrue(started)
+            self._wait_turn()
+        lines = self._lines(qm)
+        self.assertTrue(
+            self._matching(lines, r"TOOLLOOP: tool search ERROR in "
+                             r"\d+\.\ds: search exploded"),
+            "per-tool ERROR line missing")
+
+    def test_followup_failure_keeps_failure_lines(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor("search"))
+
+        def broken_followup(*args):
+            raise RuntimeError("LLM down")
+        runner = ToolLoopRunner(broken_followup)
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            started = runner.start_turn(
+                self._parsed([{"function": "search", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertTrue(started)
+            self._wait_turn()
+        lines = self._lines(qm)
+        # the pre-existing failure line stays
+        self.assertTrue(any(line.startswith(
+            "TOOLLOOP: follow-up completion failed: LLM down")
+            for line in lines), "existing failure line missing")
+        # and the new hop line reports the failed follow-up
+        self.assertIn(
+            "TOOLLOOP: hop 1 follow-up FAILED — speaking fallback", lines)
+
+    def test_fire_and_forget_turn_logs_nothing(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor(
+            "move", result_bearing=False,
+            execute=lambda p, c: "moved"))
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            started = self._runner().start_turn(
+                self._parsed([{"function": "move", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self.assertFalse(started)
+        toolloop_lines = [line for line in self._lines(qm)
+                          if "TOOLLOOP" in line]
+        self.assertEqual(toolloop_lines, [])
+
+
 HOLDING_LINE = "On it — I'll report back."
 
 

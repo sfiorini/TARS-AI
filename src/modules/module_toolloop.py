@@ -52,6 +52,14 @@ class TurnCallbacks:
     wait_for_reply0: Optional[threading.Event] = None
 
 
+def _short(text, limit=80):
+    """Bounded log fragment — long names/reasons are truncated so every
+    TOOLLOOP line stays single-line and non-spammy (never the full prompt
+    or full tool output)."""
+    text = str(text)
+    return text if len(text) <= limit else text[:limit - 1] + "…"
+
+
 def _wait_for_reply0(callbacks):
     """Block until the caller's reply-0 TTS has drained (bounded wait —
     a missing set can never hang the turn thread forever)."""
@@ -149,6 +157,10 @@ class ToolLoopRunner:
                     callbacks.speak(HOLDING_LINE)
                 except Exception as exc:  # noqa: BLE001
                     queue_message(f"TOOLLOOP: speak callback failed: {exc}")
+        names = ", ".join(str(call.get("function", ""))
+                          for call in calls)
+        queue_message(f"TOOLLOOP: turn start (source={source}) "
+                      f"— tools: {_short(names)}")
         epoch = _current_epoch(source)
         threading.Thread(
             target=self._run_turn,
@@ -222,6 +234,7 @@ class ToolLoopRunner:
                     + max_hops * (default_timeout + request_timeout))
         ctx = ToolContext(bot_response=parsed, user_input=user_text,
                           source=source, config=config)
+        t0 = time.monotonic()
 
         parts = []
         pending = initial_calls
@@ -230,8 +243,16 @@ class ToolLoopRunner:
             if not self._epoch_ok(source, epoch):
                 return self._cancel(callbacks, source)
             callbacks.on_state("TOOLS_RUNNING")
-            for name, result in self._run_tools(pending, ctx,
-                                                default_timeout):
+            for name, result, duration in self._run_tools(
+                    pending, ctx, default_timeout):
+                if result.is_error:
+                    queue_message(
+                        f"TOOLLOOP: tool {_short(name)} ERROR in "
+                        f"{duration:.1f}s: {_short(result.content)}")
+                else:
+                    queue_message(
+                        f"TOOLLOOP: tool {_short(name)} ok in "
+                        f"{duration:.1f}s ({len(result.content)} chars)")
                 text = (result.content if not result.is_error
                         else f"ERROR: {result.content}")
                 parts.append(f"{name}: {text}")
@@ -249,6 +270,8 @@ class ToolLoopRunner:
                 return self._cancel(callbacks, source)
             if followup is None:
                 # request failure -> timeout fallback
+                queue_message(f"TOOLLOOP: hop {hops_used} follow-up "
+                              f"FAILED — speaking fallback")
                 return self._timeout(callbacks, parts)
             if isinstance(followup, dict):
                 new_calls = self._result_bearing_calls(
@@ -261,6 +284,8 @@ class ToolLoopRunner:
                 # non-dict/non-str garbage is never spoken verbatim (F5)
                 new_calls = []
                 reply = FALLBACK_LINE
+            queue_message(f"TOOLLOOP: hop {hops_used} follow-up ok "
+                          f"(reply {len(str(reply))} chars)")
             if new_calls and hops_used < max_hops:
                 pending = new_calls
                 continue
@@ -269,6 +294,9 @@ class ToolLoopRunner:
                 return self._timeout(callbacks, parts)
             if not str(reply).strip():
                 reply = FALLBACK_LINE
+            queue_message(f"TOOLLOOP: turn done (source={source}, "
+                          f"hops={hops_used}, "
+                          f"{time.monotonic() - t0:.1f}s)")
             return self._speak(callbacks, source, epoch, reply)
 
     # ── helpers ────────────────────────────────────────────────────
@@ -302,17 +330,19 @@ class ToolLoopRunner:
                            if descriptor is not None
                            and descriptor.timeout_s is not None
                            else default_timeout)
-                futures.append((name, timeout, pool.submit(
+                submitted = time.monotonic()
+                futures.append((name, timeout, submitted, pool.submit(
                     get_registry().dispatch, name,
                     call.get("parameters", {}) or {}, ctx)))
-            for name, timeout, future in futures:
+            for name, timeout, submitted, future in futures:
                 try:
                     result = future.result(timeout=timeout)
                 except concurrent.futures.TimeoutError:
                     result = ToolResult(content="timeout", is_error=True)
                 except Exception as exc:  # noqa: BLE001 — by contract
                     result = ToolResult(content=str(exc), is_error=True)
-                results.append((name, result))
+                results.append((name, result,
+                                time.monotonic() - submitted))
         finally:
             pool.shutdown(wait=False)
         return results
