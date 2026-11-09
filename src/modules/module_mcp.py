@@ -171,6 +171,8 @@ class McpManager:
         state["attempts"] = 0
         state["next_at"] = 0.0
         self._transports[name] = transport
+        if hasattr(transport, "_proc") and transport._proc is not None:
+            self._track_pid(transport._proc.pid)
         self._tools_cache.pop(name, None)  # re-fetch on restart
         return transport
 
@@ -380,6 +382,8 @@ class McpManager:
         """Stop every running transport (S-M6-08 wires this into the
         app's finally; safe when nothing started)."""
         for name, transport in list(self._transports.items()):
+            if hasattr(transport, "_proc") and transport._proc is not None:
+                self._untrack_pid(transport._proc.pid)
             try:
                 transport.stop()
             except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
@@ -452,11 +456,52 @@ class McpManager:
         self.save_registry()
         return True, []
 
+    # ── pidfile (audit B6): App-Stop sweeps TARS-spawned stdio children
+    # by pid — a bare `mcp_` pkill was over-broad (killed unrelated
+    # processes) and missed custom servers whose cmdline lacks "mcp_"
+
+    def _pidfile_path(self):
+        return os.path.join(os.path.dirname(self.registry_path),
+                            "mcp_pids.txt")
+
+    def _read_pidfile(self):
+        try:
+            with open(self._pidfile_path(), "r", encoding="utf-8") as fh:
+                return {int(line) for line in fh.read().split()
+                        if line.strip().isdigit()}
+        except (OSError, ValueError):
+            return set()
+
+    def _write_pidfile(self, pids):
+        path = self._pidfile_path()
+        if not pids:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            return
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(str(p) for p in sorted(pids)) + "\n")
+        os.replace(tmp, path)
+
+    def _track_pid(self, pid):
+        pids = self._read_pidfile()
+        pids.add(pid)
+        self._write_pidfile(pids)
+
+    def _untrack_pid(self, pid):
+        pids = self._read_pidfile()
+        pids.discard(pid)
+        self._write_pidfile(pids)
+
     def _stop_and_forget(self, name):
         """Stop the transport and drop all per-server state (audit A5/B3:
         remove/disable must not leak a running child)."""
         transport = self._transports.pop(name, None)
         if transport is not None:
+            if hasattr(transport, "_proc") and transport._proc is not None:
+                self._untrack_pid(transport._proc.pid)
             try:
                 transport.stop()
             except Exception as exc:  # noqa: BLE001 — best effort

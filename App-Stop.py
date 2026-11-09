@@ -62,9 +62,25 @@ def stop_tars_ai():
     _pkill_escalate("python app.py")
     # Final sweep: a HARD-killed app (SIGKILL before its finally could run)
     # leaves its MCP stdio children alive — they run in their own session
-    # and match neither pattern above (review F5). Kill them too.
+    # and match neither pattern above. Kill them PRECISELY (audit B6): the
+    # shipped example server by name, plus every TARS-spawned stdio child
+    # by pid from the manager's pidfile (a bare `mcp_` pattern killed
+    # unrelated processes and missed custom servers).
     _pkill_escalate("mcp_example_server")
-    _pkill_escalate("mcp_")
+    pidfile = os.path.expanduser("~/TARS-AI/src/mcp_pids.txt")
+    if os.path.exists(pidfile):
+        try:
+            with open(pidfile) as fh:
+                for line in fh:
+                    pid = line.strip()
+                    if pid.isdigit():
+                        subprocess.run(["kill", "-KILL", pid], check=False)
+        except OSError:
+            pass
+        try:
+            os.remove(pidfile)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":

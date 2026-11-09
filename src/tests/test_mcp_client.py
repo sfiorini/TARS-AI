@@ -1218,5 +1218,32 @@ class TestDegradedRecovery(_ManagerTestCase):
         self.assertIn("call failed", result.content)
 
 
+class TestPidfileTracking(_ManagerTestCase):
+    """Audit B6: App-Stop's bare `mcp_` pkill was over-broad AND missed
+    custom servers — TARS now tracks spawned stdio pids in a pidfile that
+    App-Stop sweeps, plus the specific shipped server."""
+
+    def test_pidfile_tracks_running_children(self):
+        manager = self._real_manager()
+        manager.list_tools("example")  # starts the real server
+        pid = manager._transports["example"]._proc.pid
+        pids = manager._read_pidfile()
+        self.assertIn(pid, pids, f"pidfile must track the child: {pids}")
+        # stop removes the pid
+        manager.shutdown()
+        pids = manager._read_pidfile()
+        self.assertNotIn(pid, pids)
+
+    def test_app_stop_sweep_is_precise(self):
+        with open(os.path.join(_REPO_ROOT, "App-Stop.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        # no bare mcp_ substring sweep (it killed unrelated processes)
+        self.assertNotIn('_pkill_escalate("mcp_")', src)
+        # the shipped server + the pidfile sweep are present
+        self.assertIn("_pkill_escalate(\"mcp_example_server\")", src)
+        self.assertIn("mcp_pids", src)
+
+
 if __name__ == "__main__":
     unittest.main()
