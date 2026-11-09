@@ -3012,52 +3012,11 @@ def play_saved_sequence():
 
 
 def _execute_steps(steps):
-    import modules.module_servoctl as _sc
-    import time as _time
-
-    if _sc.MOVING:
+    from modules.module_movementstore import get_movement_store
+    ok = get_movement_store().play_steps(steps, tail_neutral=True)
+    if not ok:
         return jsonify({"error": "Robot is already moving"}), 409
-
-    _sc.MOVING = True
-    _sc._notify_movement_start()
-    try:
-        for step in steps:
-            if step.get('movement'):
-                name = step['movement']
-                if name in globals():
-                    globals()[name]()
-                elif name == 'reset_positions':
-                    reset_positions()
-            else:
-                lh = step.get('left_height', 50)
-                rh = step.get('right_height', 50)
-                ll = step.get('left_leg', 50)
-                rl = step.get('right_leg', 50)
-                spd = step.get('speed', 0.85)
-                move_legs(lh, rh, ll, rl, spd)
-
-                if _sc.ARMS_PRESENT:
-                    lm = step.get('left_main')
-                    lf = step.get('left_forearm')
-                    lhv = step.get('left_hand')
-                    rm = step.get('right_main')
-                    rf = step.get('right_forearm')
-                    rhv = step.get('right_hand')
-                    if any(v is not None for v in [lm, lf, lhv, rm, rf, rhv]):
-                        move_arm(lm, lf, lhv, rm, rf, rhv, spd)
-
-                hold = step.get('hold_time', 0.0)
-                if hold and hold > 0:
-                    _time.sleep(hold)
-
-        move_legs(50, 50, 50, 50, 0.8)
-        disable_all_servos()
-        return jsonify({"success": True}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    finally:
-        _sc.MOVING = False
-        _sc._notify_movement_end()
+    return jsonify({"success": True}), 200
 
 
 @flask_app.route('/get_movement_steps/<name>', methods=['GET'])

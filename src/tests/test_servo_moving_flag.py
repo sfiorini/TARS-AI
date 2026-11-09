@@ -139,6 +139,16 @@ class TestMovementsUseLockedHelpers(MovingFlagTestCase):
             source = fh.read()
         self.assertNotIn("if not servoctl.MOVING:", source)
 
+    def test_no_bare_moving_write_in_chatui(self):
+        """Regression pin (S-M2-03): the builder playback path delegates
+        to movementstore.play_steps, whose MOVING transitions go through
+        the locked helpers — no bare `_sc.MOVING = ...` in chatui."""
+        path = os.path.join(_SRC, "modules", "module_chatui.py")
+        with open(path, "r", encoding="utf-8") as fh:
+            source = fh.read()
+        bare = re.findall(r"^\s*_sc\.MOVING\s*=", source, re.M)
+        self.assertEqual(bare, [], "bare _sc.MOVING assignment(s) found")
+
 
 if __name__ == "__main__":
     unittest.main()
