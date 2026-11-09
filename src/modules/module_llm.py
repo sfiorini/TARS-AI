@@ -823,9 +823,20 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
         result = get_registry().dispatch(function_name, parameters, ctx)
         if result.is_error:
             queue_message(result.content)
-        # pure dispatch (S-M4-06): reply composition belongs to the deferred
-        # loop (result-bearing turns) or run_blocking_legacy (rollback) —
-        # the reply-overwrite contract dies with the has_blocking_tool block
+        elif result.content:
+            # audit A3: this shim is only reached from the INLINE
+            # (fire-and-forget) path — llm_execute_side_effects — because
+            # the deferred loop dispatches through the registry directly.
+            # Non-followup skills that RETURN a string (home_assistant's
+            # "Lights on", its error text, …) must still surface it in the
+            # reply, exactly as pre-M4; result-bearing skills never get
+            # here (the loop owns them).
+            if bot_response.get("_skill_replied"):
+                bot_response["reply"] = \
+                    f"{bot_response['reply']} {result.content}"
+            else:
+                bot_response["reply"] = result.content
+                bot_response["_skill_replied"] = True
     except Exception as e:
         queue_message(f"Function execution failed for {function_name}: {e}")
 

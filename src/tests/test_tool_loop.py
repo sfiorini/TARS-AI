@@ -792,5 +792,41 @@ class TestLegacyMixedTurnDispatch(unittest.TestCase):
         self.assertEqual(spoken, [])
 
 
+class TestFireAndForgetReplies(unittest.TestCase):
+    """Audit A3: non-followup builtin skills that RETURN a string must
+    still surface it in the reply on the inline (fire-and-forget) path —
+    the pre-M4 behavior webui/discord rely on (e.g. home_assistant's
+    'Lights on' / error text). The loop path is unchanged."""
+
+    def test_fire_and_forget_reply_surfaces(self):
+        import concurrent.futures
+        from modules.module_toolregistry import (ToolDescriptor,
+                                                 ToolResult, reset_registry)
+        from modules import module_llm
+        reset_registry()
+        self.addCleanup(reset_registry)
+
+        def fake_exec(params, ctx):
+            return "Lights on"
+
+        descriptor = ToolDescriptor(
+            name="home_assistant", kind="builtin", description="",
+            parameters=None, result_bearing=False, timeout_s=None,
+            execute=fake_exec)
+        from modules.module_toolregistry import get_registry
+        get_registry().register(descriptor)
+        parsed = {"reply": "",
+                  "function_calls": [{"function": "home_assistant",
+                                      "parameters": {}}],
+                  "new_memories": []}
+        # the webui fire-and-forget path: llm_execute_side_effects inline
+        module_llm.llm_execute_side_effects(parsed, "turn on the lights",
+                                             source="webui")
+        self.assertEqual(parsed.get("reply"), "Lights on",
+                         "the fire-and-forget skill's return string must "
+                         "surface in the reply")
+        self.assertTrue(parsed.get("_skill_replied"))
+
+
 if __name__ == "__main__":
     unittest.main()
