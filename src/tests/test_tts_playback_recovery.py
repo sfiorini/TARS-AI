@@ -178,6 +178,35 @@ class TestPersistentWriteFailureRecovery(PlayTestCase):
         self.assertFalse(result)
 
 
+class TestResampleDtype(PlayTestCase):
+    """A non-44100 provider chunk must still reach the persistent float32 stream.
+
+    Regression: np.interp (the 24000/22050 -> 44100 resample) ALWAYS returns
+    float64, while the persistent OutputStream is float32. Writing float64
+    raised "dtype mismatch: 'float64' vs 'float32'", dropped the chunk to the
+    sd.play recovery path, and was logged as a warning on the robot for every
+    Speechify (pcm_24000) and Piper (22050) utterance.
+    """
+
+    def test_resampled_chunk_is_written_as_float32(self):
+        for rate in (24000, 22050):
+            with self.subTest(rate=rate):
+                _reset_cancel_state()
+                fake = _FakeOutputStream()
+                sd_play = mock.Mock()
+                with self._play_ctx([_wav_chunk(0.05, rate=rate)],
+                                    stream_factory=mock.Mock(return_value=fake),
+                                    sd_play=sd_play):
+                    asyncio.run(tts.play_audio_chunks("hello", {}))
+                self.assertTrue(fake.writes, f"no write at {rate} Hz")
+                self.assertEqual(fake.writes[0].dtype, np.float32,
+                                 f"resampled {rate} Hz chunk written as "
+                                 f"{fake.writes[0].dtype}, not float32")
+                self.assertFalse(sd_play.called,
+                                 "chunk fell back to sd.play instead of the "
+                                 "persistent stream")
+
+
 class TestRecoverSoundServerInvalidatesMicHub(PlayTestCase):
     """A3: PortAudio re-init must invalidate the mic hub's dangling stream."""
 

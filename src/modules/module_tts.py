@@ -877,6 +877,13 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                                 for ch in range(data.shape[1])
                             ])
                         samplerate = 44100
+                        # np.interp ALWAYS returns float64, and the persistent
+                        # OutputStream is float32 — writing float64 raises
+                        # "dtype mismatch: 'float64' vs 'float32'" and drops the
+                        # whole chunk to the sd.play recovery path. Cast back so
+                        # every non-44100 provider (Piper 22050, Speechify 24000)
+                        # plays through the persistent stream.
+                        data = data.astype(np.float32, copy=False)
 
                     # Per-chunk peak normalization causes volume pumping between
                     # streaming slices; only normalize long (non-streaming) chunks.
