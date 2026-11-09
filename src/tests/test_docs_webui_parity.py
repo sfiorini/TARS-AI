@@ -71,6 +71,19 @@ def test_every_new_route_is_documented():
         assert route in doc, f"web-ui.md lost route '{route}'"
 
 
+def test_test_counts_not_hardcoded():
+    """M7 review F3: hardcoded pass-counts rot — the docs must use the
+    command form, and no stale 'N passed' number may return."""
+    for page in ("development.md", "quickstart.md", "troubleshooting.md",
+                 "servo-watchdog.md"):
+        doc = (REPO_ROOT / "docs" / page).read_text(encoding="utf-8")
+        assert "python3 -m pytest src/tests -q" in doc, \
+            f"docs/{page} must tell the reader to run the suite"
+        import re
+        stale = re.findall(r"\*\*\d+ passed\*\*", doc)
+        assert not stale, f"docs/{page} hardcodes a pass count: {stale}"
+
+
 def test_changed_sequence_routes_documented():
     doc = WEBUI_DOC.read_text(encoding="utf-8")
     for route in ("/save_sequence", "/play_sequence", "/get_movement_steps/"):

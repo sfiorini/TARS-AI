@@ -76,7 +76,7 @@ After a tool call (web search, camera, script) TARS says a holding line but the 
 
 ## Tests failing / docs build failing
 
-`python3 -m pytest src/tests -q` must report **62 passed** on V3 (the tests fake GPIO/I2C and bootstrap `src/config.ini` from the template, so they run anywhere with `pip install pytest`). Docs: `pip install -r requirements-docs.txt && mkdocs build --strict` — CI runs exactly this in `.github/workflows/docs.yml` on every push to `V3`.
+`python3 -m pytest src/tests -q` must be fully green on V3 (the tests fake GPIO/I2C and bootstrap `src/config.ini` from the template, so they run anywhere with `pip install pytest`). Docs: `pip install -r requirements-docs.txt && mkdocs build --strict` — CI runs exactly this in `.github/workflows/docs.yml` on every push to `V3`.
 
 ## Where things live
 

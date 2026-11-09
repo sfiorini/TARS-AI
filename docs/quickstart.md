@@ -127,7 +127,7 @@ Say the wake word (`hey tars` by default) and talk to TARS.
 python3 -m pytest src/tests -q
 ```
 
-Expected on V3: **238 passed** in ~1–2 s. `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests fake the GPIO/I2C modules and bootstrap `src/config.ini` from the template, so they run on any machine. On the robot, use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
+Expected on V3: the whole suite green in a few seconds (run the command for the current count — the docs deliberately do not hardcode it). `pytest.ini` sets `testpaths = src/tests` and `pythonpath = src`; the tests fake the GPIO/I2C modules and bootstrap `src/config.ini` from the template, so they run on any machine. On the robot, use the app venv: `src/.venv/bin/python -m pytest src/tests -q`.
 
 ## Next steps
 
