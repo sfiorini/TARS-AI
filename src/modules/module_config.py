@@ -531,6 +531,10 @@ def load_config():
             "top_p": float(config['LLM']['top_p']),
             "json_mode": config.getboolean('LLM', 'json_mode', fallback=True),
             "override_encoding_model": config['LLM']['override_encoding_model'],
+            "tool_loop_max_hops": config.getint('LLM', 'tool_loop_max_hops', fallback=2),
+            "tool_call_timeout": config.getint('LLM', 'tool_call_timeout', fallback=60),
+            "request_timeout": config.getint('LLM', 'request_timeout', fallback=120),
+            "deferred_loop_enabled": config.getboolean('LLM', 'deferred_loop_enabled', fallback=True),
             "api_key": get_api_key(config['LLM']['llm_backend']),
         },
         "VISION": {
@@ -820,6 +824,18 @@ CONFIG_METADATA = {
         'override_encoding_model': {
             'options': ['cl100k_base', 'p50k_base', 'r50k_base', 'gpt2'],
             'description': 'Controls how TARS counts tokens (message size) before sending to the AI. DO NOT change this unless you see token-counting errors in the logs. "cl100k_base" is the correct encoding for GPT-4, GPT-3.5-turbo, and most modern models — leave this as-is for 99% of setups. "p50k_base" was used for older InstructGPT/Codex models. "r50k_base" is for legacy GPT-3. "gpt2" is for very old models. If TARS logs say something like "KeyError: encoding not found for model X", try leaving the model name fallback alone first — TARS already falls back to this encoding automatically when the model name is not recognized.'
+        },
+        'tool_loop_max_hops': {
+            'description': 'How many follow-up rounds the deferred reply loop may run after tool results come back (D1). Each round runs the tools, then asks the AI to compose the final spoken reply. 2 means: tools run, the AI answers with the results, and if that answer itself asks for more tools, they run once more. Lower is faster and cheaper; higher lets the AI finish multi-step tasks but a misbehaving model cannot spin forever.'
+        },
+        'tool_call_timeout': {
+            'description': 'How long TARS waits for a single tool call (web search, script, MCP tool) before giving up and telling the AI the tool timed out. 60 seconds covers slow searches; raise it for tools that regularly take longer.'
+        },
+        'request_timeout': {
+            'description': 'How long TARS waits for any single AI request before giving up. This bounds every LLM HTTP call so a hung server cannot freeze a conversation.'
+        },
+        'deferred_loop_enabled': {
+            'description': 'Master switch for the deferred reply loop. When ON, tools that produce results (like web search) trigger a follow-up: TARS says a short holding line, runs the tool, then speaks the final answer built from the results. When OFF, TARS falls back to the old blocking behavior for one release. Flip this OFF and restart if the robot ever speaks oddly after tool use.'
         },
     },
     'STT': {
