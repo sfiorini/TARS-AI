@@ -724,6 +724,45 @@ class TestSpeechifyMidStreamAbort(unittest.TestCase):
         resp.close.assert_called_once()
 
 
+class TestNonBlockingHTTP(unittest.TestCase):
+    """S-M3-10: the streaming path's HTTP work must run OFF the event loop.
+
+    Mirrors test_module_fishaudio.py TestNonBlockingHTTP: `_session.post` AND
+    every `iter_content` step run in worker threads (asyncio.to_thread), so a
+    blocking socket read can never freeze the app during TTS."""
+
+    def test_post_and_iter_content_run_off_event_loop(self):
+        import threading
+        main_thread = threading.current_thread()
+        seen = {}
+
+        class _ThreadedStream:
+            status_code = 200
+            headers = {}
+            close = mock.MagicMock()
+
+            def iter_content(self, chunk_size=None):
+                seen["iter_thread"] = threading.current_thread()
+                yield b"\x11\x22" * 24000
+
+        def fake_post(*a, **k):
+            seen["post_thread"] = threading.current_thread()
+            return _ThreadedStream()
+
+        session = mock.MagicMock()
+        session.post.side_effect = fake_post
+        with mock.patch.dict(os.environ, {"SPEECHIFY_API_KEY": ENV_KEY}), \
+             mock.patch.object(module_speechify, "CONFIG", _fake_config()), \
+             mock.patch.object(module_speechify, "_session", session), \
+             mock.patch.object(module_speechify, "queue_message"):
+            chunks, exc = _collect(
+                module_speechify.text_to_speech_with_speechify("Hi."))
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 1)
+        self.assertIsNot(seen["post_thread"], main_thread)
+        self.assertIsNot(seen["iter_thread"], main_thread)
+
+
 class TestResolveOutputFormat(unittest.TestCase):
     def test_valid_pcm_formats(self):
         self.assertEqual(module_speechify._resolve_output_format("pcm_24000"), ("pcm_24000", 24000))
