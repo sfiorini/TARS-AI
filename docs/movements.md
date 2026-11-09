@@ -29,6 +29,7 @@ Playback goes through `module_movementstore.py`: `execute(id)` picks the right b
     - `null` leg/arm value = **skip** that servo.
     - `-1` arm value = **HOLD** (re-poke the last position).
     - `speed` — 0–1 (higher is faster); `hold_time` — seconds to sleep after the step (>= 0).
+    - `arm_speed` — optional; the arm call's own speed on a merged leg+arm step (absent/`null` = the step's `speed` — files written before this key existed keep working).
     - `movement` — `null`, or the id of another store entry: the step **composes** that movement's steps inline.
 - `steps` plays when arms are absent (or the entry has no arms variant); `steps_arms` (may be `null`) plays when arm servos are installed.
 

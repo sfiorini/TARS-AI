@@ -38,6 +38,9 @@ _STEP_KEYS = frozenset((
     "right_main", "right_forearm", "right_hand",
     "speed", "hold_time", "movement",
 ))
+# optional step keys (audit A6): arm_speed overrides the arm call's speed
+# on merged leg+arm steps; absent/None -> the step's speed
+_OPTIONAL_STEP_KEYS = frozenset(("arm_speed",))
 _LEG_KEYS = ("left_height", "right_height", "left_leg", "right_leg")
 _ARM_KEYS = ("left_main", "left_forearm", "left_hand",
              "right_main", "right_forearm", "right_hand")
@@ -298,7 +301,7 @@ class MovementStore:
         if not isinstance(step, dict):
             raise ValueError(f"{where} must be an object")
         missing = _STEP_KEYS - set(step)
-        unknown = set(step) - _STEP_KEYS
+        unknown = set(step) - _STEP_KEYS - _OPTIONAL_STEP_KEYS
         if missing or unknown:
             raise ValueError(
                 f"{where} has missing keys {sorted(missing)} "
@@ -307,6 +310,12 @@ class MovementStore:
         if not _is_number(speed) or not 0 <= speed <= 1:
             raise ValueError(
                 f"{where} speed {speed!r} must be a number in 0..1")
+        arm_speed = step.get("arm_speed")
+        if arm_speed is not None and (not _is_number(arm_speed)
+                                      or not 0 <= arm_speed <= 1):
+            raise ValueError(
+                f"{where} arm_speed {arm_speed!r} must be null or a "
+                f"number in 0..1")
         for key in _LEG_KEYS:
             value = step[key]
             if value is None:
@@ -345,7 +354,8 @@ class MovementStore:
                       "left_main": None, "left_forearm": None,
                       "left_hand": None, "right_main": None,
                       "right_forearm": None, "right_hand": None,
-                      "speed": 0.85, "hold_time": 0.0, "movement": None}
+                      "speed": 0.85, "arm_speed": None,
+                      "hold_time": 0.0, "movement": None}
 
     @classmethod
     def _step_defaults(cls, step):
@@ -394,13 +404,19 @@ class MovementStore:
                                        step["speed"])
                 if servoctl.ARMS_PRESENT and any(
                         step[key] is not None for key in _ARM_KEYS):
+                    # audit A6: a merged leg+arm step carries the arm's
+                    # OWN speed; absent/None falls back to the step speed
+                    # (pre-arm_speed movements.json files keep working)
+                    arm_speed = step.get("arm_speed")
+                    if arm_speed is None:
+                        arm_speed = step["speed"]
                     servoctl.move_arm(step["left_main"],
                                       step["left_forearm"],
                                       step["left_hand"],
                                       step["right_main"],
                                       step["right_forearm"],
                                       step["right_hand"],
-                                      step["speed"])
+                                      arm_speed)
                 if step["hold_time"] and step["hold_time"] > 0:
                     time.sleep(step["hold_time"])
             if tail_neutral:

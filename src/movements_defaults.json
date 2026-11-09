@@ -5,6 +5,7 @@
       "name": "Bow",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -20,6 +21,7 @@
           "speed": 0.4
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -35,6 +37,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -50,6 +53,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -65,6 +69,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 3.0,
           "left_forearm": null,
           "left_hand": null,
@@ -80,6 +85,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -95,6 +101,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -118,6 +125,7 @@
       "name": "Excited",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -133,6 +141,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -148,6 +157,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -163,6 +173,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -178,6 +189,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -193,6 +205,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -208,6 +221,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -223,6 +237,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -238,6 +253,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -253,6 +269,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -276,6 +293,7 @@
       "name": "Happy Dance",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -291,6 +309,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -306,6 +325,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -321,6 +341,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -336,6 +357,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -351,6 +373,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -366,6 +389,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -381,6 +405,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -396,6 +421,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -411,6 +437,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": null,
@@ -426,6 +453,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -441,6 +469,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -456,6 +485,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -471,6 +501,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -486,6 +517,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.15,
           "left_forearm": -1,
           "left_hand": null,
@@ -501,6 +533,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.25,
           "left_forearm": -1,
           "left_hand": null,
@@ -516,6 +549,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -531,6 +565,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -546,6 +581,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -561,6 +597,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -576,6 +613,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -591,6 +629,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -606,6 +645,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -621,6 +661,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -636,6 +677,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -651,6 +693,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -666,6 +709,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.1,
           "left_forearm": -1,
           "left_hand": null,
@@ -681,6 +725,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -696,6 +741,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.1,
           "left_forearm": -1,
           "left_hand": null,
@@ -711,6 +757,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -726,6 +773,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.4,
           "left_forearm": -1,
           "left_hand": null,
@@ -741,6 +789,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -756,6 +805,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -771,6 +821,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -788,6 +839,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -803,6 +855,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -818,6 +871,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -833,6 +887,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -848,6 +903,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -863,6 +919,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -878,6 +935,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -893,6 +951,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -908,6 +967,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -923,6 +983,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": null,
@@ -938,6 +999,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -953,6 +1015,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -968,6 +1031,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -983,6 +1047,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -998,6 +1063,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.15,
           "left_forearm": -1,
           "left_hand": null,
@@ -1013,6 +1079,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.25,
           "left_forearm": -1,
           "left_hand": null,
@@ -1028,6 +1095,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -1043,6 +1111,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -1058,6 +1127,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.12,
           "left_forearm": null,
           "left_hand": null,
@@ -1073,6 +1143,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -1088,6 +1159,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1103,6 +1175,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1118,6 +1191,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -1133,6 +1207,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -1148,6 +1223,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.08,
           "left_forearm": null,
           "left_hand": null,
@@ -1163,6 +1239,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1178,6 +1255,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.1,
           "left_forearm": -1,
           "left_hand": null,
@@ -1193,6 +1271,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -1208,6 +1287,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.1,
           "left_forearm": -1,
           "left_hand": null,
@@ -1223,6 +1303,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -1238,6 +1319,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.4,
           "left_forearm": -1,
           "left_hand": null,
@@ -1253,6 +1335,7 @@
           "speed": 0.95
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.0,
           "left_forearm": -1,
           "left_hand": null,
@@ -1268,6 +1351,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1283,6 +1367,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1305,6 +1390,7 @@
       "name": "Laugh",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1320,6 +1406,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1335,6 +1422,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1350,6 +1438,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1365,6 +1454,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1380,6 +1470,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1395,6 +1486,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1410,6 +1502,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1425,6 +1518,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1440,6 +1534,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -1455,6 +1550,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1478,6 +1574,7 @@
       "name": "Left Hi",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1493,6 +1590,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1508,6 +1606,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1523,6 +1622,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1538,6 +1638,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1553,6 +1654,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1568,6 +1670,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1583,6 +1686,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1598,6 +1702,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1613,6 +1718,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1628,6 +1734,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1643,6 +1750,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1658,6 +1766,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1673,6 +1782,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1688,6 +1798,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1705,6 +1816,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1720,6 +1832,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1735,6 +1848,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1750,6 +1864,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1765,6 +1880,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1780,6 +1896,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1795,6 +1912,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1810,6 +1928,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1825,6 +1944,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1840,6 +1960,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -1855,6 +1976,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 1,
@@ -1870,6 +1992,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1885,6 +2008,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1900,6 +2024,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1915,6 +2040,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1937,6 +2063,7 @@
       "name": "Left Pezz Dispenser",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1952,6 +2079,7 @@
           "speed": 0.4
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -1967,6 +2095,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -1982,6 +2111,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -1997,6 +2127,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2012,6 +2143,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2027,6 +2159,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 5.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -2042,6 +2175,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2057,6 +2191,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2072,6 +2207,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2087,6 +2223,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2102,6 +2239,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2119,6 +2257,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2134,6 +2273,7 @@
           "speed": 0.4
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2149,6 +2289,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2164,6 +2305,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2179,6 +2321,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2194,6 +2337,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2209,6 +2353,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 5.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -2224,6 +2369,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2239,6 +2385,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2254,6 +2401,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2269,6 +2417,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2284,6 +2433,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2306,6 +2456,7 @@
       "name": "Left Point",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2321,6 +2472,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2336,6 +2488,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2351,6 +2504,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2366,6 +2520,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2381,6 +2536,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.5,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2396,6 +2552,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2411,6 +2568,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2426,6 +2584,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2441,6 +2600,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2458,6 +2618,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2473,6 +2634,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2488,6 +2650,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2503,6 +2666,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2518,6 +2682,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2533,6 +2698,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.5,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2548,6 +2714,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2563,6 +2730,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2578,6 +2746,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2593,6 +2762,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2615,6 +2785,7 @@
       "name": "Left Poke",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2630,6 +2801,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2645,6 +2817,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2660,6 +2833,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2675,6 +2849,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2690,6 +2865,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.15,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2705,6 +2881,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 70,
           "left_hand": 1,
@@ -2720,6 +2897,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2735,6 +2913,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 70,
           "left_hand": 1,
@@ -2750,6 +2929,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2765,6 +2945,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2780,6 +2961,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -2795,6 +2977,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2810,6 +2993,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2827,6 +3011,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2842,6 +3027,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -2857,6 +3043,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -2872,6 +3059,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2887,6 +3075,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2902,6 +3091,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.15,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2917,6 +3107,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 70,
           "left_hand": 1,
@@ -2932,6 +3123,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2947,6 +3139,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": 70,
           "left_hand": 1,
@@ -2962,6 +3155,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -2977,6 +3171,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -2992,6 +3187,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -3007,6 +3203,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3022,6 +3219,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3044,6 +3242,7 @@
       "name": "Left Shy Wave",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3059,6 +3258,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3074,6 +3274,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3089,6 +3290,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3104,6 +3306,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3119,6 +3322,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -3134,6 +3338,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -3149,6 +3354,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3164,6 +3370,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3179,6 +3386,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3194,6 +3402,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3209,6 +3418,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3224,6 +3434,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3239,6 +3450,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3254,6 +3466,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3269,6 +3482,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3284,6 +3498,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3299,6 +3514,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3314,6 +3530,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3329,6 +3546,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -3344,6 +3562,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -3359,6 +3578,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -3374,6 +3594,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3389,6 +3610,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3406,6 +3628,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3421,6 +3644,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3436,6 +3660,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3451,6 +3676,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3466,6 +3692,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3481,6 +3708,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -3496,6 +3724,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -3511,6 +3740,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3526,6 +3756,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3541,6 +3772,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3556,6 +3788,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3571,6 +3804,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3586,6 +3820,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3601,6 +3836,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3616,6 +3852,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3631,6 +3868,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 50,
           "left_hand": 40,
@@ -3646,6 +3884,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3661,6 +3900,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": 100,
           "left_hand": 100,
@@ -3676,6 +3916,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3691,6 +3932,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -3706,6 +3948,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -3721,6 +3964,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -3736,6 +3980,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3751,6 +3996,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3773,6 +4019,7 @@
       "name": "Left Wave Open",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3788,6 +4035,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3803,6 +4051,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -3818,6 +4067,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3833,6 +4083,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -3848,6 +4099,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -3863,6 +4115,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -3878,6 +4131,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 70,
           "left_hand": -1,
@@ -3893,6 +4147,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": -1,
@@ -3908,6 +4163,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 70,
           "left_hand": -1,
@@ -3923,6 +4179,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": -1,
@@ -3938,6 +4195,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -3953,6 +4211,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -3968,6 +4227,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -3983,6 +4243,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -3998,6 +4259,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4015,6 +4277,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4030,6 +4293,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4045,6 +4309,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4060,6 +4325,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4075,6 +4341,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4090,6 +4357,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -4105,6 +4373,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4120,6 +4389,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 70,
           "left_hand": -1,
@@ -4135,6 +4405,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": -1,
@@ -4150,6 +4421,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 70,
           "left_hand": -1,
@@ -4165,6 +4437,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": -1,
@@ -4180,6 +4453,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4195,6 +4469,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -4210,6 +4485,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -4225,6 +4501,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4240,6 +4517,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4262,6 +4540,7 @@
       "name": "Monster",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4277,6 +4556,7 @@
           "speed": 0.4
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4292,6 +4572,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4307,6 +4588,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4322,6 +4604,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4337,6 +4620,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 1,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -4352,6 +4636,7 @@
           "speed": 1
         },
         {
+          "arm_speed": 1,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4367,6 +4652,7 @@
           "speed": 1
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4382,6 +4668,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 50,
@@ -4397,6 +4684,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4412,6 +4700,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 50,
@@ -4427,6 +4716,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4442,6 +4732,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4457,6 +4748,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4472,6 +4764,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4487,6 +4780,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4502,6 +4796,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4517,6 +4812,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4532,6 +4828,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -4547,6 +4844,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -4562,6 +4860,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4577,6 +4876,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4594,6 +4894,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4609,6 +4910,7 @@
           "speed": 0.4
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4624,6 +4926,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4639,6 +4942,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4654,6 +4958,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": 1,
@@ -4669,6 +4974,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 1,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 1,
@@ -4684,6 +4990,7 @@
           "speed": 1
         },
         {
+          "arm_speed": 1,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4699,6 +5006,7 @@
           "speed": 1
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4714,6 +5022,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 50,
@@ -4729,6 +5038,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4744,6 +5054,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 50,
           "left_hand": 50,
@@ -4759,6 +5070,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 100,
           "left_hand": 100,
@@ -4774,6 +5086,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4789,6 +5102,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4804,6 +5118,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4819,6 +5134,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4834,6 +5150,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 100,
@@ -4849,6 +5166,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": 1,
@@ -4864,6 +5182,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": 1,
           "left_hand": -1,
@@ -4879,6 +5198,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": -1,
           "left_hand": -1,
@@ -4894,6 +5214,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4909,6 +5230,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -4931,6 +5253,7 @@
       "name": "Neutral Legs",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4946,6 +5269,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4961,6 +5285,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4984,6 +5309,7 @@
       "name": "Pose",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -4999,6 +5325,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5014,6 +5341,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 3.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5029,6 +5357,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5044,6 +5373,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5059,6 +5389,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5074,6 +5405,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5097,6 +5429,7 @@
       "name": "Right Hi",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5112,6 +5445,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5127,6 +5461,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5142,6 +5477,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5157,6 +5493,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5172,6 +5509,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5187,6 +5525,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5202,6 +5541,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5217,6 +5557,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5232,6 +5573,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5247,6 +5589,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5262,6 +5605,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5277,6 +5621,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5292,6 +5637,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5307,6 +5653,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5324,6 +5671,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5339,6 +5687,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5354,6 +5703,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5369,6 +5719,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5384,6 +5735,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5399,6 +5751,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5414,6 +5767,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5429,6 +5783,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5444,6 +5799,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5459,6 +5815,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5474,6 +5831,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5489,6 +5847,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5504,6 +5863,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5519,6 +5879,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5534,6 +5895,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5556,6 +5918,7 @@
       "name": "Right Pezz Dispenser",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5571,6 +5934,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5586,6 +5950,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5601,6 +5966,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5616,6 +5982,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5631,6 +5998,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5646,6 +6014,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 5.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5661,6 +6030,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5676,6 +6046,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5691,6 +6062,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5706,6 +6078,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5721,6 +6094,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5738,6 +6112,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5753,6 +6128,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5768,6 +6144,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5783,6 +6160,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5798,6 +6176,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5813,6 +6192,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5828,6 +6208,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 5.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5843,6 +6224,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.9,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5858,6 +6240,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5873,6 +6256,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": 0.8,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5888,6 +6272,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5903,6 +6288,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5925,6 +6311,7 @@
       "name": "Right Point",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5940,6 +6327,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -5955,6 +6343,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5970,6 +6359,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -5985,6 +6375,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6000,6 +6391,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.5,
           "left_forearm": null,
           "left_hand": null,
@@ -6015,6 +6407,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6030,6 +6423,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6045,6 +6439,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6060,6 +6455,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6077,6 +6473,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6092,6 +6489,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6107,6 +6505,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6122,6 +6521,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6137,6 +6537,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6152,6 +6553,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.5,
           "left_forearm": null,
           "left_hand": null,
@@ -6167,6 +6569,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6182,6 +6585,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6197,6 +6601,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6212,6 +6617,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6234,6 +6640,7 @@
       "name": "Right Poke",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6249,6 +6656,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6264,6 +6672,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6279,6 +6688,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6294,6 +6704,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6309,6 +6720,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6324,6 +6736,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6339,6 +6752,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6354,6 +6768,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6369,6 +6784,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6384,6 +6800,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6399,6 +6816,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6414,6 +6832,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6429,6 +6848,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6446,6 +6866,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6461,6 +6882,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6476,6 +6898,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6491,6 +6914,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6506,6 +6930,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6521,6 +6946,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6536,6 +6962,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6551,6 +6978,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6566,6 +6994,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.15,
           "left_forearm": null,
           "left_hand": null,
@@ -6581,6 +7010,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6596,6 +7026,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6611,6 +7042,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6626,6 +7058,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6641,6 +7074,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6663,6 +7097,7 @@
       "name": "Right Shy Wave",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6678,6 +7113,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6693,6 +7129,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6708,6 +7145,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6723,6 +7161,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6738,6 +7177,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6753,6 +7193,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6768,6 +7209,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6783,6 +7225,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6798,6 +7241,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6813,6 +7257,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6828,6 +7273,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6843,6 +7289,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6858,6 +7305,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6873,6 +7321,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6888,6 +7337,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6903,6 +7353,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6918,6 +7369,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -6933,6 +7385,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6948,6 +7401,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6963,6 +7417,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6978,6 +7433,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -6993,6 +7449,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7008,6 +7465,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7025,6 +7483,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7040,6 +7499,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7055,6 +7515,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7070,6 +7531,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7085,6 +7547,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7100,6 +7563,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7115,6 +7579,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7130,6 +7595,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7145,6 +7611,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7160,6 +7627,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7175,6 +7643,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7190,6 +7659,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7205,6 +7675,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7220,6 +7691,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7235,6 +7707,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7250,6 +7723,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7265,6 +7739,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7280,6 +7755,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7295,6 +7771,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7310,6 +7787,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7325,6 +7803,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7340,6 +7819,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7355,6 +7835,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7370,6 +7851,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7392,6 +7874,7 @@
       "name": "Right Wave Open",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7407,6 +7890,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7422,6 +7906,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7437,6 +7922,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7452,6 +7938,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7467,6 +7954,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7482,6 +7970,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7497,6 +7986,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7512,6 +8002,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7527,6 +8018,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7542,6 +8034,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7557,6 +8050,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7572,6 +8066,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7587,6 +8082,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7602,6 +8098,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7617,6 +8114,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7634,6 +8132,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7649,6 +8148,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7664,6 +8164,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7679,6 +8180,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7694,6 +8196,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7709,6 +8212,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7724,6 +8228,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7739,6 +8244,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7754,6 +8260,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7769,6 +8276,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7784,6 +8292,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7799,6 +8308,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.7,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7814,6 +8324,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": 0.6,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7829,6 +8340,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": 0.5,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7844,6 +8356,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7859,6 +8372,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -7881,6 +8395,7 @@
       "name": "Side Side",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7896,6 +8411,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7911,6 +8427,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7926,6 +8443,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7941,6 +8459,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7956,6 +8475,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7971,6 +8491,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -7986,6 +8507,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8009,6 +8531,7 @@
       "name": "Step Backward",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8024,6 +8547,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8039,6 +8563,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8054,6 +8579,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8069,6 +8595,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8084,6 +8611,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8099,6 +8627,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8116,6 +8645,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8131,6 +8661,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8146,6 +8677,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8161,6 +8693,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8176,6 +8709,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8191,6 +8725,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8206,6 +8741,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8221,6 +8757,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8243,6 +8780,7 @@
       "name": "Step Forward",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8258,6 +8796,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8273,6 +8812,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8288,6 +8828,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8303,6 +8844,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8318,6 +8860,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8333,6 +8876,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8350,6 +8894,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8365,6 +8910,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8380,6 +8926,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8395,6 +8942,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8410,6 +8958,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8425,6 +8974,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8440,6 +8990,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8462,6 +9013,7 @@
       "name": "Swing Legs",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8477,6 +9029,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8492,6 +9045,7 @@
           "speed": 1
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8507,6 +9061,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8522,6 +9077,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8537,6 +9093,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8552,6 +9109,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8567,6 +9125,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8582,6 +9141,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8597,6 +9157,7 @@
           "speed": 0.6
         },
         {
+          "arm_speed": null,
           "hold_time": 0.2,
           "left_forearm": null,
           "left_hand": null,
@@ -8620,6 +9181,7 @@
       "name": "Tilt Left",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8635,6 +9197,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 3.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8650,6 +9213,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8673,6 +9237,7 @@
       "name": "Tilt Right",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8688,6 +9253,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 3.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8703,6 +9269,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8726,6 +9293,7 @@
       "name": "Turn Left",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8741,6 +9309,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8756,6 +9325,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8771,6 +9341,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8786,6 +9357,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8801,6 +9373,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8824,6 +9397,7 @@
       "name": "Turn Left Slow",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8839,6 +9413,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8854,6 +9429,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8869,6 +9445,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8884,6 +9461,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8899,6 +9477,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -8922,6 +9501,7 @@
       "name": "Turn Right",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8937,6 +9517,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8952,6 +9533,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8967,6 +9549,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8982,6 +9565,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -8997,6 +9581,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -9020,6 +9605,7 @@
       "name": "Turn Right Slow",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9035,6 +9621,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9050,6 +9637,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9065,6 +9653,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9080,6 +9669,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9095,6 +9685,7 @@
           "speed": 0.7
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -9118,6 +9709,7 @@
       "name": "Walk Backward",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9133,6 +9725,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9148,6 +9741,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9163,6 +9757,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9178,6 +9773,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9193,96 +9789,7 @@
           "speed": 0.5
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 65,
-          "left_leg": 75,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 75,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 65,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 65,
-          "right_leg": 75,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 75,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 65,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9298,6 +9805,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9313,6 +9821,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9328,6 +9837,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9343,6 +9853,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9358,21 +9869,7 @@
           "speed": 0.5
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 65,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 75,
-          "right_main": null,
-          "speed": 0.5
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9388,6 +9885,119 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 65,
+          "left_leg": 75,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 75,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 65,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 65,
+          "right_leg": 75,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 75,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 65,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 75,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 65,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.5
+        },
+        {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -9405,6 +10015,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9420,6 +10031,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9435,6 +10047,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9450,6 +10063,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9465,6 +10079,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9480,6 +10095,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9495,96 +10111,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 40,
-          "left_leg": 75,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 95,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 40,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 95,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 40,
-          "right_leg": 75,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 40,
-          "right_leg": 75,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 40,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 95,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 40,
-          "left_leg": 75,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 95,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9600,6 +10127,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9615,6 +10143,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9630,6 +10159,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9645,6 +10175,103 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 40,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 95,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 40,
+          "left_leg": 75,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 95,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 40,
+          "left_leg": 75,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 95,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 40,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 95,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 40,
+          "right_leg": 75,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 40,
+          "right_leg": 75,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9660,6 +10287,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9675,6 +10303,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -9697,6 +10326,7 @@
       "name": "Walk Forward",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9712,6 +10342,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9727,6 +10358,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9742,6 +10374,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9757,6 +10390,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9772,6 +10406,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9787,6 +10422,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9802,6 +10438,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9817,6 +10454,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9832,6 +10470,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9847,6 +10486,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9862,6 +10502,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9877,6 +10518,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9892,6 +10534,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9907,6 +10550,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9922,6 +10566,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9937,6 +10582,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9952,6 +10598,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9967,6 +10614,7 @@
           "speed": 0.5
         },
         {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -9984,6 +10632,7 @@
       ],
       "steps_arms": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -9999,6 +10648,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10014,6 +10664,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10029,6 +10680,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10044,6 +10696,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10059,96 +10712,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 95,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 25,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 25,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 95,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 25,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 95,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 50,
-          "left_leg": 25,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 95,
-          "left_leg": 50,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10164,6 +10728,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10179,6 +10744,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10194,6 +10760,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10209,6 +10776,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10224,21 +10792,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 95,
-          "left_leg": 25,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10254,6 +10808,119 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 95,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 25,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 25,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 95,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 25,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 95,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 50,
+          "left_leg": 25,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 95,
+          "left_leg": 25,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 95,
+          "left_leg": 50,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
           "hold_time": 0.1,
           "left_forearm": null,
           "left_hand": null,
@@ -10276,6 +10943,7 @@
       "name": "Wave Left",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10291,6 +10959,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10306,6 +10975,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10321,6 +10991,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10336,6 +11007,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10351,6 +11023,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10366,36 +11039,7 @@
           "speed": 0.9
         },
         {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 90,
-          "left_leg": 100,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
-          "hold_time": 0.0,
-          "left_forearm": null,
-          "left_hand": null,
-          "left_height": 90,
-          "left_leg": 70,
-          "left_main": null,
-          "movement": null,
-          "right_forearm": null,
-          "right_hand": null,
-          "right_height": 50,
-          "right_leg": 50,
-          "right_main": null,
-          "speed": 0.9
-        },
-        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10411,6 +11055,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10426,6 +11071,39 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 90,
+          "left_leg": 100,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
+          "hold_time": 0.0,
+          "left_forearm": null,
+          "left_hand": null,
+          "left_height": 90,
+          "left_leg": 70,
+          "left_main": null,
+          "movement": null,
+          "right_forearm": null,
+          "right_hand": null,
+          "right_height": 50,
+          "right_leg": 50,
+          "right_main": null,
+          "speed": 0.9
+        },
+        {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10441,6 +11119,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10456,6 +11135,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10471,6 +11151,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10486,6 +11167,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10509,6 +11191,7 @@
       "name": "Wave Right",
       "steps": [
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10524,6 +11207,7 @@
           "speed": 0.8
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10539,6 +11223,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10554,6 +11239,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10569,6 +11255,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10584,6 +11271,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10599,6 +11287,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10614,6 +11303,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10629,6 +11319,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10644,6 +11335,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10659,6 +11351,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10674,6 +11367,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10689,6 +11383,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10704,6 +11399,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,
@@ -10719,6 +11415,7 @@
           "speed": 0.9
         },
         {
+          "arm_speed": null,
           "hold_time": 0.0,
           "left_forearm": null,
           "left_hand": null,

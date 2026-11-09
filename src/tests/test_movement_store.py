@@ -54,7 +54,7 @@ _STEP_KEYS = (
     "left_height", "right_height", "left_leg", "right_leg",
     "left_main", "left_forearm", "left_hand",
     "right_main", "right_forearm", "right_hand",
-    "speed", "hold_time", "movement",
+    "speed", "arm_speed", "hold_time", "movement",
 )
 _ARM_KEYS = ("left_main", "left_forearm", "left_hand",
              "right_main", "right_forearm", "right_hand")
@@ -138,6 +138,19 @@ class TestDefaultsGolden(unittest.TestCase):
                  for s in self.data["movements"]["happy_dance"]["steps"]]
         self.assertIn(0.4, holds,
                       "consecutive time.sleep calls must accumulate")
+
+    def test_merged_step_preserves_arm_speed(self):
+        # audit A6: when move_arm(..., s_arm) merges into an open
+        # move_legs(..., s_leg) step, the arm's OWN speed must survive —
+        # happy_dance's legs(80,80,70,70)@0.9 + arm@0.7 step
+        steps = self.data["movements"]["happy_dance"]["steps"]
+        merged = [s for s in steps
+                  if s["right_height"] == 80 and s["right_leg"] == 70
+                  and s["right_main"] == 85]
+        self.assertEqual(len(merged), 1,
+                         "expected exactly one such merged step")
+        self.assertEqual(merged[0]["speed"], 0.9)      # the legs' speed
+        self.assertEqual(merged[0]["arm_speed"], 0.7)   # the arm's own
 
     def test_arms_branches_captured(self):
         entry = self.data["movements"]["step_forward"]
@@ -457,6 +470,21 @@ class TestPlayback(_PlaybackTestCase):
         self.assertEqual(self.servo.disable_calls, [True])
         self.assertFalse(self.servo.MOVING)
         self.fake_time.sleep.assert_any_call(3.0)  # bow holds 3s mid-sequence
+
+    def test_arm_speed_used_for_move_arm(self):
+        # audit A6: move_arm gets the step's arm_speed when present…
+        self.servo.ARMS_PRESENT = True
+        step = _step(legs=(10, 20, 30, 40), arms=(1, 2, 3, 4, 5, 6))
+        step["speed"] = 0.9
+        step["arm_speed"] = 0.7
+        self.store.play_steps([step])
+        self.assertEqual(self.servo.arm_calls[0][6], 0.7)
+        self.assertEqual(self.servo.legs_calls[0][4], 0.9)  # legs keep 0.9
+        # …and falls back to speed when absent (backward compatibility
+        # with movements.json files written before arm_speed existed)
+        plain = _step(legs=(10, 20, 30, 40), arms=(1, 2, 3, 4, 5, 6))
+        self.store.play_steps([plain])
+        self.assertEqual(self.servo.arm_calls[-1][6], 0.9)
 
     def test_tail_neutral_appends_neutral_step(self):
         self.servo.ARMS_PRESENT = False

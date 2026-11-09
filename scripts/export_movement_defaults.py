@@ -70,7 +70,8 @@ class _Collector:
             "left_leg": None, "right_leg": None,
             "left_main": None, "left_forearm": None, "left_hand": None,
             "right_main": None, "right_forearm": None, "right_hand": None,
-            "speed": 0.0, "hold_time": 0.0, "movement": None,
+            "speed": 0.0, "arm_speed": None, "hold_time": 0.0,
+            "movement": None,
         }
 
     def legs(self, lh, rh, ll, rl, speed):
@@ -89,12 +90,16 @@ class _Collector:
                 and all(last[k] is None for k in _ARM_KEYS)):
             for key, val in zip(_ARM_KEYS, values):
                 last[key] = val
-            # the step keeps the speed of its move_legs call
+            # the step keeps the legs' speed for the legs call, but the
+            # arm's OWN speed survives in arm_speed (audit A6: the deleted
+            # functions passed each call its own speed)
+            last["arm_speed"] = speed
         else:
             step = self._new_step()
             for key, val in zip(_ARM_KEYS, values):
                 step[key] = val
             step["speed"] = speed
+            step["arm_speed"] = speed
             self.steps.append(step)
         self._attachable = False
 
