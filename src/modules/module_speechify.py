@@ -209,6 +209,18 @@ def _decode_audio_data(payload):
     return raw
 
 
+def _classify_error(code, status):
+    """Map (error.code, HTTP status) to the typed exception class — shared by
+    the per-sentence and streaming paths so they cannot drift."""
+    if code in _QUOTA_CODES or (status == 402 and code not in _RATE_CODES):
+        return QuotaExhausted
+    if code in _RATE_CODES or status == 429:
+        return RateLimited
+    if 400 <= status < 500 and status != 408:
+        return AuthFailed
+    return TransientError
+
+
 async def _synthesize_sentence(sentence, headers, body, timeout):
     """POST one sentence to Speechify; return BytesIO wav or None (empty audio).
 
@@ -246,43 +258,30 @@ async def _synthesize_sentence(sentence, headers, body, timeout):
             return None
 
         code, message = _parse_error_body(response)
-
-        # Branch on error.code first (per Speechify API), then on the status.
-        if code in _QUOTA_CODES or (status == 402 and code not in _RATE_CODES):
+        exc_class = _classify_error(code, status)
+        label = f" [{code}]" if code else ""
+        if exc_class is QuotaExhausted:
             # No credit: retrying cannot help — fail over immediately.
-            label = f" [{code}]" if code else ""
             raise QuotaExhausted(
-                f"Speechify returned {status}{label}: {message}",
-                status_code=status,
-            )
-        if code in _RATE_CODES or status == 429:
+                f"Speechify returned {status}{label}: {message}", status_code=status)
+        if exc_class is RateLimited:
             if attempt < _MAX_ATTEMPTS:
                 # Honor the Retry-After header on the single backoff retry.
                 await _backoff(_retry_after_seconds(getattr(response, "headers", None)))
                 continue
-            label = f" [{code}]" if code else ""
             raise RateLimited(
-                f"Speechify returned {status}{label} after retry: {message}",
-                status_code=status,
-            )
-        if 400 <= status < 500 and status != 408:
+                f"Speechify returned {status}{label} after retry: {message}", status_code=status)
+        if exc_class is AuthFailed:
             # 401/403 auth and other client errors: no retry, fail over now.
-            # 408 (request timeout) is transient: it falls through to the
-            # backoff-retry path below instead of the permanent AuthFailed bucket.
-            label = f" [{code}]" if code else ""
+            # (408 request-timeout classifies TransientError, not AuthFailed.)
             raise AuthFailed(
-                f"Speechify returned {status}{label}: {message}",
-                status_code=status,
-            )
+                f"Speechify returned {status}{label}: {message}", status_code=status)
         # 5xx and anything else: exactly one backoff retry, then transient.
         if attempt < _MAX_ATTEMPTS:
             await _backoff()
             continue
-        label = f" [{code}]" if code else ""
         raise TransientError(
-            f"Speechify returned {status}{label} after retry: {message}",
-            status_code=status,
-        )
+            f"Speechify returned {status}{label} after retry: {message}", status_code=status)
 
 
 async def text_to_speech_with_speechify(text, voice_id=None, model=None,
