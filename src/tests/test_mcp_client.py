@@ -1243,6 +1243,12 @@ class TestPidfileTracking(_ManagerTestCase):
         # the shipped server + the pidfile sweep are present
         self.assertIn("_pkill_escalate(\"mcp_example_server\")", src)
         self.assertIn("mcp_pids", src)
+        # audit B6-residual: the pidfile path is derived from THIS
+        # script's location (a non-standard checkout must work), not
+        # hardcoded ~/TARS-AI
+        self.assertNotIn("~/TARS-AI", src)
+        self.assertIn("os.path.dirname(os.path.abspath(__file__))",
+                      src)
 
 
 class TestHealthTaskRescheduling(_ManagerTestCase):

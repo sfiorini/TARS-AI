@@ -67,7 +67,12 @@ def stop_tars_ai():
     # by pid from the manager's pidfile (a bare `mcp_` pattern killed
     # unrelated processes and missed custom servers).
     _pkill_escalate("mcp_example_server")
-    pidfile = os.path.expanduser("~/TARS-AI/src/mcp_pids.txt")
+    # the pidfile lives next to the MCP registry — derived from THIS
+    # script's own location so a non-standard checkout works (audit
+    # B6-residual; the manager writes it beside src/mcp_servers.json)
+    pidfile = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "src", "mcp_pids.txt")
     if os.path.exists(pidfile):
         try:
             with open(pidfile) as fh:
