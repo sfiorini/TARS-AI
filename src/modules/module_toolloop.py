@@ -159,12 +159,13 @@ class ToolLoopRunner:
     def _run_blocking_legacy(self, parsed, user_text, source, callbacks):
         """One-release rollback (deferred_loop_enabled = false).
 
-        Reproduces today's behavior: when a result-bearing tool is present,
-        ALL calls dispatch inline (blocking); result-bearing builtin
-        results are spoken directly; MCP/agent-skill result tools (not yet
-        existing) speak the canned fallback.  Returns False for turns with
-        no result-bearing calls — the caller's background side-effect
-        thread handles those exactly as today.
+        The caller owns fire-and-forget dispatch on every path: this legacy
+        thread runs ONLY the result-bearing calls (today's blocking-tool
+        semantics for them) — result-bearing builtin results are spoken
+        directly; MCP/agent-skill result tools (not yet existing) speak the
+        canned fallback.  Returns False for turns with no result-bearing
+        calls — the caller's background side-effect thread handles those
+        exactly as today.
         """
         all_calls = parsed.get("function_calls") or []
         result_calls = self._result_bearing_calls(all_calls)
@@ -180,18 +181,21 @@ class ToolLoopRunner:
 
     def _blocking_legacy_turn(self, parsed, user_text, source, callbacks):
         all_calls = parsed.get("function_calls") or []
+        # ONLY the result-bearing calls — the caller's started-branch already
+        # dispatched the fire-and-forget share; dispatching them here too
+        # would run every movement twice (review F1-REG1)
+        result_calls = self._result_bearing_calls(all_calls)
         ctx = ToolContext(bot_response=parsed, user_input=user_text,
                           source=source, config=load_config())
         # the follow-up must never speak over reply-0 TTS (review F2)
         _wait_for_reply0(callbacks)
         result_results = []
-        for call in all_calls:
+        for call in result_calls:
             name = call.get("function", "")
             descriptor = get_registry().get(name)
             result = get_registry().dispatch(
                 name, call.get("parameters", {}) or {}, ctx)
-            if descriptor is not None and descriptor.result_bearing:
-                result_results.append((descriptor, result))
+            result_results.append((descriptor, result))
         for descriptor, result in result_results:
             if (descriptor.kind == "builtin"
                     and result.content and not result.is_error):

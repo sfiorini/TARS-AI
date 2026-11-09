@@ -677,5 +677,99 @@ class TestConfigToolTimeout(_LoopTestCase):
         self.assertNotIn("ERROR", self.followup_calls[0][2])
 
 
+class TestLegacyMixedTurnDispatch(unittest.TestCase):
+    """F1-REG1: under rollback (deferred_loop_enabled = false) the legacy
+    thread must run ONLY the result-bearing calls — the caller stays the
+    single owner of fire-and-forget dispatch on EVERY path.  A movement
+    must physically run exactly once."""
+
+    def setUp(self):
+        super().setUp()
+        reset_registry()
+        self.addCleanup(reset_registry)
+        from modules.module_toolregistry import get_registry
+        self.movement_calls = []
+        self.search_calls = []
+        get_registry().register(_descriptor(
+            "move", result_bearing=False,
+            execute=lambda p, c: self.movement_calls.append(p) or "moved"))
+        get_registry().register(_descriptor(
+            "search", result_bearing=True,
+            execute=lambda p, c: self.search_calls.append(p) or "sunny"))
+
+    def _rollback(self):
+        import modules.module_toolloop as toolloop
+        patcher = mock.patch.object(
+            toolloop, "load_config",
+            return_value={"LLM": {"deferred_loop_enabled": False}})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _caller_wiring(self, parsed, source="voice"):
+        """The exact started-branch wiring the call sites run."""
+        from modules.module_toolloop import (ToolLoopRunner, TurnCallbacks,
+                                             fire_and_forget_calls)
+        from modules.module_llm import (llm_execute_side_effects,
+                                        write_turn_memories)
+        spoken = []
+        done = threading.Event()
+
+        def on_state(state):
+            if state in ("IDLE", "CANCELLED", "TIMEOUT"):
+                done.set()
+
+        started = ToolLoopRunner(lambda *a: {"reply": "final"}).start_turn(
+            parsed, "hello", source,
+            TurnCallbacks(speak=spoken.append, on_state=on_state))
+        self.assertTrue(started)
+        threading.Thread(target=write_turn_memories,
+                         args=(parsed, "hello"), daemon=True).start()
+        ff_calls = fire_and_forget_calls(parsed)
+        ff_thread = None
+        if ff_calls:
+            ff_parsed = dict(parsed)
+            ff_parsed["_memories_written"] = True
+            ff_parsed["function_calls"] = ff_calls
+            ff_thread = threading.Thread(target=llm_execute_side_effects,
+                                          args=(ff_parsed, "hello"),
+                                          daemon=True)
+            ff_thread.start()
+        self.assertTrue(done.wait(5), "legacy turn did not finish")
+        if ff_thread is not None:
+            ff_thread.join(timeout=5)  # deterministic: both paths settled
+        return spoken
+
+    def test_legacy_path_dispatches_fire_and_forget_exactly_once(self):
+        self._rollback()
+        parsed = {"reply": "checking", "new_memories": [],
+                  "function_calls": [
+                      {"function": "move", "parameters": {"d": 1}},
+                      {"function": "search", "parameters": {"q": 2}}]}
+        spoken = self._caller_wiring(parsed)
+        self.assertEqual(len(self.movement_calls), 1,
+                         "movement must run exactly once under rollback "
+                         "(no double dispatch)")
+        self.assertEqual(len(self.search_calls), 1)
+        self.assertIn("sunny", spoken)  # result-bearing builtin spoken
+
+    def test_legacy_path_pure_fire_and_forget_unchanged(self):
+        self._rollback()
+        from modules.module_toolloop import ToolLoopRunner, TurnCallbacks
+        from modules.module_llm import llm_execute_side_effects
+        parsed = {"reply": "ok", "new_memories": [],
+                  "function_calls": [{"function": "move",
+                                      "parameters": {}}]}
+        spoken = []
+        started = ToolLoopRunner(lambda *a: {"reply": "x"}).start_turn(
+            parsed, "hello", "voice",
+            TurnCallbacks(speak=spoken.append))
+        self.assertFalse(started)  # the legacy thread does not run
+        # the caller's llm_execute_side_effects dispatches it exactly once
+        llm_execute_side_effects(parsed, "hello")  # synchronous dispatch
+        self.assertEqual(len(self.movement_calls), 1)
+        self.assertEqual(self.search_calls, [])
+        self.assertEqual(spoken, [])
+
+
 if __name__ == "__main__":
     unittest.main()
