@@ -802,16 +802,26 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
             async for audio_chunk in gen:
                 if _tts_cancel_event.is_set():
                     break
-                # Bounded put (C14): waiting on queue.put with a short deadline
-                # replaces the old busy-wait spin (non-blocking enqueue +
-                # sleep) — one code path, and the cancel check above still
-                # runs every iteration. A full queue that does not drain
-                # within the deadline drops the chunk (playback keeps moving
-                # with the next one) instead of spinning on the dead consumer.
-                try:
-                    await asyncio.wait_for(audio_queue.put(audio_chunk), 0.05)
-                except asyncio.TimeoutError:
-                    pass
+                # Bounded put (C14) with cancel-aware backpressure: waiting
+                # on queue.put replaces the old busy-wait spin (non-blocking
+                # enqueue + sleep) — one code path, and the cancel check above
+                # still runs every iteration. The put is retried while the
+                # queue is full, so the producer BLOCKS until the consumer
+                # drains — no audio chunk is ever dropped. (The old contract
+                # dropped the chunk on a 50 ms timeout; that was written for
+                # whole-sentence chunks, but streaming providers yield ~1 s
+                # slices ~17x faster than realtime, so the maxsize=3 queue was
+                # permanently full and most of the utterance was silently
+                # discarded — the robot "skipped sentences" and ended early.)
+                # The bounded retry keeps cancellation honoured within ~250 ms.
+                while not _tts_cancel_event.is_set():
+                    try:
+                        await asyncio.wait_for(audio_queue.put(audio_chunk), 0.25)
+                        break
+                    except asyncio.TimeoutError:
+                        continue  # queue still full: the consumer is slower
+                                  # than the producer. Retry instead of
+                                  # dropping the chunk.
         except Exception as e:
             queue_message(f"ERROR: Synthesis failed: {e}")
         finally:

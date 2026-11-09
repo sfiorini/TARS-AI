@@ -476,6 +476,43 @@ class TestSynthesizeChunksBoundedPut(PlayTestCase):
         self.assertIn("wait_for(audio_queue.put", source)
 
 
+class TestNoChunkDroppedUnderBackpressure(PlayTestCase):
+    """Regression (live bug): play_audio_chunks dropped audio chunks.
+
+    The producer (synthesize_chunks) used a 50 ms deadline on queue.put and
+    SILENTLY DISCARDED the chunk on timeout. That contract was written for
+    whole-sentence chunks (a drop lost at most one sentence), but streaming
+    providers (Speechify, Piper) yield ~1 s slices ~17x faster than realtime,
+    so the maxsize=3 queue was permanently full and MOST of the utterance was
+    dropped: on the robot a story "jumped a sentence" and playback ended
+    after ~2 sentences.
+
+    New contract: the producer retries the bounded put until the consumer
+    drains — no audio is ever dropped; cancellation is still honoured every
+    retry (~250 ms). Pinned here with a slow consumer: every yielded chunk
+    must reach playback.
+    """
+
+    def test_slow_consumer_receives_every_chunk(self):
+        # 10 chunks through the maxsize=3 queue with a consumer slower than
+        # the producer (each write sleeps 120 ms). The old drop-on-timeout put
+        # discarded most chunks here; the backpressure retry must deliver all.
+        chunks = [_wav_chunk(0.02) for _ in range(10)]
+        fake = _FakeOutputStream()
+
+        def slow_write(stream):
+            time.sleep(0.12)
+
+        fake.on_write = slow_write
+        with self._play_ctx(chunks, stream_factory=mock.Mock(return_value=fake)):
+            result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertFalse(result)               # not interrupted, ran to the end
+        self.assertEqual(
+            len(fake.writes), len(chunks),
+            f"{len(fake.writes)}/{len(chunks)} chunks reached playback — "
+            f"audio was dropped by a full queue (the live-reported bug)")
+
+
 class TestDeadCodeRemoval(unittest.TestCase):
     """B3: play_audio_stream (module_tts.py) had zero callers and duplicated
     resample/normalize/gain with different constants — it must stay deleted so
