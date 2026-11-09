@@ -35,6 +35,7 @@ from modules.module_toolregistry import (get_registry, ToolContext,
                                           ToolResult)
 
 FALLBACK_LINE = "I hit a snag finishing that — check the logs."
+HOLDING_LINE = "On it — I'll report back."
 TOOL_RESULT_CHAR_LIMIT = 10000  # result text truncated before the follow-up
 
 STATES = ("IDLE", "CLASSIFY", "TOOLS_RUNNING", "FOLLOWUP_LLM",
@@ -96,6 +97,22 @@ class ToolLoopRunner:
         calls = self._result_bearing_calls(parsed.get("function_calls"))
         if not calls:
             return False
+        # Holding line (design §2 step 3): reply-0 doubles as the natural
+        # holding line (the caller's pipeline speaks it — no double-speak);
+        # only when reply-0 is empty does the loop supply one.
+        reply0 = parsed.get("reply", "") or ""
+        if not reply0.strip():
+            played = False
+            try:
+                from modules.module_llm import _maybe_play_thinking_response
+                played = bool(_maybe_play_thinking_response())
+            except Exception:  # noqa: BLE001 — holding line must never fail a turn
+                played = False
+            if not played:
+                try:
+                    callbacks.speak(HOLDING_LINE)
+                except Exception as exc:  # noqa: BLE001
+                    queue_message(f"TOOLLOOP: speak callback failed: {exc}")
         epoch = _current_epoch(source)
         threading.Thread(
             target=self._run_turn,

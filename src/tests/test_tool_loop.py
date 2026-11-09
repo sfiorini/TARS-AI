@@ -261,5 +261,50 @@ class TestToolLoopRunner(_LoopTestCase):
         self.assertEqual(len(self.spoken), 3)
 
 
+HOLDING_LINE = "On it — I'll report back."
+
+
+class TestHoldingLine(_LoopTestCase):
+    """reply-0 doubles as holding line; canned line only when reply-0 is
+    empty and the thinking mechanism yields nothing (S-M4-04)."""
+
+    def test_empty_reply0_gets_holding_line(self):
+        self.registry.register(_descriptor("search"))
+        with mock.patch("modules.module_llm._maybe_play_thinking_response",
+                        return_value=False) as think:
+            started = self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}],
+                             reply=""),
+                "hello", "voice", self.callbacks)
+        self.assertTrue(started)
+        think.assert_called_once()
+        self._wait_turn()
+        self.assertEqual(self.spoken[0], HOLDING_LINE)
+
+    def test_thinking_mechanism_suppresses_fallback(self):
+        self.registry.register(_descriptor("search"))
+        with mock.patch("modules.module_llm._maybe_play_thinking_response",
+                        return_value=True):
+            self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}],
+                             reply=""),
+                "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertNotIn(HOLDING_LINE, self.spoken)
+
+    def test_nonempty_reply0_not_spoken_by_loop(self):
+        self.registry.register(_descriptor("search"))
+        with mock.patch("modules.module_llm._maybe_play_thinking_response"
+                        ) as think:
+            self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}],
+                             reply="let me check on that"),
+                "hello", "voice", self.callbacks)
+        think.assert_not_called()
+        self._wait_turn()
+        # the first (and only) speak is the follow-up reply — no holding
+        self.assertEqual(self.spoken, ["final answer"])
+
+
 if __name__ == "__main__":
     unittest.main()

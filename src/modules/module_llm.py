@@ -133,13 +133,18 @@ if CONFIG['EMOTION']['enabled'] and _emotion_method == 'classifier':
 
 
 def _maybe_play_thinking_response():
-    """Play a random thinking-response audio clip in a background thread (fire-and-forget)."""
+    """Play a random thinking-response audio clip in a background thread.
+
+    Returns True when playback was started, False when the mechanism is
+    disabled or has nothing to play (the tool loop uses this to decide
+    whether to speak its hardcoded holding-line fallback).
+    """
     try:
         enable_thinking = CONFIG["CHAR"].get('enable_thinking_responses', True)
         if isinstance(enable_thinking, str):
             enable_thinking = enable_thinking.lower() in ('true', '1', 'yes')
         if not enable_thinking:
-            return
+            return False
 
         thinking_responses_raw = CONFIG["CHAR"].get('thinking_responses', '[]')
         try:
@@ -150,11 +155,11 @@ def _maybe_play_thinking_response():
             thinking_responses = []
 
         if not thinking_responses:
-            return
+            return False
 
         thinking_text = random.choice(thinking_responses)
         if not (thinking_text and isinstance(thinking_text, str) and thinking_text.strip()):
-            return
+            return False
 
         queue_message(f"{thinking_text}")
 
@@ -166,8 +171,9 @@ def _maybe_play_thinking_response():
                 queue_message(f"ERROR: Failed to play thinking response: {e}")
 
         threading.Thread(target=_play, daemon=True).start()
+        return True
     except Exception:
-        pass
+        return False
 
 
 def _delta_text(content):
