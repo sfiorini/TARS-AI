@@ -758,6 +758,18 @@ class TestMalformedStepTolerance(_PlaybackTestCase):
         with self.assertRaises(ValueError):
             self.store.play_steps(["not a step"])
 
+    def test_wrong_typed_value_rejected_and_servos_disabled(self):
+        # audit B4-residual: a present-but-wrong-typed value must raise a
+        # clean ValueError (not TypeError at move_legs), and the servos
+        # must STILL be disabled on the error path — never left energised
+        # at a partial pose
+        with self.assertRaises(ValueError) as raised:
+            self.store.play_steps([{"left_height": "high"}])
+        self.assertIn("left_height", str(raised.exception))
+        # the error path reached disable_all_servos
+        self.assertEqual(self.servo.disable_calls, [True])
+        self.assertFalse(self.servo.MOVING)
+
 
 class TestMovementRefSafety(_StoreTestCase):
     """Audit A2: movement refs must resolve AND be acyclic at write time —

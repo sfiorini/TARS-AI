@@ -370,6 +370,26 @@ class MovementStore:
 
     @classmethod
     def _step_defaults(cls, step):
+        # audit B4-residual: a present-but-wrong-typed value must be
+        # rejected HERE (a clean ValueError), not at move_legs as a
+        # TypeError mid-playback with the servos stuck mid-pose
+        for key in ("left_height", "right_height", "left_leg",
+                    "right_leg", "speed", "arm_speed", "hold_time"):
+            value = step.get(key)
+            if value is not None and not (isinstance(value, (int, float))
+                                          and not isinstance(value, bool)):
+                raise ValueError(
+                    f"step field '{key}' must be a number or null, "
+                    f"got {value!r}")
+        for key in ("left_main", "left_forearm", "left_hand",
+                    "right_main", "right_forearm", "right_hand",
+                    "movement"):
+            value = step.get(key)
+            if value is not None and not isinstance(value, (int, float,
+                                                            str)):
+                raise ValueError(
+                    f"step field '{key}' must be a number, string or "
+                    f"null, got {value!r}")
         if all(key in step for key in cls._STEP_DEFAULTS):
             return step
         merged = dict(cls._STEP_DEFAULTS)
@@ -432,12 +452,19 @@ class MovementStore:
                     time.sleep(step["hold_time"])
             if tail_neutral:
                 servoctl.move_legs(50, 50, 50, 50, 0.8)
-            if depth == 0:
-                servoctl.disable_all_servos()
             return True
         finally:
             self._tls.play_depth = depth
             if depth == 0:
+                # audit B4-residual: disable runs on the SUCCESS path AND
+                # the error path — a mid-playback failure must never
+                # leave the servos energised at a partial pose
+                try:
+                    servoctl.disable_all_servos()
+                except Exception as exc:  # noqa: BLE001 — cleanup is best-effort
+                    queue_message(
+                        f"MOVEMENTS: disable_all_servos after playback "
+                        f"failed: {exc}")
                 servoctl.set_moving(False)
                 servoctl._notify_movement_end()
 

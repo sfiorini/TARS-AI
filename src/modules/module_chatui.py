@@ -3015,7 +3015,13 @@ def play_saved_sequence():
 
 def _execute_steps(steps):
     from modules.module_movementstore import get_movement_store
-    ok = get_movement_store().play_steps(steps, tail_neutral=True)
+    try:
+        ok = get_movement_store().play_steps(steps, tail_neutral=True)
+    except ValueError as exc:
+        # a malformed payload is a client error, not a 500 (audit
+        # B4-residual) — and play_steps has already safely disabled the
+        # servos on its error path
+        return jsonify({"error": str(exc)}), 400
     if not ok:
         return jsonify({"error": "Robot is already moving"}), 409
     return jsonify({"success": True}), 200
