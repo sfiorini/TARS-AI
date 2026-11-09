@@ -101,5 +101,32 @@ class TestGitignoreLiveState(unittest.TestCase):
         self.assertFalse(_ignored("src/movements_defaults.json"))
 
 
+class TestFinalLiveStateSplit(unittest.TestCase):
+    """S-M7-03: the complete final tracked-vs-ignored split, one
+    self-documenting table — a new state file is one line to add."""
+
+    _SPLIT = [
+        # (path, ignored?)
+        ("src/movements.json", True),
+        ("src/movements_defaults.json", False),
+        ("src/mcp_servers.json", True),
+        ("src/mcp_servers.json.template", False),
+        ("src/agent_skills/dice-roll/SKILL.md", True),
+        ("src/agent_skills_defaults/dice-roll/SKILL.md", False),
+        ("docs/some-new-page.md", False),
+    ]
+
+    def test_all_new_live_state_files(self):
+        for path, ignored in self._SPLIT:
+            self.assertEqual(_ignored(path), ignored,
+                             f"{path} must be "
+                             f"{'ignored' if ignored else 'trackable'}")
+
+    def test_custom_sequences_gone(self):
+        self.assertFalse(
+            os.path.exists(os.path.join(_REPO, "src",
+                                        "custom_sequences.json")))
+
+
 if __name__ == "__main__":
     unittest.main()
