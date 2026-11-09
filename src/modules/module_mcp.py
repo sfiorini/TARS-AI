@@ -31,6 +31,7 @@ import threading
 import time
 
 from modules.module_messageQue import queue_message
+from modules.module_toolregistry import ToolResult
 
 PROTOCOL_VERSION = "2025-06-18"
 
@@ -45,7 +46,90 @@ class McpManager:
         self.registry_path = str(registry_path)
         self.template_path = str(template_path)
         self.servers = {}   # name -> registry entry
-        self._transports = {}  # name -> transport object (S-M6-04+)
+        self._transports = {}  # name -> transport object
+        self._tools_cache = {}  # name -> merged tools/list result
+
+    # ── handshake + tools/list + tools/call (S-M6-05) ────────────
+
+    def ensure_started(self, name):
+        """Lazy start + legacy handshake. Returns the live transport."""
+        transport = self._transports.get(name)
+        if transport is not None and transport.poll() is None:
+            return transport
+        entry = self.servers.get(name)
+        if entry is None:
+            raise ValueError(f"unknown MCP server '{name}'")
+        if entry.get("transport") == "stdio":
+            transport = _StdioServer(name, entry)
+        else:
+            transport = _HttpServer(name, entry)  # S-M6-06
+        transport.start()
+        result = transport._request({
+            "jsonrpc": "2.0", "id": _next_id(), "method": "initialize",
+            "params": {"protocolVersion": PROTOCOL_VERSION,
+                       "capabilities": {},
+                       "clientInfo": {"name": "tars", "version": "3.0"}}},
+            timeout=_request_timeout())
+        negotiated = (result.get("result", {}).get("protocolVersion")
+                      or PROTOCOL_VERSION)
+        # legacy handshake: notifications/initialized after the result
+        transport._send({"jsonrpc": "2.0",
+                         "method": "notifications/initialized"})
+        transport.negotiated_version = negotiated
+        transport.session_id = result.get("session_id")  # HTTP (S-M6-06)
+        self._transports[name] = transport
+        self._tools_cache.pop(name, None)  # re-fetch on restart
+        return transport
+
+    def list_tools(self, name):
+        """tools/list — pagination is MANDATORY: follow nextCursor until
+        absent, merge pages.  Cached per server; re-fetched on restart."""
+        cached = self._tools_cache.get(name)
+        if cached is not None:
+            return cached
+        transport = self.ensure_started(name)
+        tools = []
+        cursor = None
+        while True:
+            params = {"cursor": cursor} if cursor else {}
+            result = transport._request(
+                {"jsonrpc": "2.0", "id": _next_id(),
+                 "method": "tools/list", "params": params},
+                timeout=_request_timeout())
+            page = result.get("result", {})
+            tools.extend(page.get("tools") or [])
+            cursor = page.get("nextCursor")
+            if not cursor:
+                break
+        self._tools_cache[name] = tools
+        return tools
+
+    def call_tool(self, name, tool, args):
+        """tools/call → ToolResult.  `isError: true` is a SUCCESSFUL
+        JSON-RPC response → ToolResult(is_error=True), fed back to the
+        model per D1 — never an exception."""
+        transport = self.ensure_started(name)
+        response = transport._request(
+            {"jsonrpc": "2.0", "id": _next_id(), "method": "tools/call",
+             "params": {"name": tool, "arguments": args or {}}},
+            timeout=_request_timeout())
+        if "error" in response:
+            error = response["error"] or {}
+            return ToolResult(is_error=True,
+                              content=f"MCP error: "
+                                      f"{error.get('message', 'unknown')}")
+        return _result_from_content(response.get("result") or {})
+
+    def shutdown(self):
+        """Stop every running transport (S-M6-08 wires this into the
+        app's finally; safe when nothing started)."""
+        for name, transport in list(self._transports.items()):
+            try:
+                transport.stop()
+            except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+                queue_message(f"MCP: shutdown of '{name}' failed: {exc}")
+        self._transports.clear()
+        self._tools_cache.clear()
 
     # ── registry ────────────────────────────────────────────────
 
@@ -134,6 +218,76 @@ class McpManager:
             return
         shutil.copyfile(self.template_path, self.registry_path)
         queue_message("MCP: seeded mcp_servers.json from template")
+
+
+_id_counter = [0]
+
+
+def _next_id():
+    _id_counter[0] += 1
+    return _id_counter[0]
+
+
+def _request_timeout():
+    try:
+        from modules.module_config import load_config
+        return load_config().get("MCP", {}).get("request_timeout", 30)
+    except Exception:
+        return 30
+
+
+def _result_from_content(result):
+    """Map a tools/call result to ToolResult (design §7): text
+    concatenated; image/audio → placeholder (raw kept for the UI);
+    resources summarised; structuredContent appended, bounded."""
+    content_items = result.get("content") or []
+    texts = []
+    for item in content_items:
+        if not isinstance(item, dict):
+            continue
+        item_type = item.get("type")
+        if item_type == "text":
+            texts.append(item.get("text", ""))
+        elif item_type in ("image", "audio"):
+            texts.append(f"[{item_type}: {item.get('mimeType', 'unknown')}]")
+        elif item_type in ("resource_link", "resource"):
+            texts.append(f"[{item_type}: "
+                         f"{item.get('uri') or item.get('name') or ''}]")
+        else:
+            texts.append(f"[{item_type}: ...]")
+    structured = result.get("structuredContent")
+    if structured is not None:
+        dumped = json.dumps(structured, separators=(",", ":"))
+        texts.append(dumped[:2000])  # bounded
+    content = "\n".join(text for text in texts if text)
+    return ToolResult(content=content,
+                      is_error=bool(result.get("isError")),
+                      raw=content_items)
+
+
+class _HttpServer:
+    """Streamable HTTP transport placeholder — implemented in S-M6-06."""
+
+    def __init__(self, name, entry):
+        self.name = name
+        self.entry = entry
+        self.negotiated_version = None
+        self.session_id = None
+
+    def start(self):
+        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+
+    def poll(self):
+        return 0
+
+    def _send(self, msg):
+        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+
+    def _request(self, msg, timeout=30):
+        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+
+    def stop(self):
+        return None
 
 
 class _StdioServer:

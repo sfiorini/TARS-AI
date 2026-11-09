@@ -349,5 +349,141 @@ class TestStdioTransport(unittest.TestCase):
         self.assertNotIn('": ', line)       # compact separators
 
 
+FAKE_SERVER_TEMPLATE = '''
+import sys, json
+
+
+def respond(msg_id, result):
+    print(json.dumps({"jsonrpc": "2.0", "id": msg_id, "result": result},
+                     separators=(",", ":")), flush=True)
+
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    msg = json.loads(line)
+    if "id" not in msg:
+        continue
+    method = msg.get("method")
+    if method == "initialize":
+        respond(msg["id"], {"protocolVersion": "2025-06-18",
+                             "capabilities": {},
+                             "serverInfo": {"name": "fake", "version": "1"}})
+    elif method == "tools/list":
+        cursor = msg.get("params", {}).get("cursor")
+        if not cursor:
+            respond(msg["id"], {"tools": [{"name": "page1_tool",
+                                            "description": "page one"}],
+                                 "nextCursor": "p2"})
+        else:
+            respond(msg["id"], {"tools": [{"name": "page2_tool",
+                                            "description": "page two"}]})
+    elif method == "tools/call":
+        respond(msg["id"], %s)
+    else:
+        print(json.dumps({"jsonrpc": "2.0", "id": msg["id"],
+                          "error": {"code": -32601, "message": "no"}},
+                         separators=(",", ":")), flush=True)
+'''
+
+
+class _ManagerTestCase(unittest.TestCase):
+    """A McpManager over a tmp registry + a fake in-test server script."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.registry_path = os.path.join(self.tmp, "mcp_servers.json")
+        self.template_path = os.path.join(_SRC, "mcp_servers.json.template")
+
+    def _write_fake_server(self, call_result, name="fake"):  # noqa: ANN001
+        script = os.path.join(self.tmp, f"{name}.py")
+        with open(script, "w") as fh:
+            fh.write(FAKE_SERVER_TEMPLATE % call_result)
+        return script
+
+    def _manager_with(self, name, script):
+        from modules.module_mcp import McpManager
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                name: {"transport": "stdio", "command": sys.executable,
+                       "args": [script], "env": {}, "cwd": None,
+                       "enabled": True, "auto_start": False}}}, fh)
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        return manager
+
+    def _real_manager(self):
+        from modules.module_mcp import McpManager
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "example": {"transport": "stdio", "command": sys.executable,
+                             "args": [_SERVER], "env": {}, "cwd": None,
+                             "enabled": True, "auto_start": False}}}, fh)
+        manager = McpManager(self.registry_path, self.template_path)
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        return manager
+
+
+class TestHandshakeListCall(_ManagerTestCase):
+    """Handshake + pagination + tools/call → ToolResult (S-M6-05)."""
+
+    def test_handshake_and_list_real(self):
+        manager = self._real_manager()
+        tools = manager.list_tools("example")
+        self.assertEqual(sorted(t["name"] for t in tools),
+                         ["add_numbers", "get_time"])
+        # the negotiated version was captured by the handshake
+        self.assertEqual(manager._transports["example"].negotiated_version,
+                         "2025-06-18")
+
+    def test_call_real_iserror_surfaces(self):
+        manager = self._real_manager()
+        result = manager.call_tool("example", "add_numbers",
+                                   {"a": "x", "b": 1})
+        # a tool-execution error is a SUCCESSFUL response -> ToolResult,
+        # never an exception
+        self.assertTrue(result.is_error)
+        self.assertEqual(result.content, "a and b must be numbers")
+
+    def test_call_real_ok(self):
+        manager = self._real_manager()
+        result = manager.call_tool("example", "add_numbers",
+                                   {"a": 2, "b": 3})
+        self.assertFalse(result.is_error)
+        self.assertIn("5", result.content)
+
+    def test_pagination_follows_nextcursor(self):
+        script = self._write_fake_server(
+            '{"content": [{"type": "text", "text": "ok"}], '
+            '"isError": False}')
+        manager = self._manager_with("fake", script)
+        tools = manager.list_tools("fake")
+        # BOTH pages merged — the loop must follow nextCursor
+        self.assertEqual(sorted(t["name"] for t in tools),
+                         ["page1_tool", "page2_tool"])
+
+    def test_structured_and_image_content(self):
+        script = self._write_fake_server(
+            '{"content": [{"type": "image", "mimeType": "image/png", '
+            '"data": "..."}, '
+            '{"type": "text", "text": "a picture"}], '
+            '"structuredContent": {"sum": 5, "detail": "x" * 3000}, '
+            '"isError": False}')
+        manager = self._manager_with("fake", script)
+        result = manager.call_tool("fake", "anything", {})
+        self.assertFalse(result.is_error)
+        self.assertIn("[image: image/png]", result.content)
+        self.assertIn("a picture", result.content)
+        self.assertIn("sum", result.content)  # structured appended
+        self.assertLessEqual(len(result.content), 10000)  # bounded
+        # raw preserved for the UI
+        self.assertEqual(result.raw[0]["type"], "image")
+
+
 if __name__ == "__main__":
     unittest.main()
