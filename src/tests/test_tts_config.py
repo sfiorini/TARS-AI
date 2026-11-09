@@ -57,6 +57,8 @@ class TestTemplateTtsKeys(unittest.TestCase):
         self.assertEqual(parser.get("TTS", "fishaudio_reference_id"), "")
         self.assertEqual(parser.get("TTS", "speechify_voice_id"), "george")
         self.assertEqual(parser.get("TTS", "speechify_model"), "simba-3.5")
+        self.assertTrue(parser.getboolean("TTS", "speechify_stream"))
+        self.assertEqual(parser.get("TTS", "speechify_output_format"), "pcm_24000")
         self.assertEqual(parser.getint("TTS", "tts_timeout"), 30)
 
     def test_template_ttsoption_comment_lists_new_providers(self):
@@ -114,6 +116,24 @@ class TestTTSConfigFromConfigDict(unittest.TestCase):
         self.assertEqual(cfg["tts_fallback_list"], ["external", "piper", "espeak"])
         self.assertEqual(cfg.get("fishaudio_model"), "s2.1-pro-free")
         self.assertEqual(cfg.get("tts_timeout"), 30.0)
+
+    def test_speechify_streaming_defaults(self):
+        cfg = module_config.TTSConfig.from_config_dict(_base_dict())
+        self.assertIs(cfg.speechify_stream, True)
+        self.assertEqual(cfg.speechify_output_format, "pcm_24000")
+
+    def test_speechify_stream_explicit_false_survives(self):
+        # The falsy trap: an explicit False (bool or string) must reach the
+        # provider as False — never `_cfg(...) or True`.
+        for value in (False, "False", "false", "0"):
+            cfg = module_config.TTSConfig.from_config_dict(_base_dict(speechify_stream=value))
+            self.assertIs(cfg.speechify_stream, False, value)
+
+    def test_speechify_output_format_empty_is_default_explicit_passthrough(self):
+        cfg = module_config.TTSConfig.from_config_dict(_base_dict(speechify_output_format=""))
+        self.assertEqual(cfg.speechify_output_format, "pcm_24000")  # empty = unset
+        cfg = module_config.TTSConfig.from_config_dict(_base_dict(speechify_output_format="pcm_44100"))
+        self.assertEqual(cfg.speechify_output_format, "pcm_44100")
 
     def test_explicit_values(self):
         cfg = module_config.TTSConfig.from_config_dict(_base_dict(
@@ -218,6 +238,10 @@ class TestLoadConfigEnvKeys(unittest.TestCase):
         self.assertEqual(tts.speechify_model, "simba-3.5")
         self.assertEqual(tts.tts_timeout, 30.0)
         self.assertIn(tts.fishaudio_reference_id, (None, ""))
+        # S-M2-02 ini-read pin: load_config() must expose both new keys with
+        # the template's defaults (True / pcm_24000).
+        self.assertIs(tts.speechify_stream, True)
+        self.assertEqual(tts.speechify_output_format, "pcm_24000")
 
 
 class TestWebuiMetadata(unittest.TestCase):
@@ -244,7 +268,8 @@ class TestWebuiMetadata(unittest.TestCase):
         schema = module_config.CONFIG_METADATA["TTS"]
         parser = configparser.ConfigParser()
         parser.read(os.path.join(_SRC, "config.ini.template"))
-        for key in ("fishaudio_stream", "fishaudio_latency", "tts_volume"):
+        for key in ("fishaudio_stream", "fishaudio_latency", "tts_volume",
+                    "speechify_stream", "speechify_output_format"):
             self.assertIn(key, schema, f"webui schema missing {key}")
             self.assertTrue(parser.has_option("TTS", key), f"template missing {key}")
 

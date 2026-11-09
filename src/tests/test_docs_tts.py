@@ -49,6 +49,13 @@ def test_configuration_documents_tts_volume():
     assert "0.0" in doc and "2.0" in doc
 
 
+def test_configuration_documents_speechify_streaming_keys():
+    doc = _read("configuration.md")
+    assert "speechify_stream" in doc
+    assert "speechify_output_format" in doc
+    assert "pcm_24000" in doc
+
+
 def test_voice_pipeline_documents_tts_volume():
     doc = _read("voice-pipeline.md")
     assert "tts_volume" in doc
