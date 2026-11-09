@@ -343,6 +343,17 @@ if __name__ == "__main__":
     signal.signal(signal.SIGTERM,
                   lambda *_: shutdown_event.set())
 
+    # Thread-stack dump on SIGUSR1 (diagnostic). A live freeze on the robot
+    # (app spinning ~100% CPU, web server still answering, no log output)
+    # could not be diagnosed: py-spy needs ptrace, which is restricted here.
+    # `kill -USR1 <pid>` now dumps every thread's Python stack to stderr
+    # (i.e. the app log) with no elevated permissions and no restart.
+    try:
+        import faulthandler
+        faulthandler.register(signal.SIGUSR1, all_threads=True)
+    except Exception:
+        pass
+
     # Battery module (only if enabled in config)
     if CONFIG['BATTERY'].get('battery_enabled', False):
         battery = BatteryModule()
