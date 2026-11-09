@@ -1570,44 +1570,44 @@ class ServoControllerGUI:
         if self.move_forward_btn.handle_event(event):
             if self.movement_mode == "fast":
                 self.set_status("LOADING Forward...")
-                step_forward()
+                _execute_movement_id("step_forward")
                 self.set_status("OK Forward complete")
             else:
                 self.set_status("LOADING Forward (slow)...")
-                walk_forward()
+                _execute_movement_id("walk_forward")
                 self.set_status("OK Forward complete")
             return
 
         if self.move_backward_btn.handle_event(event):
             if self.movement_mode == "fast":
                 self.set_status("LOADING Backward...")
-                step_backward()
+                _execute_movement_id("step_backward")
                 self.set_status("OK Backward complete")
             else:
                 self.set_status("LOADING Backward (slow)...")
-                walk_backward()
+                _execute_movement_id("walk_backward")
                 self.set_status("OK Backward complete")
             return
 
         if self.turn_left_btn.handle_event(event):
             if self.movement_mode == "fast":
                 self.set_status("LOADING Turn left...")
-                turn_left()
+                _execute_movement_id("turn_left")
                 self.set_status("OK Turn left complete")
             else:
                 self.set_status("LOADING Turn left (slow)...")
-                turn_left_slow()
+                _execute_movement_id("turn_left_slow")
                 self.set_status("OK Turn left complete")
             return
 
         if self.turn_right_btn.handle_event(event):
             if self.movement_mode == "fast":
                 self.set_status("LOADING Turn right...")
-                turn_right()
+                _execute_movement_id("turn_right")
                 self.set_status("OK Turn right complete")
             else:
                 self.set_status("LOADING Turn right (slow)...")
-                turn_right_slow()
+                _execute_movement_id("turn_right_slow")
                 self.set_status("OK Turn right complete")
             return
 

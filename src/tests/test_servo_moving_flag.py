@@ -9,10 +9,14 @@ trigger a chip re-init mid-walk. module_servoctl now exposes:
   - acquire_moving(): atomic test-and-set under _state_lock
   - set_moving(v):    locked write
 
-and module_movements.py uses them for every MOVING transition.
+Movement playback now goes through movementstore.play_steps() (the 33
+hardcoded functions are gone); the MOVING-transition assertions run against
+play_steps with the fake-hardware servoctl, and the source-format assertion
+pins chatui to the delegated playback path.
 """
 import os
 import re
+import shutil
 import sys
 import threading
 import types
@@ -53,7 +57,7 @@ def _install_fake_hardware():
 
 _install_fake_hardware()
 import modules.module_servoctl as servoctl  # noqa: E402
-import modules.module_movements as movements  # noqa: E402
+import modules.module_movements as movements  # noqa: E402  (reduced module must stay importable)
 
 
 class MovingFlagTestCase(unittest.TestCase):
@@ -101,43 +105,47 @@ class TestMovingHelpers(MovingFlagTestCase):
 
 
 class TestMovementsUseLockedHelpers(MovingFlagTestCase):
-    """Movement functions must claim/release MOVING via the helpers and
-    leave no bare MOVING assignment behind."""
+    """Playback (movementstore.play_steps) must claim/release MOVING via
+    the locked helpers and refuse while another movement holds the flag."""
 
-    def _run_movement(self, name):
-        """Run one movement with the servo calls and sleeps mocked out."""
-        with mock.patch.object(movements, "move_legs"), \
-             mock.patch.object(movements, "move_arm"), \
-             mock.patch.object(movements, "disable_all_servos"), \
-             mock.patch.object(movements.time, "sleep"):
-            getattr(movements, name)()
+    def _run_steps(self, steps):
+        """Play steps through a tmp MovementStore against the real
+        (fake-hardware) servoctl; servo calls and sleeps mocked out."""
+        import tempfile
+        from modules import module_movementstore
+        from modules.module_movementstore import MovementStore
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        store = MovementStore(
+            store_path=os.path.join(tmp, "movements.json"),
+            defaults_path=os.path.join(_SRC, "movements_defaults.json"))
+        store.load()
+        with mock.patch.object(servoctl, "move_legs"), \
+             mock.patch.object(servoctl, "move_arm"), \
+             mock.patch.object(servoctl, "disable_all_servos"), \
+             mock.patch.object(module_movementstore, "time"):
+            return store.play_steps(steps)
 
-    def test_movement_sets_and_clears_moving(self):
-        self._run_movement("step_forward")
+    @staticmethod
+    def _step():
+        return {
+            "left_height": 50, "right_height": 50,
+            "left_leg": 50, "right_leg": 50,
+            "left_main": None, "left_forearm": None, "left_hand": None,
+            "right_main": None, "right_forearm": None, "right_hand": None,
+            "speed": 0.9, "hold_time": 0.0, "movement": None,
+        }
+
+    def test_play_steps_sets_and_clears_moving(self):
+        self.assertTrue(self._run_steps([self._step()]))
         self.assertFalse(servoctl.MOVING)
 
-    def test_movement_is_rejected_while_moving(self):
+    def test_play_steps_rejected_while_moving(self):
         servoctl.MOVING = True
-        with mock.patch.object(movements, "move_legs") as ml:
-            self._run_movement("step_forward")
-        ml.assert_not_called()  # second movement no-ops, MOVING untouched
-
-    def test_no_bare_moving_assignment_remains(self):
-        """Regression pin: every MOVING write in module_movements.py goes
-        through the locked helpers — no bare `servoctl.MOVING = ...`."""
-        path = os.path.join(_SRC, "modules", "module_movements.py")
-        with open(path, "r", encoding="utf-8") as fh:
-            source = fh.read()
-        bare = re.findall(r"^\s*servoctl\.MOVING\s*=", source, re.M)
-        self.assertEqual(bare, [], "bare servoctl.MOVING assignment(s) found")
-
-    def test_no_bare_check_then_set_pattern_remains(self):
-        """The racy `if not servoctl.MOVING:` read must be replaced by the
-        atomic acquire_moving() claim."""
-        path = os.path.join(_SRC, "modules", "module_movements.py")
-        with open(path, "r", encoding="utf-8") as fh:
-            source = fh.read()
-        self.assertNotIn("if not servoctl.MOVING:", source)
+        with mock.patch.object(servoctl, "move_legs") as ml:
+            ok = self._run_steps([self._step()])
+        self.assertFalse(ok)
+        ml.assert_not_called()  # zero servo calls while already moving
 
     def test_no_bare_moving_write_in_chatui(self):
         """Regression pin (S-M2-03): the builder playback path delegates

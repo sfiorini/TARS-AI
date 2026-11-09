@@ -52,7 +52,9 @@ import modules.module_llm as _llm_mod
 from modules.module_tts import generate_tts_audio, SentenceTTSPipeline
 from modules.module_llm import detect_emotion, detect_emotion_from_llm, classifier as emotion_classifier
 from modules.module_messageQue import queue_message, get_recent_logs
-from modules.module_servoctl import *
+from modules.module_servoctl import (move_legs, move_arm, reset_positions,
+                                   disable_all_servos, force_servo_recovery,
+                                   servo_status)
 from modules.module_movement_registry import get_names, get_names_by_type, LEGS_ONLY, HAS_ARMS, MOVEMENTS
 
 # Vision is optional — only available if enabled and dependencies are installed

@@ -912,47 +912,6 @@ def cleanup():
     
     disable_all_servos()
 
-from modules.module_movements import (
-    step_forward,
-    walk_forward,
-    step_backward,
-    walk_backward,
-    turn_right,
-    turn_right_slow,
-    turn_left,
-    turn_left_slow,
-    right_hi,
-    left_hi,
-    laugh,
-    excited,
-    swing_legs,
-    left_pezz_dispenser,
-    right_pezz_dispenser,
-    monster,
-    pose,
-    bow,
-    tilt_right,
-    tilt_left,
-    side_side,
-    wave_right,
-    wave_left,
-    neutral_legs,
-    ventilate_on,
-    ventilate_off,
-    set_swap_turn_directions,
-    left_point,
-    right_point,
-    left_poke,
-    right_poke,
-    left_wave_open,
-    right_wave_open,
-    left_shy_wave,
-    right_shy_wave,
-    happy_dance
-)
-
-set_swap_turn_directions(config["CONTROLS"]["swap_turn_directions"])
-
 from modules.module_movement_registry import (
     MOVEMENTS,
     LEGS_ONLY,
