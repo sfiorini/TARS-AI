@@ -50,39 +50,73 @@ if not os.path.exists(_CONFIG_INI):
             f"(required for module imports): {exc}"
         ) from exc
 
-# ── Stubs for optional third-party packages not installed on CI runners ──
-# module_elevenlabs does `from elevenlabs.client import ElevenLabs` at import
-# time and `import aiohttp` lazily inside the request helpers, so stubbing
-# sys.modules before the import is enough (module_tts imports this module in
-# a try/except ImportError, so a missing package is fine there too).
-if "elevenlabs" not in sys.modules:
-    _el_pkg = types.ModuleType("elevenlabs")
-    _el_client = types.ModuleType("elevenlabs.client")
+# ── Stubs for optional third-party packages ──
+# module_elevenlabs never imports the elevenlabs SDK (all requests go
+# through the aiohttp helper) and imports aiohttp lazily inside the request
+# helpers, so stubbing sys.modules is enough. module_tts imports this module
+# in a try/except ImportError, so a missing package is fine there too.
+#
+# Same hygiene rule as test_module_tts_openai.py: the stubs must win
+# REGARDLESS of import order. The old `if <pkg> not in sys.modules` guards
+# silently skipped the stubs when the real packages were installed and
+# already imported (robot), leaving these tests running against whatever
+# real module happened to be in sys.modules instead of the interface they
+# were written against. So: install the stubs unconditionally and restore
+# the previous sys.modules entries in tearDownModule so test modules that
+# run after this one are not affected. No re-import of module_elevenlabs is
+# needed here (unlike module_openai) because it binds neither package at
+# import time — its `import aiohttp` is resolved per call, i.e. against the
+# authoritative stub during these tests.
+_el_pkg = types.ModuleType("elevenlabs")
+_el_client = types.ModuleType("elevenlabs.client")
 
-    class _StubElevenLabsClient:
-        def __init__(self, *args, **kwargs):
-            pass
 
-    _el_client.ElevenLabs = _StubElevenLabsClient
-    _el_pkg.client = _el_client
-    sys.modules["elevenlabs"] = _el_pkg
-    sys.modules["elevenlabs.client"] = _el_client
-
-if "aiohttp" not in sys.modules:
-    _aiohttp = types.ModuleType("aiohttp")
-
-    class _StubClientError(Exception):
+class _StubElevenLabsClient:
+    def __init__(self, *args, **kwargs):
         pass
 
-    class _StubClientTimeout:
-        def __init__(self, total=None, **kwargs):
-            self.total = total
-            self.kwargs = kwargs
 
-    _aiohttp.ClientError = _StubClientError
-    _aiohttp.ClientTimeout = _StubClientTimeout
-    _aiohttp.ClientSession = None  # patched per test
-    sys.modules["aiohttp"] = _aiohttp
+_el_client.ElevenLabs = _StubElevenLabsClient
+_el_pkg.client = _el_client
+
+_aiohttp = types.ModuleType("aiohttp")
+
+
+class _StubClientError(Exception):
+    pass
+
+
+class _StubClientTimeout:
+    def __init__(self, total=None, **kwargs):
+        self.total = total
+        self.kwargs = kwargs
+
+
+_aiohttp.ClientError = _StubClientError
+_aiohttp.ClientTimeout = _StubClientTimeout
+_aiohttp.ClientSession = None  # patched per test
+
+_saved_elevenlabs = sys.modules.get("elevenlabs")
+_saved_elevenlabs_client = sys.modules.get("elevenlabs.client")
+_saved_aiohttp = sys.modules.get("aiohttp")
+sys.modules["elevenlabs"] = _el_pkg
+sys.modules["elevenlabs.client"] = _el_client
+sys.modules["aiohttp"] = _aiohttp
+
+
+def tearDownModule():
+    """Restore the pre-test sys.modules entries (the real packages, when
+    present) so later test modules are not affected by the stubs."""
+    for _name, _saved in (
+        ("elevenlabs", _saved_elevenlabs),
+        ("elevenlabs.client", _saved_elevenlabs_client),
+        ("aiohttp", _saved_aiohttp),
+    ):
+        if _saved is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = _saved
+
 
 from modules import module_elevenlabs  # noqa: E402
 from modules import module_tts  # noqa: E402

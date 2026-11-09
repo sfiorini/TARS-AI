@@ -21,6 +21,7 @@ template, and the optional `openai` package (not installed on CI) is stubbed
 in sys.modules before importing the module under test.
 """
 import asyncio
+import importlib
 import io
 import os
 import sys
@@ -45,45 +46,83 @@ if not os.path.exists(_CONFIG_INI):
             f"(required for module imports): {exc}"
         ) from exc
 
-# ── Stub for the optional openai package (not installed on CI runners) ──
+# ── Stub for the optional openai package ──
 # module_openai does `import openai` at import time and calls
 # openai.audio.speech.create(...), so a stub module with SDK-style exception
 # classes (status_code / body attributes) is enough.
-if "openai" not in sys.modules:
-    _oai = types.ModuleType("openai")
+#
+# The stub must win REGARDLESS of import order. On the robot the real
+# `openai` is installed (CI/dev machines do not have it, which is why this
+# was never caught there), and any test module imported before this one
+# that pulls in modules.module_tts (whose import loads every provider)
+# leaves modules.module_openai already imported against the real SDK. The
+# old `if "openai" not in sys.modules` guard then skipped the stub and
+# these tests built e.g. AuthenticationError(...) against the real
+# APIStatusError.__init__, whose signature differs (no `status_code`
+# keyword). So: install the stub unconditionally, drop any already-imported
+# modules.module_openai and re-import it against the stub, and restore the
+# previous sys.modules entries in tearDownModule so test modules that run
+# after this one see the state that existed before this file ran.
+_oai = types.ModuleType("openai")
 
-    class _APIError(Exception):
-        def __init__(self, message="", status_code=None, body=None):
-            super().__init__(message)
-            self.status_code = status_code
-            self.body = body
 
-    class _RateLimitError(_APIError):
-        pass
+class _APIError(Exception):
+    def __init__(self, message="", status_code=None, body=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
 
-    class _AuthenticationError(_APIError):
-        pass
 
-    class _APIStatusError(_APIError):
-        pass
+class _RateLimitError(_APIError):
+    pass
 
-    class _APITimeoutError(_APIError):
-        pass
 
-    class _APIConnectionError(_APIError):
-        pass
+class _AuthenticationError(_APIError):
+    pass
 
-    _oai.APIError = _APIError
-    _oai.RateLimitError = _RateLimitError
-    _oai.AuthenticationError = _AuthenticationError
-    _oai.APIStatusError = _APIStatusError
-    _oai.APITimeoutError = _APITimeoutError
-    _oai.APIConnectionError = _APIConnectionError
-    _oai.api_key = None
-    _oai.audio = types.SimpleNamespace(speech=types.SimpleNamespace(create=None))
-    sys.modules["openai"] = _oai
 
-from modules import module_openai  # noqa: E402
+class _APIStatusError(_APIError):
+    pass
+
+
+class _APITimeoutError(_APIError):
+    pass
+
+
+class _APIConnectionError(_APIError):
+    pass
+
+
+_oai.APIError = _APIError
+_oai.RateLimitError = _RateLimitError
+_oai.AuthenticationError = _AuthenticationError
+_oai.APIStatusError = _APIStatusError
+_oai.APITimeoutError = _APITimeoutError
+_oai.APIConnectionError = _APIConnectionError
+_oai.api_key = None
+_oai.audio = types.SimpleNamespace(speech=types.SimpleNamespace(create=None))
+
+_saved_openai = sys.modules.get("openai")
+_saved_module_openai = sys.modules.get("modules.module_openai")
+sys.modules["openai"] = _oai
+sys.modules.pop("modules.module_openai", None)
+module_openai = importlib.import_module("modules.module_openai")
+
+
+def tearDownModule():
+    """Restore the pre-test sys.modules entries (the real openai and the
+    module_openai bound to it, when present) so later test modules are not
+    affected by the stub."""
+    for _name, _saved in (
+        ("openai", _saved_openai),
+        ("modules.module_openai", _saved_module_openai),
+    ):
+        if _saved is None:
+            sys.modules.pop(_name, None)
+        else:
+            sys.modules[_name] = _saved
+
+
 from modules import module_tts  # noqa: E402
 from modules.module_fishaudio import (  # noqa: E402
     TTSProviderError,
