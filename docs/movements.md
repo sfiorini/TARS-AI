@@ -1,44 +1,111 @@
 # Movements
 
-Physical motion is driven by a **registry**: `src/modules/module_movement_registry.py` defines `MOVEMENTS` with **33 entries — 19 `legs_only` + 14 `has_arms`**. The LLM skill, the web UI motion tab, and the voice-command gate all read this registry, so one edit propagates everywhere. The motion functions themselves live in `src/modules/module_movements.py` on top of `move_legs()` / `move_arm()` in `module_servoctl.py`.
+Physical motion is driven by the **movement store**: two JSON files with one schema.
 
-## The registry
+- **`src/movements_defaults.json`** — tracked in git, hand-editable, generated once from the original movement code by `scripts/export_movement_defaults.py` (an AST extractor; run it to re-derive the file). This is the source of truth for the shipped movements.
+- **`src/movements.json`** — the **live store**, gitignored per-robot state. On first app start it is **seeded from the defaults** (one log line: `MOVEMENTS: seeded movements.json from defaults`). Every load validates it; a corrupt or invalid file never stops the robot: the offending entry is logged (`MOVEMENTS: invalid entry '<id>': <reason>`) and the defaults content is used instead.
 
-**Legs (`legs_only`, 19):** `step_forward`, `walk_forward`, `step_backward`, `walk_backward`, `turn_right`, `turn_right_slow`, `turn_left`, `turn_left_slow`, `pose`, `bow`, `tilt_right`, `tilt_left`, `side_side`, `wave_right`, `wave_left` (note: these two wave the **legs**), `neutral_legs`, `excited`, `laugh`, `swing_legs`.
+Playback goes through `module_movementstore.py`: `execute(id)` picks the right branch (`steps_arms` when arm servos are present, else `steps`), honours the `swap_turn_directions` config for the four turn ids, and plays the step list with `play_steps()`. The MOVING flag is claimed/released through the locked helpers (`acquire_moving()` / `set_moving()`), so a second movement is refused while one is running.
 
-**Arms (`has_arms`, 14):** `right_hi`, `left_hi`, `left_pezz_dispenser`, `right_pezz_dispenser`, `monster`, `left_point`, `right_point`, `left_poke`, `right_poke`, `left_wave_open`, `right_wave_open`, `left_shy_wave`, `right_shy_wave`, `happy_dance`.
-
-Each entry is `{"name": <display>, "type": LEGS_ONLY|HAS_ARMS, "description": <short>}` with helper accessors `get_all()`, `get_by_type()`, `get_legs_only()`, `get_has_arms()`, `get_names()`, `get_names_by_type()`.
-
-## Arm gating
-
-`[SERVO] arms_present = False` in the template (legs-only builds). Every `has_arms` movement is **skipped with an INFO log** (`Skipping X - arm servos not installed`) and the batch continues. The web UI reports the flag via `GET /get_arms_status` and hides arm movements.
-
-## Voice-triggered movement: the `execute_movement` skill
-
-`src/skills/skill_execute_movement.py` exposes `execute_movement` to the LLM. Its prompt is **built at import time by iterating `MOVEMENTS`** (grouped Legs/Arms), so new registry entries appear in the prompt automatically. Dispatch is registry-only: `_resolve_movement()` does `getattr(module_movements, id)` **only for ids present in `MOVEMENTS`** — never on raw LLM strings (unknown ids get an ERROR with the valid id list). `execute(parameters, context)` requires `[CONTROLS] voicemovement = True`, passes `arms_present` from config, and runs the movement list in a daemon thread, logging each step (`Executing movement 1/3: …`).
-
-Example LLM call: `{"function": "execute_movement", "parameters": {"movements": ["step_forward", "turn_left_slow"]}}`.
-
-## Custom sequences
-
-`src/custom_sequences.json` stores named step sequences created in the web UI **builder** tab:
+## Entry and step schema
 
 ```json
-"step_forward_test": {
-  "type": "movement",
-  "quick": false,
-  "steps": [
-    {"movement": null, "left_height": 50, "right_height": 50,
-     "left_leg": 50, "right_leg": 50,
-     "left_main": null, "left_forearm": null, "left_hand": null,
-     "right_main": null, "right_forearm": null, "right_hand": null,
-     "speed": 0.9, "hold_time": 0}
-  ]
+"bow": {
+  "name": "Bow",
+  "type": "legs_only",
+  "description": "bow forward politely",
+  "steps": [ { "left_height": 50, "right_height": 50,
+               "left_leg": 50, "right_leg": 50,
+               "left_main": null, "left_forearm": null, "left_hand": null,
+               "right_main": null, "right_forearm": null, "right_hand": null,
+               "speed": 0.4, "hold_time": 0.0, "movement": null } ],
+  "steps_arms": null
 }
 ```
 
-Each step: leg percentages (1–100; 0/None = skip), arm percentages (1–100, -1 = hold), an optional registry `movement` id, `speed` (0–1) and `hold_time` (seconds). Endpoints: `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence`.
+- `id` — lowercase letters, digits, underscores (`[a-z0-9_]+`).
+- `type` — `legs_only` or `has_arms`. `has_arms` entries are skipped with an INFO log (`Skipping <id> - arm servos not installed`) when `[SERVO] arms_present = False`.
+- Each **step** has exactly the builder fields: `left_height`, `right_height`, `left_leg`, `right_leg`, `left_main`, `left_forearm`, `left_hand`, `right_main`, `right_forearm`, `right_hand`, `speed`, `hold_time`, `movement`.
+    - `null` leg/arm value = **skip** that servo.
+    - `-1` arm value = **HOLD** (re-poke the last position).
+    - `speed` — 0–1 (higher is faster); `hold_time` — seconds to sleep after the step (>= 0).
+    - `movement` — `null`, or the id of another store entry: the step **composes** that movement's steps inline.
+- `steps` plays when arms are absent (or the entry has no arms variant); `steps_arms` (may be `null`) plays when arm servos are installed.
+
+## Reset vs prune (exact semantics)
+
+- **reset** — for every id in the defaults: delete the store entry and re-insert fresh from defaults. **Ids absent from the defaults are untouched** (user-created movements survive; edits to shipped movements are lost — that is the locked meaning).
+- **prune** — reset **plus** delete store ids that no longer exist in the defaults.
+
+## CLI: `src/app-movements.py`
+
+```bash
+python3 src/app-movements.py list        # id<tab>type<tab>name per line (33 shipped)
+python3 src/app-movements.py show bow    # pretty JSON of one entry
+python3 src/app-movements.py edit bow    # open $EDITOR; validates on save
+python3 src/app-movements.py reset       # "Restored 33 movements from defaults, kept N user movement(s)"
+python3 src/app-movements.py prune       # "Restored 33 movements from defaults, pruned N orphan(s)"
+python3 src/app-movements.py export /tmp/backup.json   # "Exported 33 movements to /tmp/backup.json"
+python3 src/app-movements.py import /tmp/backup.json   # all-or-nothing; errors name the bad entry
+python3 src/app-movements.py validate    # "movements.json is valid" (exit 0) or per-entry errors (exit 1)
+```
+
+`validate` never touches the file. `import` validates every entry first — one invalid entry means **nothing** is imported and the error names the offending id. `edit` exits non-zero with the reason on stderr when the edited entry fails validation. The `TARS_MOVEMENTS_STORE` env var overrides the live store path (used by tests and offline tooling); `TARS_CONFIG_PATH` is respected by the config bootstrap.
+
+## Web UI
+
+- The **movements** tab lists the whole pool (fetched from `GET /movements/`), with per-entry Play / Edit / Delete buttons, a create form, and Reset / Prune buttons. Edits are validated on save; the server rejects invalid entries with the reason.
+- The **builder** tab still builds step sequences graphically; saving now writes a movement store entry (id = name, so ids are lowercase/digits/underscores). Sequences from the legacy builder file (`src/custom_sequences.json`) are **not** migrated; recreate them in the panel.
+- The **motion** tab dropdown executes movements through the store; a movement already in progress returns `409 Robot is already moving`.
+
+## Voice: the `execute_movement` skill
+
+`src/skills/skill_execute_movement.py` resolves ids against the registry (rebuilt from the store after every mutation) and dispatches through `movementstore.execute(id)` — never `getattr` on raw LLM strings. The skill prompt is **built from the store at call time and bounded** (`PROMPT_BUDGET_CHARS = 4000`): descriptions are truncated, then entries are dropped alphabetically, and every dropped id is logged. A movement created via the UI or CLI is LLM-callable without a restart.
+
+Example LLM call: `{"function": "execute_movement", "parameters": {"movements": ["step_forward", "turn_left_slow"]}}`.
+
+## Shipped movement reference
+
+Generated from `src/movements_defaults.json` (33 entries — 19 `legs_only` + 14 `has_arms`):
+
+| ID | Name | Type | Description |
+|---|---|---|---|
+| `bow` | Bow | legs_only | bow forward politely |
+| `excited` | Excited | legs_only | excited leg bounce/fidget |
+| `happy_dance` | Happy Dance | has_arms | full happy dance with arms and legs |
+| `laugh` | Laugh | legs_only | body laugh - shake with amusement |
+| `left_hi` | Left Hi | has_arms | raise the left ARM in a hi greeting |
+| `left_pezz_dispenser` | Left Pezz Dispenser | has_arms | left-arm Pez-dispenser gag gesture |
+| `left_point` | Left Point | has_arms | point with the left ARM |
+| `left_poke` | Left Poke | has_arms | poke gesture with the left ARM |
+| `left_shy_wave` | Left Shy Wave | has_arms | small shy wave with the left ARM |
+| `left_wave_open` | Left Wave Open | has_arms | big open-armed wave with the left ARM |
+| `monster` | Monster | has_arms | raise both ARMS up like a monster |
+| `neutral_legs` | Neutral Legs | legs_only | return the legs to the neutral standing position |
+| `pose` | Pose | legs_only | strike a heroic pose |
+| `right_hi` | Right Hi | has_arms | raise the right ARM in a hi greeting |
+| `right_pezz_dispenser` | Right Pezz Dispenser | has_arms | right-arm Pez-dispenser gag gesture |
+| `right_point` | Right Point | has_arms | point with the right ARM |
+| `right_poke` | Right Poke | has_arms | poke gesture with the right ARM |
+| `right_shy_wave` | Right Shy Wave | has_arms | small shy wave with the right ARM |
+| `right_wave_open` | Right Wave Open | has_arms | big open-armed wave with the right ARM |
+| `side_side` | Side Side | legs_only | sway side to side |
+| `step_backward` | Step Backward | legs_only | take one step backward |
+| `step_forward` | Step Forward | legs_only | take one step forward |
+| `swing_legs` | Swing Legs | legs_only | swing the legs back and forth playfully |
+| `tilt_left` | Tilt Left | legs_only | lean/tilt the body to the left |
+| `tilt_right` | Tilt Right | legs_only | lean/tilt the body to the right |
+| `turn_left` | Turn Left | legs_only | turn the body to the left |
+| `turn_left_slow` | Turn Left Slow | legs_only | turn the body to the left slowly |
+| `turn_right` | Turn Right | legs_only | turn the body to the right |
+| `turn_right_slow` | Turn Right Slow | legs_only | turn the body to the right slowly |
+| `walk_backward` | Walk Backward | legs_only | walk backward several steps |
+| `walk_forward` | Walk Forward | legs_only | walk forward several steps |
+| `wave_left` | Wave Left | legs_only | wave a greeting with the left LEG |
+| `wave_right` | Wave Right | legs_only | wave a greeting with the right LEG |
+
+!!! note "Leg wave vs arm wave"
+    `wave_left` / `wave_right` wave the **legs**; `left_hi`, `right_hi` and the shy/open waves are **arm** gestures. The skill prompt says this explicitly so the LLM picks the right id.
 
 ## Servo channels and calibration
 
@@ -46,58 +113,8 @@ Channels 0–3 = legs (0 left height, 1 right height, 2 left swing, 3 right swin
 
 ## Servo tester GUI
 
-`src/app-servotester.py` is a pygame GUI for the Pi's display: per-channel sliders (0–600 pulse), registry movement buttons, position save/load. Run on the Pi:
+`src/app-servotester.py` is a pygame GUI for the Pi's display: per-channel sliders (0–600 pulse), registry movement buttons (dispatched through the store), position save/load. Run on the robot:
 
 ```bash
 cd src && source .venv/bin/activate && python app-servotester.py
 ```
-
-Use it to find your `[SERVO]` min/max values and offsets before walking.
-
-## How to add a movement
-
-1. Add a function to `src/modules/module_movements.py` (build it from `move_legs()` / `move_arm()` / `move_servos_synchronized()` in `module_servoctl.py`).
-2. Add one entry to `MOVEMENTS` in `module_movement_registry.py` with the **same id**: `"my_move": {"name": "My Move", "type": LEGS_ONLY, "description": "…"}`.
-3. Done — the skill prompt (`_build_prompt()` iterates the registry), `/get_movements`, and `_resolve_movement()` dispatch pick it up automatically.
-4. Extend `src/tests/test_execute_movement.py` (prompt contains all ids, resolver legs/arms/arm-gated/unknown cases).
-
-## Full registry reference (33 entries)
-
-| ID | Name | Type | Description |
-|---|---|---|---|
-| `step_forward` | Step Forward | legs_only | take one step forward |
-| `walk_forward` | Walk Forward | legs_only | walk forward several steps |
-| `step_backward` | Step Backward | legs_only | take one step backward |
-| `walk_backward` | Walk Backward | legs_only | walk backward several steps |
-| `turn_right` | Turn Right | legs_only | turn the body to the right |
-| `turn_right_slow` | Turn Right Slow | legs_only | turn the body to the right slowly |
-| `turn_left` | Turn Left | legs_only | turn the body to the left |
-| `turn_left_slow` | Turn Left Slow | legs_only | turn the body to the left slowly |
-| `pose` | Pose | legs_only | strike a heroic pose |
-| `bow` | Bow | legs_only | bow forward politely |
-| `tilt_right` | Tilt Right | legs_only | lean/tilt the body to the right |
-| `tilt_left` | Tilt Left | legs_only | lean/tilt the body to the left |
-| `side_side` | Side Side | legs_only | sway side to side |
-| `wave_right` | Wave Right | legs_only | wave a greeting with the right LEG |
-| `wave_left` | Wave Left | legs_only | wave a greeting with the left LEG |
-| `neutral_legs` | Neutral Legs | legs_only | return the legs to the neutral standing position |
-| `excited` | Excited | legs_only | excited leg bounce/fidget |
-| `laugh` | Laugh | legs_only | body laugh - shake with amusement |
-| `swing_legs` | Swing Legs | legs_only | swing the legs back and forth playfully |
-| `right_hi` | Right Hi | has_arms | raise the right ARM in a hi greeting |
-| `left_hi` | Left Hi | has_arms | raise the left ARM in a hi greeting |
-| `left_pezz_dispenser` | Left Pezz Dispenser | has_arms | left-arm Pez-dispenser gag gesture |
-| `right_pezz_dispenser` | Right Pezz Dispenser | has_arms | right-arm Pez-dispenser gag gesture |
-| `monster` | Monster | has_arms | raise both ARMS up like a monster |
-| `left_point` | Left Point | has_arms | point with the left ARM |
-| `right_point` | Right Point | has_arms | point with the right ARM |
-| `left_poke` | Left Poke | has_arms | poke gesture with the left ARM |
-| `right_poke` | Right Poke | has_arms | poke gesture with the right ARM |
-| `left_wave_open` | Left Wave Open | has_arms | big open-armed wave with the left ARM |
-| `right_wave_open` | Right Wave Open | has_arms | big open-armed wave with the right ARM |
-| `left_shy_wave` | Left Shy Wave | has_arms | small shy wave with the left ARM |
-| `right_shy_wave` | Right Shy Wave | has_arms | small shy wave with the right ARM |
-| `happy_dance` | Happy Dance | has_arms | full happy dance with arms and legs |
-
-!!! note "Leg wave vs arm wave"
-    `wave_left` / `wave_right` wave the **legs**; `left_hi`, `right_hi` and the shy/open waves are **arm** gestures. The skill prompt says this explicitly so the LLM picks the right id.

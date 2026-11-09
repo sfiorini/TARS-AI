@@ -26,7 +26,8 @@ Templates in `src/www/templates/tabs/`:
 | **config** | full `config.ini` editor with per-key (i) descriptions |
 | **motion** | movement buttons from the registry + sequence player |
 | **legs** / **arms** / **body** | direct servo sliders per channel group |
-| **builder** | custom sequence editor → `src/custom_sequences.json` |
+| **builder** | step-sequence editor → movement store entries (`src/movements.json`) |
+| **movements** | whole movement pool: play / edit / delete / reset (`/movements/*`) |
 | **emotions** | emotion/sprite control (`POST /emotion`, `/api/eyes/mood`) |
 | **sys** | system metrics (`/api/system/metrics`), console logs, reboot button, wifi |
 | **wifi** | `/api/wifi/status`, networks, connect, hotspot |
@@ -47,7 +48,8 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | `POST /robot_move` | `{"direction": "forward"|"backward"|"left"|"right"|"*_slow"}` |
 | `POST /move_legs`, `POST /move_arms`, `POST /neutral_legs`, `POST /reset_positions`, `POST /disable_servos` | direct servo control |
 | `GET /get_arms_status` | `[SERVO] arms_present` |
-| `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence` | custom sequences (see [Movements](movements.md)) |
+| `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence` | builder sequences (see [Movements](movements.md)) |
+| `GET /movements`, `POST /movements`, `PUT /movements/<id>`, `DELETE /movements/<id>`, `POST /movements/reset` | movement pool CRUD — whole pool list, create/update (400 with the reason on invalid entries), delete (404 unknown), reset with `{"prune": false\|true}` (see [Movements](movements.md)) |
 | `POST /process_llm` | send a text chat through the LLM pipeline |
 | `POST /upload`, `GET /camera_feed`, `GET /audio_stream`, `GET /get_next_audio_chunk` | camera + audio streaming |
 | `GET /api/console/logs` | recent lines of `src/logs/tars-ai.log` |
@@ -57,7 +59,7 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 
 ## Motion tab
 
-Driven by the **movement registry** (`src/modules/module_movement_registry.py`): `GET /get_movements` returns every registered movement with id, display name, and type (`legs_only` / `has_arms` / `system`), so new registry entries appear automatically. Arm movements are gated when `[SERVO] arms_present = False`. The **builder** saves step sequences to `src/custom_sequences.json`.
+Driven by the **movement store** (`src/modules/module_movementstore.py`, rebuilt into the registry after every change): `GET /get_movements` returns every movement with id, display name, and type (`legs_only` / `has_arms` / `system`), so movements created in the **movements** tab appear automatically. Arm movements are gated when `[SERVO] arms_present = False`. The **builder** saves step sequences as movement store entries (id = name: lowercase, digits, underscores).
 
 ```bash
 curl -b /tmp/tars.cookie http://<pi-ip>/get_movements | python3 -m json.tool | head -30
