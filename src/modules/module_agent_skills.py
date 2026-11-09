@@ -358,10 +358,21 @@ class AgentSkillStore:
         queue_message("SKILLS: agent skills reset from defaults")
 
     def seed_if_absent(self):
-        """First app start: copy defaults → pool (only when absent)."""
-        if os.path.exists(self.pool_dir):
-            return
-        shutil.copytree(self.defaults_dir, self.pool_dir)
+        """First app start: copy defaults → pool.
+
+        Fires when the pool dir is ABSENT (fresh clone — the tracked
+        .gitkeep was removed in M5 review F3 so the dir starts missing)
+        or when it contains only the legacy .gitkeep marker (pre-fix
+        clones).  A genuinely empty pool (the user uninstalled everything)
+        is NOT re-seeded — that is the locked edge case."""
+        if not os.path.exists(self.pool_dir):
+            shutil.copytree(self.defaults_dir, self.pool_dir)
+        else:
+            contents = os.listdir(self.pool_dir)
+            if not contents or set(contents) - {".gitkeep"}:
+                return  # real skills present (or deliberately empty)
+            shutil.copytree(self.defaults_dir, self.pool_dir,
+                            dirs_exist_ok=True)
         count = len([n for n in os.listdir(self.pool_dir)
                      if os.path.isdir(os.path.join(self.pool_dir, n))])
         queue_message(f"SKILLS: seeded agent_skills from defaults "

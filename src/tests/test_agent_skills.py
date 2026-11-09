@@ -301,6 +301,35 @@ class TestCrud(_PoolTestCase):
         self.assertNotIn("ORIGINAL BODY", content)
         self.assertIn("after", content)  # description survived the body edit
 
+    def test_gitkeep_only_pool_seeds(self):
+        # M5 review F3: pre-fix clones have a pool dir containing only the
+        # legacy .gitkeep — seeding must fire for them too
+        shutil.rmtree(self.pool)
+        os.makedirs(self.pool)
+        with open(os.path.join(self.pool, ".gitkeep"), "w") as fh:
+            fh.write("")
+        self.store.seed_if_absent()
+        self.assertIn("dice-roll",
+                     [s["name"] for s in self.store.list_skills()])
+
+    def test_fresh_clone_seeds_and_registers_first_run(self):
+        # M5 review F3: on a fresh clone (pool absent) the startup order
+        # must seed BEFORE registering descriptors, so dice-roll is
+        # callable without a second restart
+        shutil.rmtree(self.pool)
+        self.store.seed_if_absent()
+        names = {d.name for d in self.store.iter_descriptors()}
+        self.assertIn("dice-roll", names)
+        # and app.py must run seed_if_absent BEFORE the registration loop
+        with open(os.path.join(_SRC, "app.py"), encoding="utf-8") as fh:
+            src = fh.read()
+        seed_idx = src.index("seed_if_absent()")
+        register_idx = src.index(
+            "for d in get_agent_skill_store().iter_descriptors():")
+        self.assertLess(seed_idx, register_idx,
+                        "app.py must seed the pool before registering "
+                        "descriptors")
+
     def test_seed_if_absent(self):
         shutil.rmtree(self.pool)
         self.assertFalse(os.path.exists(self.pool))

@@ -289,6 +289,22 @@ if __name__ == "__main__":
     except Exception as e:
         queue_message(f"WARNING: Tool registry population failed: {e}")
 
+    # === Movement store: seed live store from tracked defaults on first start ===
+    try:
+        from modules.module_movementstore import get_movement_store
+        get_movement_store()  # seeds movements.json from defaults if absent
+    except Exception as e:
+        queue_message(f"WARNING: Movement store unavailable: {e}")
+
+    # === Agent Skills: seed the live pool from tracked defaults on first start ===
+    # (M5 review F3: MUST run before the descriptor registration below, or
+    # a fresh clone registers an empty pool until a second restart)
+    try:
+        from modules.module_agent_skills import get_agent_skill_store
+        get_agent_skill_store().seed_if_absent()
+    except Exception as e:
+        queue_message(f"WARNING: Agent skills seeding failed: {e}")
+
     # === Agent Skills pool: register descriptors (meta-tools + parameterized skills, S-M5-07) ===
     try:
         from modules.module_toolregistry import get_registry
@@ -298,20 +314,6 @@ if __name__ == "__main__":
         queue_message("LOAD: Agent skill descriptors registered")
     except Exception as e:
         queue_message(f"WARNING: Agent skill registration failed: {e}")
-
-    # === Movement store: seed live store from tracked defaults on first start ===
-    try:
-        from modules.module_movementstore import get_movement_store
-        get_movement_store()  # seeds movements.json from defaults if absent
-    except Exception as e:
-        queue_message(f"WARNING: Movement store unavailable: {e}")
-
-    # === Agent Skills: seed the live pool from tracked defaults on first start ===
-    try:
-        from modules.module_agent_skills import get_agent_skill_store
-        get_agent_skill_store().seed_if_absent()
-    except Exception as e:
-        queue_message(f"WARNING: Agent skills seeding failed: {e}")
 
     # Shutdown event
     shutdown_event = threading.Event()

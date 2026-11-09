@@ -67,8 +67,13 @@ class TestGitignoreAgentSkills(unittest.TestCase):
     def test_agent_skills_pool_ignored(self):
         self.assertTrue(_ignored("src/agent_skills/dice-roll/SKILL.md"))
 
-    def test_agent_skills_gitkeep_tracked(self):
-        self.assertFalse(_ignored("src/agent_skills/.gitkeep"))
+    def test_agent_skills_gitkeep_gone(self):
+        # M5 review F3: the tracked .gitkeep made the pool dir always
+        # exist, so first-start seeding never fired on a fresh clone —
+        # the marker is gone and the dir is absent until seeded
+        self.assertFalse(
+            os.path.exists(os.path.join(_REPO, "src", "agent_skills",
+                                        ".gitkeep")))
 
     def test_defaults_tracked(self):
         self.assertFalse(
