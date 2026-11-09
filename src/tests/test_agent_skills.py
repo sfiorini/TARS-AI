@@ -857,5 +857,61 @@ class TestNameRegexAnchor(unittest.TestCase):
         self.assertIsNotNone(_NAME_RE.match("dice-roll"))
 
 
+import stat as _stat  # noqa: E402
+
+
+class TestSymlinkSecurity(_PoolTestCase):
+    """Audit A4: install must never FOLLOW symlinks — a crafted zip (or
+    folder) with a symlink entry would copy the target's contents into
+    the pool as regular files, bypassing the .. / absolute traversal
+    defence."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+
+    def _symlink_zip(self):
+        """A zip whose SKILL.md is clean but carries a symlink entry
+        `leak -> /etc` (external_attr S_IFLNK)."""
+        zip_path = os.path.join(self.tmp, "leaky.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr(
+                "leak-skill/SKILL.md",
+                "---\nname: leak-skill\ndescription: d\n---\nbody\n")
+            info = zipfile.ZipInfo("leak-skill/leak")
+            # symlink mode bits in the high 16 bits of external_attr
+            info.external_attr = (_stat.S_IFLNK | 0o777) << 16
+            zf.writestr(info, "/etc")
+        return zip_path
+
+    def test_zip_symlink_entry_rejected(self):
+        ok, errors = self.store.install_from_zip(self._symlink_zip())
+        self.assertFalse(ok, errors)
+        self.assertTrue(any("symlink" in e.lower() for e in errors),
+                        errors)
+        # nothing was installed
+        self.assertNotIn("leak-skill",
+                         [s["name"] for s in self.store.list_skills()])
+
+    def test_folder_symlink_rejected(self):
+        # a folder whose subtree contains a symlink to a real directory
+        src_skill = os.path.join(self.tmp, "link-skill")
+        os.makedirs(src_skill)
+        with open(os.path.join(src_skill, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: link-skill\ndescription: d\n---\nb\n")
+        os.symlink("/etc", os.path.join(src_skill, "leak"))
+        ok, errors = self.store.install_from_folder(src_skill)
+        self.assertFalse(ok, errors)
+        self.assertTrue(any("symlink" in e.lower() for e in errors),
+                        errors)
+        self.assertNotIn("link-skill",
+                         [s["name"] for s in self.store.list_skills()])
+
+    def test_normal_install_still_works(self):
+        names = [s["name"] for s in self.store.list_skills()]
+        self.assertIn("dice-roll", names)
+
+
 if __name__ == "__main__":
     unittest.main()

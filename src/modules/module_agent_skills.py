@@ -26,6 +26,7 @@ import json
 import os
 import re
 import shutil
+import stat as _stat
 import subprocess
 import sys
 import tempfile
@@ -190,6 +191,19 @@ class AgentSkillStore:
 
     # ── install ─────────────────────────────────────────────────
 
+    @staticmethod
+    def _contains_symlinks(root):
+        """Any symlink anywhere in the tree? (audit A4: install must
+        never follow symlinks — a `leak -> /home/pi/.ssh` would copy the
+        target's contents into the pool as regular files, defeating the
+        traversal defence.)"""
+        for dirpath, dirnames, filenames in os.walk(root):
+            for name in dirnames + filenames:
+                full = os.path.join(dirpath, name)
+                if os.path.islink(full):
+                    return full
+        return None
+
     def install_from_folder(self, path, force=False):
         """Install a skill folder (must contain SKILL.md).
         Returns (ok, errors)."""
@@ -197,6 +211,11 @@ class AgentSkillStore:
         skill_md = os.path.join(path, "SKILL.md")
         if not os.path.isfile(skill_md):
             return False, [f"{path}: SKILL.md is required"]
+        symlink = self._contains_symlinks(path)
+        if symlink:
+            return False, [f"refusing to install: symlink in source "
+                           f"tree ({symlink}) — installs never follow "
+                           f"symlinks"]
         try:
             data = parse_skill_md(skill_md)
         except (OSError, ValueError) as exc:
@@ -220,10 +239,17 @@ class AgentSkillStore:
         temp dir, validate, then move into the pool (all-or-nothing)."""
         try:
             with zipfile.ZipFile(str(path)) as zf:
-                for entry in zf.namelist():
+                for info in zf.infolist():
+                    entry = info.filename
                     if entry.startswith("/") or ".." in entry.split("/"):
                         return False, [f"unsafe zip entry '{entry}' "
                                        f"(absolute path or .. traversal)"]
+                    # symlink entries: the high 16 bits of external_attr
+                    # carry unix mode bits (audit A4)
+                    if _stat.S_ISLNK(info.external_attr >> 16):
+                        return False, [f"unsafe zip entry '{entry}' "
+                                       f"(symlink — installs never "
+                                       f"follow symlinks)"]
                 tmp = tempfile.mkdtemp()
                 try:
                     extract_root = os.path.join(tmp, "extract")
