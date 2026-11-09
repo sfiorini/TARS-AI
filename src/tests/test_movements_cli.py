@@ -73,6 +73,16 @@ class TestMovementsCli(_CliTestCase):
         result = self.run_cli("validate")
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_validate_does_not_seed_missing_store(self):
+        # review F7: validate is a read-only diagnostic — it must never
+        # create movements.json when absent
+        self.assertFalse(os.path.exists(self.store_path))
+        result = self.run_cli("validate")
+        self.assertFalse(os.path.exists(self.store_path),
+                         "validate must not create the store file")
+        self.assertIn("no store file", result.stderr)
+        self.assertEqual(result.returncode, 1)
+
     def test_validate_reports_bad_entry(self):
         self.seed()
         data = self._read_store()

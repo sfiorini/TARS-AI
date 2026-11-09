@@ -33,13 +33,22 @@ _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEFAULTS_PATH = os.path.join(_SCRIPT_DIR, "movements_defaults.json")
 
 
-def _get_store():
-    """The movement store (TARS_MOVEMENTS_STORE overrides the live path)."""
+def _get_store(load=True):
+    """The movement store (TARS_MOVEMENTS_STORE overrides the live path).
+
+    ``load=False`` builds a bare store without load()/seeding — used by
+    validate, which must never create the store file.
+    """
     from modules.module_movementstore import (MovementStore,
-                                              get_movement_store)
+                                              get_movement_store,
+                                              _STORE_PATH)  # noqa: SLF001
     override = os.environ.get("TARS_MOVEMENTS_STORE")
+    store_path = override or _STORE_PATH
+    if not load:
+        return MovementStore(store_path=store_path,
+                              defaults_path=_DEFAULTS_PATH)
     if override:
-        store = MovementStore(store_path=override,
+        store = MovementStore(store_path=store_path,
                               defaults_path=_DEFAULTS_PATH)
         store.load()
         return store
@@ -129,6 +138,10 @@ def cmd_import(store, args):
 
 
 def cmd_validate(store, args):
+    if not os.path.exists(store.store_path):
+        print(f"no store file: {store.store_path} "
+              f"(run 'reset' to seed it from the defaults)", file=sys.stderr)
+        return 1
     ok, errors = store.is_valid()
     if ok:
         print("movements.json is valid")
@@ -143,7 +156,7 @@ def main(argv):
         print(USAGE)
         return 0 if len(argv) >= 2 else 1
     command, args = argv[1], argv[2:]
-    store = _get_store()
+    store = _get_store(load=command != "validate")
     if command == "list":
         return cmd_list(store, args)
     if command == "show" and args:
