@@ -622,5 +622,45 @@ class TestTraversalSecurity(_PoolTestCase):
         self.assertFalse(os.path.exists(self.marker))
 
 
+class TestUninstallSecurity(_PoolTestCase):
+    """M5 review F2: uninstall/rename must never delete or move anything
+    outside the installed pool — an unvalidated name reaches rmtree."""
+
+    def setUp(self):
+        super().setUp()
+        # a sibling directory the traversal would delete if unguarded
+        self.victim = os.path.join(self.tmp, "victim")
+        os.makedirs(self.victim)
+        with open(os.path.join(self.victim, "keep.txt"), "w") as fh:
+            fh.write("do not delete me")
+
+    def test_uninstall_traversal_rejected(self):
+        # SAFE exploit first: ../victim deletes test-owned content only.
+        # (assertRaises aborts the test here during RED, so the deeper
+        # ../../.. exploit below is never reached unfixed)
+        with self.assertRaises(ValueError):
+            self.store.uninstall("../victim")
+        self.assertTrue(os.path.exists(self.victim),
+                        "traversal deleted a directory outside the pool")
+        # deeper traversal must be rejected by the name rule before any
+        # filesystem operation
+        with self.assertRaises(ValueError):
+            self.store.uninstall("../../..")
+        self.assertTrue(os.path.exists(self.tmp))
+
+    def test_uninstall_nonexistent_raises(self):
+        with self.assertRaises(ValueError):
+            self.store.uninstall("nonexistent")
+
+    def test_rename_traversal_rejected(self):
+        # rename's contract is (ok, errors) — the gate must refuse
+        ok, errors = self.store.rename("../victim", "stolen")
+        self.assertFalse(ok, errors)
+        self.assertTrue(os.path.exists(self.victim))
+        ok, errors = self.store.rename("../../..", "x")
+        self.assertFalse(ok, errors)
+        self.assertTrue(os.path.exists(self.tmp))
+
+
 if __name__ == "__main__":
     unittest.main()

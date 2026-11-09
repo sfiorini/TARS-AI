@@ -311,9 +311,11 @@ class AgentSkillStore:
 
     def rename(self, old, new):
         """Rename: validate the new name, move the dir, fix frontmatter."""
-        old_dir = self._skill_path(old)
-        if not os.path.isdir(old_dir):
+        # traversal gate (review F2): shutil.move must never see a name
+        # that is not a well-formed INSTALLED pool directory
+        if not self._is_installed(old):
             return False, [f"unknown skill '{old}'"]
+        old_dir = self._skill_path(old)
         if not new or not _NAME_RE.match(new) \
                 or new.startswith("-") or new.endswith("-") \
                 or "--" in new or not (1 <= len(new) <= 64):
@@ -584,9 +586,11 @@ class AgentSkillStore:
 
     def uninstall(self, name):
         """Remove an installed skill (its whole folder)."""
-        target = self._skill_path(name)
-        if not os.path.isdir(target):
+        # traversal gate (review F2): rmtree must never see a name that
+        # is not a well-formed INSTALLED pool directory
+        if not self._is_installed(name):
             raise ValueError(f"unknown skill '{name}'")
+        target = self._skill_path(name)
         shutil.rmtree(target)
         queue_message(f"SKILLS: uninstalled agent skill '{name}'")
 
