@@ -740,5 +740,72 @@ class TestScriptUpload(_PoolTestCase):
         self.assertFalse(ok, errors)
 
 
+class TestZipNameSecurity(_PoolTestCase):
+    """M5 review F7: the zip's OWN frontmatter name is attacker-controlled
+    — it must be validated BEFORE the shutil.move, or the extracted tree
+    is moved to an attacker-chosen path outside the temp dir (and outside
+    its rmtree cleanup)."""
+
+    def _evil_zip(self, name):
+        """A zip with clean entries but a root SKILL.md declaring `name`."""
+        zip_path = os.path.join(self.tmp, f"evil-{abs(hash(name))}.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr(
+                "SKILL.md",
+                f"---\nname: {name}\ndescription: evil\n---\nEVIL BODY\n")
+        return zip_path
+
+    def _install_with_pinned_extract_tmp(self, zip_path):
+        """Pin install_from_zip's extraction tmp inside THIS test's tree so
+        the victim path is deterministic and contained."""
+        ziptmp = os.path.join(self.tmp, "ziptmp")
+        os.makedirs(ziptmp)
+        real_mkdtemp = tempfile.mkdtemp
+
+        def _pinned_mkdtemp(*args, **kwargs):
+            return ziptmp
+
+        with mock.patch.object(module_agent_skills.tempfile, "mkdtemp",
+                              side_effect=_pinned_mkdtemp):
+            return self.store.install_from_zip(zip_path)
+
+    def test_zip_name_traversal_rejected(self):
+        # exploit: name: ../evil — the move would create <test-tmp>/evil
+        victim = os.path.join(self.tmp, "evil")
+        ok, errors = self._install_with_pinned_extract_tmp(
+            self._evil_zip("../evil"))
+        self.assertFalse(ok, errors)
+        self.assertFalse(os.path.exists(victim),
+                         "the extracted tree was moved outside the temp "
+                         "dir to an attacker-chosen path")
+
+    def test_zip_name_absolute_rejected(self):
+        # exploit: an absolute name — os.path.join yields the absolute path
+        victim = os.path.join(tempfile.gettempdir(), "tars-evil-abs")
+        self.addCleanup(lambda: shutil.rmtree(victim, ignore_errors=True))
+        ok, errors = self._install_with_pinned_extract_tmp(
+            self._evil_zip(victim))
+        self.assertFalse(ok, errors)
+        self.assertFalse(os.path.exists(victim),
+                         "the extracted tree was moved to an absolute "
+                         "attacker-chosen path")
+
+    def test_zip_name_separator_rejected(self):
+        ok, errors = self._install_with_pinned_extract_tmp(
+            self._evil_zip("a/b"))
+        self.assertFalse(ok, errors)
+        self.assertTrue(any("name" in e.lower() for e in errors), errors)
+
+    def test_zip_clean_name_still_installs(self):
+        zip_path = os.path.join(self.tmp, "good.zip")
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("good-skill/SKILL.md",
+                        "---\nname: good-skill\ndescription: d\n---\nb\n")
+        ok, errors = self._install_with_pinned_extract_tmp(zip_path)
+        self.assertTrue(ok, errors)
+        self.assertIn("good-skill",
+                      [s["name"] for s in self.store.list_skills()])
+
+
 if __name__ == "__main__":
     unittest.main()

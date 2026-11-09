@@ -244,13 +244,29 @@ class AgentSkillStore:
                     except (OSError, ValueError) as exc:
                         return False, [str(exc)]
                     name = data.get("name", "")
-                    if not name:
-                        return False, ["no name in SKILL.md"]
+                    # validate the name BEFORE the move (review F7): the
+                    # zip's own frontmatter is attacker-controlled — the
+                    # same gate create/rename use, checked before anything
+                    # is moved anywhere
+                    if (not name or not _NAME_RE.match(name)
+                            or name.startswith("-") or name.endswith("-")
+                            or "--" in name
+                            or not (1 <= len(name) <= 64)):
+                        return False, [f"invalid skill name '{name}' (1-64 "
+                                       "chars, [a-z0-9-], no leading/"
+                                       "trailing/consecutive hyphens)"]
                     named_dir = os.path.join(tmp, name)
                     if os.path.abspath(skill_dir) != os.path.abspath(named_dir):
                         if os.path.exists(named_dir):
                             return False, [f"zip already contains a "
                                            f"'{name}' folder"]
+                        # belt-and-braces: the move target must stay inside
+                        # the extraction tmp (covers anything the name rule
+                        # missed)
+                        if not os.path.realpath(named_dir).startswith(
+                                os.path.realpath(tmp) + os.sep):
+                            return False, ["zip skill name escapes the "
+                                           "extraction directory"]
                         shutil.move(skill_dir, named_dir)
                     return self.install_from_folder(named_dir, force=force)
                 finally:
