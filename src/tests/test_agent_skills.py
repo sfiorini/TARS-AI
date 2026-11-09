@@ -388,6 +388,20 @@ class TestLoadAndRun(_PoolTestCase):
             result = self.store.load_skill("dice-roll")
         self.assertLessEqual(len(result.content), 10)
 
+    def test_script_timeout_is_error(self):
+        # M5 review F6: the TimeoutExpired branch — a script slower than
+        # [LLM] tool_call_timeout returns is_error with a timeout message
+        slow = os.path.join(self.pool, "dice-roll", "scripts", "slow.py")
+        with open(slow, "w") as fh:
+            fh.write("import time\ntime.sleep(2)\nprint('late')\n")
+        with mock.patch.object(
+                module_agent_skills, "load_config",
+                return_value={"LLM": {"tool_call_timeout": 0.3}}):
+            result = self.store.run_skill_script("dice-roll", "slow.py",
+                                                [])
+        self.assertTrue(result.is_error)
+        self.assertIn("timed out", result.content.lower())
+
     def test_script_traversal_rejected(self):
         result = self.store.run_skill_script("dice-roll", "../SKILL.md",
                                              [])
