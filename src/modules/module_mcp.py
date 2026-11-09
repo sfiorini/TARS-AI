@@ -111,13 +111,21 @@ class McpManager:
             # NOTE: the HTTP transport captures MCP-Session-Id from the
             # initialize response headers itself (_post) — do not clobber
         except Exception as exc:
-            # start/handshake failed: stop the half-open transport
+            # start/handshake failed: stop the half-open transport —
+            # BOTH any previously stored one (restart path) AND the local
+            # one we just started (a fresh start is not yet in
+            # _transports; without this the spawned process is orphaned —
+            # review F1)
             failed = self._transports.pop(name, None)
             if failed is not None:
                 try:
                     failed.stop()
                 except Exception:  # noqa: BLE001
                     pass
+            try:
+                transport.stop()
+            except Exception:  # noqa: BLE001
+                pass
             state["attempts"] += 1
             if state["attempts"] >= self._restart_max_attempts():
                 state["degraded"] = True

@@ -897,5 +897,47 @@ class TestMcpCli(unittest.TestCase):
         self.assertIn("no-such-server", result.stderr)
 
 
+class TestOrphanCleanup(unittest.TestCase):
+    """M6 review F1: a server that starts but garbles the handshake must
+    not leak a live process — the half-open transport is stopped."""
+
+    def test_failed_handshake_leaves_no_orphan(self):
+        from modules.module_mcp import McpManager
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        # safety net: never leak the blocker even if the test fails
+        self.addCleanup(subprocess.run, ["pkill", "-f", "banner_blocker"],
+                        **{"check": False})
+        script = os.path.join(tmp, "banner_blocker.py")
+        with open(script, "w") as fh:
+            fh.write("import sys, time\n"
+                     "print('BANNER NOT JSON')\n"
+                     "sys.stdout.flush()\n"
+                     "time.sleep(30)\n")
+        registry = os.path.join(tmp, "mcp_servers.json")
+        with open(registry, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "banner": {"transport": "stdio", "command": sys.executable,
+                           "args": [script], "env": {}, "cwd": None,
+                           "enabled": True}}}, fh)
+        manager = McpManager(registry,
+                             os.path.join(_SRC, "mcp_servers.json.template"))
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        result = manager.call_tool("banner", "x", {})
+        self.assertTrue(result.is_error)
+        # the handshake failed — the just-started process must be dead
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            check = subprocess.run(["pgrep", "-f", "banner_blocker"],
+                                   capture_output=True, text=True)
+            if check.stdout.strip() == "":
+                break
+            time.sleep(0.1)
+        self.assertEqual(check.stdout.strip(), "",
+                         f"orphaned MCP process survived the failed "
+                         f"handshake: {check.stdout}")
+
+
 if __name__ == "__main__":
     unittest.main()
