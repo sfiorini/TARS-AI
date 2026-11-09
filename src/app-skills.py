@@ -17,6 +17,17 @@ import logging
 import os
 import sys
 
+
+def _hard_exit(code):
+    """Flushed hard exit. The CLI imports app modules which start daemon
+    threads at import time (module_messageQue's stdout printer, the servo
+    watchdog when the servo stack is pulled in); a daemon thread holding
+    the stdout buffer lock during interpreter finalization aborts the
+    process (SIGABRT). Flush both streams, then skip finalization."""
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
+
 logging.basicConfig(level=logging.INFO, format="[SKILLS] %(message)s")
 log = logging.getLogger("skills")
 
@@ -138,4 +149,12 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    _code = 0
+    try:
+        _code = main(sys.argv)
+    except Exception:  # noqa: BLE001 — report and exit deterministically
+        import traceback
+        traceback.print_exc()
+        _code = 1
+    finally:
+        _hard_exit(_code)
