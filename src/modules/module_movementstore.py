@@ -249,6 +249,7 @@ class MovementStore:
             return errors
         self.movements = copy.deepcopy(entries)
         self.save()
+        self._refresh_registry()
         return []
 
     # ------------------------------------------------------------------

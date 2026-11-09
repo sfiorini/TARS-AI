@@ -526,6 +526,17 @@ class TestRegistryShim(_StoreTestCase):
             reloaded = importlib.reload(self.registry)
         self.assertEqual(reloaded.MOVEMENTS, {})  # empty, never a crash
 
+    def test_import_refreshes_registry(self):
+        # review F3: import_from must refresh the registry so imported ids
+        # are immediately dispatchable (no later mutation, no restart)
+        self.store.load()
+        import_path = os.path.join(self.tmp, "import.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"imported_move": _valid_entry()}}, fh)
+        self.assertEqual(self.store.import_from(import_path), [])
+        self.assertIn("imported_move", self.registry.MOVEMENTS)
+
     def test_registry_reload_keeps_existing_bindings_live(self):
         # btcontroller/chatui/servoctl hold `from ... import MOVEMENTS`
         # references — reload must mutate the dict in place, not rebind
