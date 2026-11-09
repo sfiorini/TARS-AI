@@ -2576,6 +2576,11 @@ body::after {
 ══════════════════════════════════════════════ */
 #nexus { overflow-y: auto; }
 
+/* The management tabs (movements / agent skills / mcp) scroll their own
+   content. The media-query lists below only cover the small-screen layout,
+   so each pane needs a top-level rule like #nexus above. */
+#builder, #movements, #skills-std, #mcp { overflow-y: auto; }
+
 .nexus-wrap {
   max-width: 900px;
   margin: 0 auto;
