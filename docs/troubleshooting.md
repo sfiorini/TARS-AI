@@ -64,6 +64,16 @@ vcgencmd measure_temp
 
 Servo rail must come from the buck converter, never the Pi 5 V pin.
 
+## The deferred reply never arrives
+
+After a tool call (web search, camera, script) TARS says a holding line but the final answer never comes:
+
+1. **Hop limit** — a follow-up that keeps asking for more tools stops at `[LLM] tool_loop_max_hops` (default 2) and TARS speaks `"I hit a snag finishing that — check the logs."`. Raise the limit if the task genuinely needs more rounds.
+2. **Tool timeout** — a tool slower than `[LLM] tool_call_timeout` (default 60 s) is fed to the model as `ERROR: timeout`; the model usually answers anyway. Raise the timeout for tools that regularly take longer, and check the tool's own log lines for why it is slow.
+3. **Barge-in cancellation** — speaking again while a tool is running cancels the in-flight turn by design (epoch cancellation); the results are discarded and the new utterance is processed fresh. Look for `TOOLLOOP: turn cancelled` in the log — that is correct behavior, not a bug.
+4. **LLM request failure** — the follow-up completion failing (network, provider) also ends in the snag fallback line. The request timeout is `[LLM] request_timeout` (default 120 s).
+5. **Last resort** — set `[LLM] deferred_loop_enabled = false` and restart: result-bearing tools fall back to the old inline blocking behavior for one release while you investigate.
+
 ## Tests failing / docs build failing
 
 `python3 -m pytest src/tests -q` must report **62 passed** on V3 (the tests fake GPIO/I2C and bootstrap `src/config.ini` from the template, so they run anywhere with `pip install pytest`). Docs: `pip install -r requirements-docs.txt && mkdocs build --strict` — CI runs exactly this in `.github/workflows/docs.yml` on every push to `V3`.

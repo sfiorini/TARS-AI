@@ -28,6 +28,27 @@ Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay
 !!! note "Fork fix: GLM/Mistral list-block content"
     Mistral's GLM models stream `delta.content` as a **list of blocks** (`[{"type":"thinking",…},{"type":"text","text":…}]`). Upstream joined the blocks as strings → `TypeError` → the reply was silently discarded (empty answers in `tars-ai.log`). This fork normalizes it in `_delta_text()` (`module_llm.py`), keeping only `type == "text"` blocks; the same fix is applied to vision reads in `module_vision.py`. Regression tests: `src/tests/test_module_llm_delta.py` (8), `test_module_vision_glm.py` (2).
 
+## Deferred reply loop (D1)
+
+When the model calls a **result-bearing tool** (web search, camera capture, scripts — anything whose result the user is waiting for), the turn enters the deferred reply loop (`module_toolloop.py`): TARS says a short holding line, the tool runs, then a single follow-up LLM completion composes the final spoken reply from the results. **Fire-and-forget tools** (movements, volume, discord sends) never enter the loop — they keep dispatching in the background exactly as before, so a movement is never run twice.
+
+```text
+IDLE ──start_turn──► CLASSIFY
+  CLASSIFY ──no result-bearing──► IDLE        (caller's existing side-effect thread dispatches; the loop does nothing)
+  CLASSIFY ──result-bearing──► TOOLS_RUNNING
+  TOOLS_RUNNING ──all done/timeout──► FOLLOWUP_LLM
+  FOLLOWUP_LLM ──parsed has result-bearing calls & hops left──► TOOLS_RUNNING
+  FOLLOWUP_LLM ──done──► SPEAK_FOLLOWUP ──► IDLE
+  any state ──epoch mismatch──► CANCELLED
+  any state ──overall deadline──► TIMEOUT (speak fallback, IDLE)
+```
+
+- **Holding line**: reply-0 doubles as the natural holding line (the model already says "let me check that") — the loop never repeats it. When reply-0 is empty, the character pack's `thinking_responses` play, and if that mechanism is disabled/empty the loop speaks the hardcoded `"On it — I'll report back."`
+- **Hop bound**: `[LLM] tool_loop_max_hops` (default 2) — a follow-up that itself asks for more tools loops at most this many times; at the limit with work still pending, TARS speaks `"I hit a snag finishing that — check the logs."`
+- **Timeouts**: per-tool `tool_call_timeout` (default 60 s), per-LLM-request `request_timeout` (default 120 s); overall turn deadline = `max_hops × (tool_call_timeout + request_timeout)`. A timed-out tool is fed to the model as `ERROR: timeout` so it can recover.
+- **Cancellation**: every new utterance bumps a per-source epoch; a stale turn goes `CANCELLED` and its results are discarded — they are never injected into the new turn's context. If you speak again while a tool is running, the running turn is abandoned and the new utterance is processed fresh.
+- **Rollback**: set `[LLM] deferred_loop_enabled = false` and restart — result-bearing builtin tools fall back to the old inline blocking behavior for one release.
+
 ## 4. Text-to-speech — configurable ordered provider chain
 
 `generate_tts_audio()` in `module_tts.py` walks an **ordered provider chain** built at call time:

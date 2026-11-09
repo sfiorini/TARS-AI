@@ -66,6 +66,8 @@ Servo-specific events (watchdog repairs, I2C errors, stuck-MOVING resets) appear
 
 TTS failover lines also land here: `WARNING: TTS provider '…' failed (QuotaExhausted / RateLimited / AuthFailed / TransientError: …) — failing over to '…'` whenever the ordered provider chain switches to the next provider, plus `ERROR: TTS per-utterance deadline exceeded …` if the whole chain ran out of time — see [Voice Pipeline](voice-pipeline.md) and [Troubleshooting](troubleshooting.md).
 
+Deferred reply loop lines (result-bearing tool turns): `TOOLLOOP: turn cancelled (source=…) — results discarded, not injected into the new turn` when a new utterance abandons an in-flight turn, `TOOLLOOP: turn hit its limit — speaking fallback` when the hop bound (`tool_loop_max_hops`) or the overall deadline stops a turn (followed by the raw tool text), and `TOOLLOOP: follow-up completion failed: …` when the follow-up LLM request errors — see [Voice Pipeline](voice-pipeline.md).
+
 ## Other root scripts
 
 - `launch_retropie.sh` — hand control to RetroPie (used by `skill_launch_retropie`).

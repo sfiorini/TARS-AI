@@ -31,6 +31,13 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 ### `[LLM]` — the brain, called directly from the Pi
 `llm_backend` (`openai | grok | deepinfra | other`), `base_url` (used by `other`; the Pi POSTs to `{base_url}/v1/chat/completions`), `openai_model` / `grok_model` / `other_model`, `systemprompt`, `contextsize` (history tokens; 2000 on Pi Zero 2 up to 16000 on Pi5, template default 16000), `max_tokens`, `seed` (-1 = random), `temperature`, `top_p`, `json_mode` (disable for backends without `response_format`), `override_encoding_model` (tokenizer, `cl100k_base` default).
 
+Deferred reply loop keys (all optional — old config.ini files keep working):
+
+- `tool_loop_max_hops` (default `2`) — max follow-up rounds after tool results.
+- `tool_call_timeout` (default `60`) — per-tool-call timeout in seconds.
+- `request_timeout` (default `120`) — LLM HTTP request timeout in seconds.
+- `deferred_loop_enabled` (default `True`) — master switch; `false` = legacy blocking behavior for one release (see [Voice Pipeline](voice-pipeline.md)).
+
 ### `[STT]` — wake word + speech-to-text
 `language`, `wake_word` (2–3 syllables works best), `wake_word_processor` (`sherpa-onnx | atomik | fastrtc` on Pi5), `atomik_mode` (`auto | model | template`), `sensitivity` (**1–10: 1 = strict, 10 = lenient** — corrected in this fork; see [Voice Pipeline](voice-pipeline.md)), wake gates (`vad_transcript_verify`, `vad_speaker_verify`, `vad_presence_gate`), `stt_processor` (`sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`), `external_url`, `elevenlabs_stt_model` (`scribe_v2`), `vad_method` (`smart-turn | sherpa-onnx | silero | rms`), `use_indicators` (beeps), `enable_bargein` / `bargein_mode` (`fuzzy | voiceprint`) / `bargein_sensitivity`, `speechdelay` (tenths of a second), `speaker_id_enabled` / `speaker_id_threshold`, `mic_amp_gain`, `silence_margin`, `sherpa_onnx_denoise`, `sherpa_onnx_punctuation`.
 
