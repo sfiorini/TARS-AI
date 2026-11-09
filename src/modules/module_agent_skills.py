@@ -25,6 +25,9 @@ JSON-encoded strings (`tars_parameters`, `tars_config`).
 import json
 import os
 import re
+import shutil
+import tempfile
+import zipfile
 
 from modules.module_messageQue import queue_message
 
@@ -117,6 +120,146 @@ def validate_skill(skill_dir, data):
                 except (json.JSONDecodeError, TypeError):
                     errors.append(f"metadata '{key}' is not valid JSON")
     return errors
+
+
+class AgentSkillStore:
+    """The installed agent-skill pool (D3): install from folder/zip,
+    list, uninstall; create/edit/rename/reset + seeding (S-M5-04+)."""
+
+    def __init__(self, pool_dir, defaults_dir):
+        self.pool_dir = str(pool_dir)
+        self.defaults_dir = str(defaults_dir)
+
+    # ── discovery ──────────────────────────────────────────────
+
+    def _skill_path(self, name):
+        return os.path.join(self.pool_dir, name)
+
+    def _read_skill(self, name):
+        """Parse + validate one installed skill; (data, errors)."""
+        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
+        try:
+            data = parse_skill_md(skill_md)
+        except (OSError, ValueError) as exc:
+            return None, [str(exc)]
+        return data, validate_skill(self._skill_path(name), data)
+
+    def list_skills(self):
+        """[{name, description, has_parameters, enabled}] sorted by name."""
+        result = []
+        if not os.path.isdir(self.pool_dir):
+            return result
+        for name in sorted(os.listdir(self.pool_dir)):
+            if not os.path.isdir(self._skill_path(name)):
+                continue
+            data, errors = self._read_skill(name)
+            if data is None or errors:
+                queue_message(f"SKILLS: installed skill '{name}' is invalid: "
+                              f"{errors or 'unreadable'}")
+                continue
+            decoded = decode_tars_metadata(data)
+            result.append({
+                "name": name,
+                "description": data.get("description", ""),
+                "has_parameters": decoded["parameters"] is not None,
+                "enabled": True,  # [SKILL_STD:<name>] persistence: S-M5-06
+            })
+        return result
+
+    # ── install ─────────────────────────────────────────────────
+
+    def install_from_folder(self, path, force=False):
+        """Install a skill folder (must contain SKILL.md).
+        Returns (ok, errors)."""
+        path = str(path)
+        skill_md = os.path.join(path, "SKILL.md")
+        if not os.path.isfile(skill_md):
+            return False, [f"{path}: SKILL.md is required"]
+        try:
+            data = parse_skill_md(skill_md)
+        except (OSError, ValueError) as exc:
+            return False, [str(exc)]
+        errors = validate_skill(path, data)
+        if errors:
+            return False, errors
+        name = data["name"]
+        target = self._skill_path(name)
+        if os.path.exists(target):
+            if not force:
+                return False, [f"skill '{name}' is already installed "
+                               f"(use force/overwrite to replace it)"]
+            shutil.rmtree(target)
+        shutil.copytree(path, target)
+        queue_message(f"SKILLS: installed agent skill '{name}'")
+        return True, []
+
+    def install_from_zip(self, path, force=False):
+        """Install from a zip: reject absolute/.. entries, extract to a
+        temp dir, validate, then move into the pool (all-or-nothing)."""
+        try:
+            with zipfile.ZipFile(str(path)) as zf:
+                for entry in zf.namelist():
+                    if entry.startswith("/") or ".." in entry.split("/"):
+                        return False, [f"unsafe zip entry '{entry}' "
+                                       f"(absolute path or .. traversal)"]
+                tmp = tempfile.mkdtemp()
+                try:
+                    extract_root = os.path.join(tmp, "extract")
+                    zf.extractall(extract_root)
+                    # find the shallowest SKILL.md — its parent is the skill
+                    candidates = sorted(
+                        (name for name in zf.namelist()
+                         if name.rstrip("/").endswith("SKILL.md")),
+                        key=lambda n: n.count("/"))
+                    if not candidates:
+                        return False, ["no SKILL.md found in zip"]
+                    skill_dir = os.path.join(
+                        extract_root, os.path.dirname(candidates[0]))
+                    # normalize the folder to <name> so the name/dir
+                    # validation passes (a root-level SKILL.md extracts
+                    # into the randomly-named temp root)
+                    try:
+                        data = parse_skill_md(
+                            os.path.join(skill_dir, "SKILL.md"))
+                    except (OSError, ValueError) as exc:
+                        return False, [str(exc)]
+                    name = data.get("name", "")
+                    if not name:
+                        return False, ["no name in SKILL.md"]
+                    named_dir = os.path.join(tmp, name)
+                    if os.path.abspath(skill_dir) != os.path.abspath(named_dir):
+                        if os.path.exists(named_dir):
+                            return False, [f"zip already contains a "
+                                           f"'{name}' folder"]
+                        shutil.move(skill_dir, named_dir)
+                    return self.install_from_folder(named_dir, force=force)
+                finally:
+                    shutil.rmtree(tmp, ignore_errors=True)
+        except zipfile.BadZipFile as exc:
+            return False, [f"not a zip file: {exc}"]
+
+    def uninstall(self, name):
+        """Remove an installed skill (its whole folder)."""
+        target = self._skill_path(name)
+        if not os.path.isdir(target):
+            raise ValueError(f"unknown skill '{name}'")
+        shutil.rmtree(target)
+        queue_message(f"SKILLS: uninstalled agent skill '{name}'")
+
+
+_store_instance = None
+
+
+def get_agent_skill_store():
+    """Module-level singleton over src/agent_skills + defaults."""
+    global _store_instance
+    if _store_instance is None:
+        src_dir = os.path.dirname(os.path.abspath(__file__))
+        base = os.path.dirname(src_dir)
+        _store_instance = AgentSkillStore(
+            pool_dir=os.path.join(base, "agent_skills"),
+            defaults_dir=os.path.join(base, "agent_skills_defaults"))
+    return _store_instance
 
 
 def decode_tars_metadata(data):
