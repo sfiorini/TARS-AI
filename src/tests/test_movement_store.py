@@ -265,6 +265,191 @@ class TestResetSemantics(_StoreTestCase):
         self.assertEqual(self.store.get_all(), before)
 
 
+def _step(legs=(50, 50, 50, 50), arms=None, speed=0.9, hold=0.0,
+          movement=None):
+    """A builder-schema step for playback tests."""
+    lh, rh, ll, rl = legs
+    lm, lf, lhand, rm, rf, rhand = arms if arms else (None,) * 6
+    return {
+        "left_height": lh, "right_height": rh,
+        "left_leg": ll, "right_leg": rl,
+        "left_main": lm, "left_forearm": lf, "left_hand": lhand,
+        "right_main": rm, "right_forearm": rf, "right_hand": rhand,
+        "speed": speed, "hold_time": hold, "movement": movement,
+    }
+
+
+class _PlaybackTestCase(_StoreTestCase):
+    """Fake servoctl module (recording calls) + mocked time.sleep."""
+
+    def setUp(self):
+        super().setUp()
+        fake = types.ModuleType("modules.module_servoctl")
+        fake.HOLD = -1
+        fake.MOVING = False
+        fake.ARMS_PRESENT = False
+        fake.legs_calls = []
+        fake.arm_calls = []
+        fake.disable_calls = []
+        fake.notify_start_calls = []
+        fake.notify_end_calls = []
+
+        def acquire_moving():
+            if fake.MOVING:
+                return False
+            fake.MOVING = True
+            return True
+
+        def set_moving(value):
+            fake.MOVING = value
+
+        def move_legs(lh, rh, ll, rl, speed=1.0):
+            fake.legs_calls.append((lh, rh, ll, rl, speed))
+
+        def move_arm(lm, lf, lhand, rm, rf, rhand, speed=1.0):
+            fake.arm_calls.append((lm, lf, lhand, rm, rf, rhand, speed))
+
+        def disable_all_servos():
+            fake.disable_calls.append(True)
+
+        def _notify_movement_start():
+            fake.notify_start_calls.append(True)
+
+        def _notify_movement_end():
+            fake.notify_end_calls.append(True)
+
+        fake.acquire_moving = acquire_moving
+        fake.set_moving = set_moving
+        fake.move_legs = move_legs
+        fake.move_arm = move_arm
+        fake.disable_all_servos = disable_all_servos
+        fake._notify_movement_start = _notify_movement_start
+        fake._notify_movement_end = _notify_movement_end
+        self.servo = fake
+
+        import modules
+        self._saved_servo_mod = sys.modules.get("modules.module_servoctl")
+        self._saved_servo_attr = getattr(modules, "module_servoctl", None)
+        sys.modules["modules.module_servoctl"] = fake
+        modules.module_servoctl = fake
+        self.addCleanup(self._restore_fake_servoctl)
+
+        time_patcher = mock.patch("modules.module_movementstore.time")
+        self.fake_time = time_patcher.start()
+        self.addCleanup(time_patcher.stop)
+
+        self.store.load()
+
+    def _restore_fake_servoctl(self):
+        import modules
+        if self._saved_servo_mod is None:
+            sys.modules.pop("modules.module_servoctl", None)
+        else:
+            sys.modules["modules.module_servoctl"] = self._saved_servo_mod
+        if self._saved_servo_attr is None:
+            try:
+                delattr(modules, "module_servoctl")
+            except AttributeError:
+                pass
+        else:
+            modules.module_servoctl = self._saved_servo_attr
+
+    def _expected_legs(self, steps):
+        return [(s["left_height"], s["right_height"],
+                 s["left_leg"], s["right_leg"], s["speed"])
+                for s in steps]
+
+
+class TestPlayback(_PlaybackTestCase):
+    """play_steps + execute semantics (S-M1-05)."""
+
+    def test_play_steps_calls_legs_and_arms(self):
+        self.servo.ARMS_PRESENT = True
+        ok = self.store.play_steps([
+            _step(legs=(10, 20, 30, 40), arms=(1, 2, 3, 4, 5, 6))])
+        self.assertTrue(ok)
+        self.assertEqual(self.servo.legs_calls, [(10, 20, 30, 40, 0.9)])
+        self.assertEqual(self.servo.arm_calls, [(1, 2, 3, 4, 5, 6, 0.9)])
+        self.assertEqual(self.servo.disable_calls, [True])
+        self.assertFalse(self.servo.MOVING)
+        self.assertEqual(self.servo.notify_start_calls, [True])
+        self.assertEqual(self.servo.notify_end_calls, [True])
+
+    def test_null_legs_skip_move_legs(self):
+        self.servo.ARMS_PRESENT = True
+        ok = self.store.play_steps([
+            _step(legs=(None, None, None, None),
+                  arms=(1, 2, 3, None, None, None))])
+        self.assertTrue(ok)
+        self.assertEqual(self.servo.legs_calls, [])
+        self.assertEqual(len(self.servo.arm_calls), 1)
+
+    def test_hold_minus_one_passed_through(self):
+        self.servo.ARMS_PRESENT = True
+        self.store.play_steps([
+            _step(arms=(None, -1, None, None, None, None))])
+        self.assertEqual(len(self.servo.arm_calls), 1)
+        self.assertEqual(self.servo.arm_calls[0][1], -1)
+
+    def test_refused_while_moving(self):
+        self.servo.MOVING = True
+        ok = self.store.play_steps([_step()])
+        self.assertFalse(ok)
+        self.assertEqual(self.servo.legs_calls, [])
+        self.assertEqual(self.servo.arm_calls, [])
+        self.assertEqual(self.servo.disable_calls, [])
+
+    def test_execute_picks_arms_branch(self):
+        self.servo.ARMS_PRESENT = True
+        entry = _valid_entry()
+        entry["steps"] = [_step(legs=(11, 12, 13, 14))]
+        entry["steps_arms"] = [_step(legs=(21, 22, 23, 24))]
+        self.store.add("probe", entry)
+        self.assertTrue(self.store.execute("probe"))
+        self.assertEqual(self.servo.legs_calls, [(21, 22, 23, 24, 0.9)])
+
+    def test_execute_arm_gated(self):
+        self.servo.ARMS_PRESENT = False
+        entry = _valid_entry()
+        entry["type"] = "has_arms"
+        entry["steps"] = [_step(legs=(30, 31, 32, 33))]
+        self.store.add("probe_arms", entry)
+        with mock.patch("modules.module_movementstore.queue_message") as qm:
+            ok = self.store.execute("probe_arms")
+        self.assertTrue(ok)
+        self.assertEqual(self.servo.legs_calls, [])
+        self.assertEqual(self.servo.arm_calls, [])
+        qm.assert_called_once_with(
+            "Skipping probe_arms - arm servos not installed")
+
+    def test_swap_redirects_turn(self):
+        import modules.module_movements as movements_mod
+        self.servo.ARMS_PRESENT = False
+        expected = self._expected_legs(
+            self._defaults_movements()["turn_left"]["steps"])
+        with mock.patch.object(movements_mod,
+                                "get_swap_turn_directions",
+                                return_value=True):
+            ok = self.store.execute("turn_right")
+        self.assertTrue(ok)
+        self.assertEqual(self.servo.legs_calls, expected)
+
+    def test_compose_movement_ref(self):
+        self.servo.ARMS_PRESENT = False
+        bow = self._defaults_movements()["bow"]["steps"]
+        ok = self.store.play_steps([_step(movement="bow")])
+        self.assertTrue(ok)
+        self.assertEqual(self.servo.legs_calls, self._expected_legs(bow))
+        self.assertEqual(self.servo.disable_calls, [True])
+        self.assertFalse(self.servo.MOVING)
+        self.fake_time.sleep.assert_any_call(3.0)  # bow holds 3s mid-sequence
+
+    def test_tail_neutral_appends_neutral_step(self):
+        self.servo.ARMS_PRESENT = False
+        self.store.play_steps([_step()], tail_neutral=True)
+        self.assertEqual(self.servo.legs_calls[-1], (50, 50, 50, 50, 0.8))
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 

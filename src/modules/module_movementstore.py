@@ -20,6 +20,8 @@ import copy
 import json
 import os
 import re
+import threading
+import time
 
 from modules.module_messageQue import queue_message
 
@@ -38,6 +40,15 @@ _STEP_KEYS = frozenset((
 _LEG_KEYS = ("left_height", "right_height", "left_leg", "right_leg")
 _ARM_KEYS = ("left_main", "left_forearm", "left_hand",
              "right_main", "right_forearm", "right_hand")
+
+# turn_* wrappers dispatch on the runtime swap flag — execute() must
+# consult the same table (module_movements.get_swap_turn_directions)
+_SWAP_TURNS = {
+    "turn_right": "turn_left",
+    "turn_right_slow": "turn_left_slow",
+    "turn_left": "turn_right",
+    "turn_left_slow": "turn_right_slow",
+}
 
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STORE_PATH = os.path.join(_SRC_DIR, "movements.json")
@@ -61,6 +72,10 @@ class MovementStore:
         self.store_path = str(store_path)
         self.defaults_path = str(defaults_path)
         self.movements = {}
+        # per-thread playback depth: a composed movement ref recurses
+        # into execute() -> play_steps() while this thread already holds
+        # the MOVING claim — the inner call must not re-acquire it
+        self._tls = threading.local()
 
     # ------------------------------------------------------------------
     # loading
@@ -289,6 +304,89 @@ class MovementStore:
         if known_ids is not None and ref not in known_ids:
             raise ValueError(
                 f"{where} references unknown movement '{ref}'")
+
+    # ------------------------------------------------------------------
+    # playback
+
+    def play_steps(self, steps, tail_neutral=False):
+        """Play a step list on the servos.  Returns False if the robot
+        is already moving (zero servo calls in that case).
+
+        MOVING transitions go through the locked helpers
+        (acquire_moving/set_moving); a movement ref inside the list
+        recurses into execute() under the same MOVING claim.
+        """
+        import modules.module_servoctl as servoctl
+        depth = getattr(self._tls, "play_depth", 0)
+        if depth == 0:
+            if not servoctl.acquire_moving():
+                return False
+            servoctl._notify_movement_start()
+        self._tls.play_depth = depth + 1
+        try:
+            for step in steps:
+                if step.get("movement") is not None:
+                    if step["movement"] in self.movements:
+                        self.execute(step["movement"])
+                    else:
+                        queue_message(
+                            f"MOVEMENTS: unknown movement ref "
+                            f"'{step['movement']}' - skipped")
+                    continue
+                legs = (step["left_height"], step["right_height"],
+                        step["left_leg"], step["right_leg"])
+                if any(value is not None for value in legs):
+                    servoctl.move_legs(step["left_height"],
+                                       step["right_height"],
+                                       step["left_leg"], step["right_leg"],
+                                       step["speed"])
+                if servoctl.ARMS_PRESENT and any(
+                        step[key] is not None for key in _ARM_KEYS):
+                    servoctl.move_arm(step["left_main"],
+                                      step["left_forearm"],
+                                      step["left_hand"],
+                                      step["right_main"],
+                                      step["right_forearm"],
+                                      step["right_hand"],
+                                      step["speed"])
+                if step["hold_time"] and step["hold_time"] > 0:
+                    time.sleep(step["hold_time"])
+            if tail_neutral:
+                servoctl.move_legs(50, 50, 50, 50, 0.8)
+            if depth == 0:
+                servoctl.disable_all_servos()
+            return True
+        finally:
+            self._tls.play_depth = depth
+            if depth == 0:
+                servoctl.set_moving(False)
+                servoctl._notify_movement_end()
+
+    def execute(self, mid):
+        """Play a stored movement by id.  Returns True when the movement
+        played (or was arm-gated: has_arms entry with no arms installed).
+        """
+        import modules.module_servoctl as servoctl
+        entry = self.get(mid)
+        if entry is None:
+            queue_message(f"MOVEMENTS: unknown movement '{mid}'")
+            return False
+        if entry["type"] == HAS_ARMS and not servoctl.ARMS_PRESENT:
+            queue_message(f"Skipping {mid} - arm servos not installed")
+            return True
+        if mid in _SWAP_TURNS:
+            import modules.module_movements as movements
+            if movements.get_swap_turn_directions():
+                swapped = _SWAP_TURNS[mid]
+                entry = self.get(swapped)
+                if entry is None:
+                    queue_message(
+                        f"MOVEMENTS: unknown movement '{swapped}'")
+                    return False
+        branch = (entry["steps_arms"]
+                  if servoctl.ARMS_PRESENT and entry["steps_arms"]
+                  else entry["steps"])
+        return self.play_steps(branch)
 
     def is_valid(self):
         """Validate the store file without touching it: (ok, errors).
