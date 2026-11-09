@@ -1,0 +1,194 @@
+"""MCP client tests (M6): raw protocol against the REAL example server
+over a REAL pipe (D7 — no transport mocks), then transports, lifecycle,
+descriptors, prompt block 3, CLI, and docs parity.
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import types
+import unittest
+from unittest import mock
+
+
+# Bootstrap gitignored src/config.ini from the template so module imports
+# (load_config at import time) succeed on a fresh clone.
+_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_CONFIG_INI = os.path.join(_SRC, "config.ini")
+if not os.path.exists(_CONFIG_INI):
+    _TEMPLATE = os.path.join(_SRC, "config.ini.template")
+    try:
+        shutil.copyfile(_TEMPLATE, _CONFIG_INI)
+    except OSError as exc:
+        raise RuntimeError(
+            "Cannot bootstrap src/config.ini from src/config.ini.template "
+            f"(required for module imports): {exc}"
+        ) from exc
+
+
+def _install_fake_hardware():
+    """board/busio/adafruit_pca9685 only exist on the Pi — inject fakes so
+    module_servoctl can be imported on any dev machine."""
+    board = types.ModuleType("board")
+    board.SCL = "SCL"
+    board.SDA = "SDA"
+    busio = types.ModuleType("busio")
+    busio.I2C = mock.MagicMock()
+    pca9685 = types.ModuleType("adafruit_pca9685")
+    pca9685.PCA9685 = mock.MagicMock()
+    for name, mod in (("board", board), ("busio", busio),
+                      ("adafruit_pca9685", pca9685)):
+        sys.modules.setdefault(name, mod)
+
+
+_install_fake_hardware()
+
+_SERVER = os.path.join(_SRC, "mcp_example_server.py")
+
+
+class _RealServerPipe(unittest.TestCase):
+    """Spawn the REAL example server exactly as McpManager does and speak
+    raw JSON-RPC over the pipe.  Every test closes the pipe and waits on
+    the process — no orphans, stderr drained."""
+
+    def setUp(self):
+        super().setUp()
+        self.proc = subprocess.Popen(
+            [sys.executable, _SERVER],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True)
+        self.addCleanup(self._close)
+
+    def _close(self):
+        try:
+            if self.proc.stdin and not self.proc.stdin.closed:
+                self.proc.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+            self.proc.wait(timeout=5)
+        if self.proc.stderr and not self.proc.stderr.closed:
+            self.proc.stderr.read()  # drain
+
+    def send(self, msg):
+        self.proc.stdin.write(json.dumps(msg, separators=(",", ":")) + "\n")
+        self.proc.stdin.flush()
+
+    def read_response(self, timeout=5):
+        # line-buffered read with a bounded wait
+        import threading
+        line_box = []
+
+        def reader():
+            line = self.proc.stdout.readline()
+            line_box.append(line)
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        thread.join(timeout)
+        self.assertTrue(line_box and line_box[0],
+                        "no response line from the server")
+        return json.loads(line_box[0].strip())
+
+    @staticmethod
+    def _request(msg_id, method, params=None):
+        msg = {"jsonrpc": "2.0", "id": msg_id, "method": method}
+        if params is not None:
+            msg["params"] = params
+        return msg
+
+
+class TestRawProtocol(_RealServerPipe):
+    """Raw JSON-RPC conformance pins (S-M6-02)."""
+
+    def test_handshake(self):
+        self.send(self._request(1, "initialize", {}))
+        result = self.read_response()
+        self.assertEqual(result["id"], 1)
+        self.assertEqual(result["result"]["protocolVersion"],
+                         "2025-06-18")
+        self.assertEqual(result["result"]["serverInfo"]["name"],
+                         "tars-example")
+        # notifications/initialized accepted: no response, no crash
+        self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        self.send(self._request(2, "tools/list"))
+        result2 = self.read_response()
+        self.assertEqual(result2["id"], 2)  # server still alive and serving
+
+    def test_tools_list_single_page_no_cursor(self):
+        self.send(self._request(1, "tools/list"))
+        result = self.read_response()
+        tools = result["result"]["tools"]
+        self.assertEqual(sorted(t["name"] for t in tools),
+                         ["add_numbers", "get_time"])
+        # the example server is single-page BY DESIGN: no nextCursor at all
+        self.assertNotIn("nextCursor", result["result"])
+
+    def test_call_get_time(self):
+        self.send(self._request(1, "tools/call",
+                                {"name": "get_time", "arguments": {}}))
+        result = self.read_response()["result"]
+        self.assertFalse(result["isError"])
+        self.assertRegex(result["content"][0]["text"],
+                         re.compile(r"It is \d{2}:\d{2}\."))
+
+    def test_call_add_numbers_ok(self):
+        self.send(self._request(1, "tools/call",
+                                {"name": "add_numbers",
+                                 "arguments": {"a": 2, "b": 3}}))
+        result = self.read_response()["result"]
+        self.assertFalse(result["isError"])
+        self.assertEqual(result["content"][0]["text"], "2 + 3 = 5")
+
+    def test_call_add_numbers_iserror(self):
+        # a="x" -> a SUCCESSFUL response with isError: true (tool-execution
+        # error, never a protocol error)
+        self.send(self._request(1, "tools/call",
+                                {"name": "add_numbers",
+                                 "arguments": {"a": "x", "b": 1}}))
+        response = self.read_response()
+        self.assertIn("result", response)  # success at the JSON-RPC level
+        result = response["result"]
+        self.assertTrue(result["isError"])
+        self.assertEqual(result["content"][0]["text"],
+                         "a and b must be numbers")
+
+    def test_unknown_method_32601(self):
+        self.send(self._request(1, "no/such/method"))
+        response = self.read_response()
+        self.assertEqual(response["error"]["code"], -32601)
+
+    def test_compact_json_on_stdout(self):
+        # every response is a SINGLE line — no embedded newlines
+        self.send(self._request(1, "tools/list"))
+        raw = []
+        import threading
+
+        def reader():
+            raw.append(self.proc.stdout.readline())
+
+        thread = threading.Thread(target=reader, daemon=True)
+        thread.start()
+        thread.join(5)
+        line = raw[0]
+        self.assertTrue(line.endswith("\n"))
+        self.assertNotIn("\n", line[:-1])  # exactly one newline, at the end
+        # and it is compact (no pretty-print spacing)
+        self.assertNotIn('": ', line)
+
+    def test_notification_no_response(self):
+        self.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
+        # a notification gets NO response — verify by following with a
+        # request whose response must be the FIRST line on stdout
+        self.send(self._request(7, "tools/list"))
+        response = self.read_response()
+        self.assertEqual(response["id"], 7)
+
+
+if __name__ == "__main__":
+    unittest.main()
