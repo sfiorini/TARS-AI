@@ -147,6 +147,14 @@ class AgentSkillStore:
     def _skill_path(self, name):
         return os.path.join(self.pool_dir, name)
 
+    def _is_installed(self, name):
+        """A name is addressable only if it is a well-formed skill name AND
+        an installed pool directory — this is the traversal gate every
+        caller must pass through (review F1: `..` in a name must never
+        reach os.path.join/rmtree/move)."""
+        return (bool(name) and _NAME_RE.match(name)
+                and os.path.isdir(self._skill_path(name)))
+
     def _read_skill(self, name):
         """Parse + validate one installed skill; (data, errors)."""
         skill_md = os.path.join(self._skill_path(name), "SKILL.md")
@@ -363,13 +371,13 @@ class AgentSkillStore:
         """The skill's SKILL.md body (after the frontmatter), truncated to
         [STANDARD_SKILLS] body_char_limit. Unknown skill -> is_error with
         the bounded valid-name list."""
-        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
-        if not os.path.isfile(skill_md):
+        if not self._is_installed(name):
             valid = ", ".join(sorted(s["name"]
                                      for s in self.list_skills()))[:200]
             return ToolResult(
                 is_error=True,
                 content=f"Unknown skill '{name}'. Valid: {valid or '(none)'}")
+        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
         with open(skill_md, "r", encoding="utf-8") as fh:
             text = fh.read()
         lines = text.splitlines()
@@ -399,8 +407,18 @@ class AgentSkillStore:
                 or os.path.isabs(script)):
             return ToolResult(is_error=True,
                               content=f"invalid script name '{script}'")
+        # traversal gate on the SKILL name (review F1 — LLM-reachable)
+        if not self._is_installed(skill):
+            return ToolResult(is_error=True,
+                              content=f"Unknown skill '{skill}'")
         script_path = os.path.join(self._skill_path(skill), "scripts",
                                    script)
+        # belt-and-braces containment: the resolved path must stay inside
+        # the pool (covers symlink escapes too)
+        if not os.path.realpath(script_path).startswith(
+                os.path.realpath(self.pool_dir) + os.sep):
+            return ToolResult(is_error=True,
+                              content=f"script path escapes the skill pool")
         if not os.path.isfile(script_path):
             return ToolResult(
                 is_error=True,

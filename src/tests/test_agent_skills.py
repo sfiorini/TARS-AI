@@ -569,5 +569,58 @@ class TestSkillsCli(unittest.TestCase):
         self.assertIn("dice-roll", self.run_cli("list").stdout)
 
 
+class TestTraversalSecurity(_PoolTestCase):
+    """M5 review F1: `skill`/`name` must never escape the pool — the
+    descriptors are LLM-reachable, so traversal here is arbitrary code
+    execution / arbitrary read with the app's privileges."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+        # an "evil" skill OUTSIDE the pool whose script writes a marker —
+        # if traversal is possible, executing it proves the hole
+        self.evil_dir = os.path.join(self.tmp, "evil_skill")
+        os.makedirs(os.path.join(self.evil_dir, "scripts"))
+        self.marker = os.path.join(self.tmp, "executed.marker")
+        with open(os.path.join(self.evil_dir, "scripts", "evil.py"), "w") as fh:
+            fh.write(f"open({self.marker!r}, 'w').write('pwned')\n")
+        with open(os.path.join(self.evil_dir, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: evil-skill\ndescription: secret\n---\n"
+                      "SECRET BODY\n")
+
+    def test_run_skill_script_traversal_rejected(self):
+        # exploit: skill="../evil_skill" resolves OUTSIDE the pool
+        result = self.store.run_skill_script("../evil_skill", "evil.py",
+                                             [])
+        self.assertTrue(result.is_error)
+        self.assertFalse(os.path.exists(self.marker),
+                         "traversal executed a script outside the pool")
+
+    def test_run_skill_script_dotdot_dotdot_rejected(self):
+        # deeper traversal back into the real pool must also be refused
+        # (the name rule, not path luck, is the guard)
+        result = self.store.run_skill_script(
+            "../agent_skills/dice-roll", "roll_dice.py", [])
+        self.assertTrue(result.is_error)
+        self.assertIn("Unknown skill", result.content)
+
+    def test_load_skill_traversal_rejected(self):
+        # arbitrary READ: a SKILL.md outside the pool must not load
+        result = self.store.load_skill("../evil_skill")
+        self.assertTrue(result.is_error)
+        self.assertNotIn("SECRET BODY", result.content)
+
+    def test_symlink_escape_rejected(self):
+        # a symlink inside scripts/ pointing outside the pool
+        link = os.path.join(self.pool, "dice-roll", "scripts", "link.py")
+        os.symlink(os.path.join(self.evil_dir, "scripts", "evil.py"),
+                   link)
+        result = self.store.run_skill_script("dice-roll", "link.py", [])
+        self.assertTrue(result.is_error,
+                        "symlink escape must be refused by containment")
+        self.assertFalse(os.path.exists(self.marker))
+
+
 if __name__ == "__main__":
     unittest.main()
