@@ -300,6 +300,10 @@ class AgentSkillStore:
 
     def edit(self, name, description=None, body=None):
         """Edit description and/or body in place (line-level rewrite)."""
+        # traversal gate (review F9): edit is a mutator — it must never
+        # see a name that is not a well-formed INSTALLED pool directory
+        if not self._is_installed(name):
+            return False, [f"unknown skill '{name}'"]
         skill_md = os.path.join(self._skill_path(name), "SKILL.md")
         if not os.path.isfile(skill_md):
             return False, [f"unknown skill '{name}'"]

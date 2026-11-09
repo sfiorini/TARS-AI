@@ -826,5 +826,24 @@ class TestLoadSkillContainment(_PoolTestCase):
         self.assertNotIn("TOP SECRET BODY", result.content)
 
 
+class TestEditGate(_PoolTestCase):
+    """M5 review F9: edit must gate on _is_installed like the other
+    mutators — an ungated join is a write target outside the pool."""
+
+    def test_edit_traversal_rejected(self):
+        victim_md = os.path.join(self.tmp, "victim", "SKILL.md")
+        os.makedirs(os.path.dirname(victim_md))
+        with open(victim_md, "w") as fh:
+            fh.write("---\nname: victim\ndescription: ORIGINAL\n---\n"
+                      "ORIGINAL BODY\n")
+        ok, errors = self.store.edit("../victim",
+                                    description="hacked")
+        self.assertFalse(ok, errors)
+        with open(victim_md) as fh:
+            content = fh.read()
+        self.assertIn("ORIGINAL", content)
+        self.assertNotIn("hacked", content)
+
+
 if __name__ == "__main__":
     unittest.main()
