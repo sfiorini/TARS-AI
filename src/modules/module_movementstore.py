@@ -158,6 +158,7 @@ class MovementStore:
             raise ValueError(f"duplicate movement id '{mid}'")
         self.movements[mid] = copy.deepcopy(entry)
         self.save()
+        self._refresh_registry()
 
     def update(self, mid, entry):
         self.validate_entry(mid, entry)
@@ -165,12 +166,14 @@ class MovementStore:
             raise ValueError(f"unknown movement id '{mid}'")
         self.movements[mid] = copy.deepcopy(entry)
         self.save()
+        self._refresh_registry()
 
     def delete(self, mid):
         if mid not in self.movements:
             raise ValueError(f"unknown movement id '{mid}'")
         del self.movements[mid]
         self.save()
+        self._refresh_registry()
 
     def save(self):
         """Atomic write: tmp file + os.replace."""
@@ -195,6 +198,7 @@ class MovementStore:
                 if mid not in defaults:
                     del self.movements[mid]
         self.save()
+        self._refresh_registry()
 
     def export_to(self, path):
         """Write the whole pool to ``path`` (atomic)."""
@@ -387,6 +391,16 @@ class MovementStore:
                   if servoctl.ARMS_PRESENT and entry["steps_arms"]
                   else entry["steps"])
         return self.play_steps(branch)
+
+    def _refresh_registry(self):
+        """Keep module_movement_registry in sync after any mutation so a
+        movement created/edited via UI or CLI is immediately dispatchable
+        and prompt-visible without a restart."""
+        try:
+            from modules.module_movement_registry import reload_from_store
+            reload_from_store()
+        except Exception:
+            pass
 
     def is_valid(self):
         """Validate the store file without touching it: (ok, errors).

@@ -1,7 +1,8 @@
-"""Unit tests for the execute_movement skill (registry-driven dispatch)."""
+"""Unit tests for the execute_movement skill (store-driven dispatch, D5)."""
 import os
+import shutil
 import sys
-import types
+import tempfile
 import unittest
 from unittest import mock
 
@@ -13,7 +14,6 @@ _CONFIG_INI = os.path.join(_SRC, "config.ini")
 if not os.path.exists(_CONFIG_INI):
     _TEMPLATE = os.path.join(_SRC, "config.ini.template")
     try:
-        import shutil
         shutil.copyfile(_TEMPLATE, _CONFIG_INI)
     except OSError as exc:
         raise RuntimeError(
@@ -22,56 +22,119 @@ if not os.path.exists(_CONFIG_INI):
         ) from exc
 
 from modules import module_movement_registry
+from modules import module_movementstore
 from skills import skill_execute_movement
 
 
-class _FakeMovementsMixin(unittest.TestCase):
-    """Install a fake modules.module_movements so the resolver can be tested
-    on machines without the servo hardware stack (board/busio/PCA9685)."""
+def _valid_step():
+    """A minimal builder-schema step."""
+    return {
+        "left_height": 50, "right_height": 50,
+        "left_leg": 50, "right_leg": 50,
+        "left_main": None, "left_forearm": None, "left_hand": None,
+        "right_main": None, "right_forearm": None, "right_hand": None,
+        "speed": 0.9, "hold_time": 0.0, "movement": None,
+    }
+
+
+def _valid_entry():
+    return {
+        "name": "My Move", "type": "legs_only",
+        "description": "test move",
+        "steps": [_valid_step()],
+        "steps_arms": None,
+    }
+
+
+class _FakeStoreMixin(unittest.TestCase):
+    """A tmp MovementStore (defaults content) with a recording execute stub.
+
+    Dispatch moved to movementstore.execute — the fake store replaces the
+    old fake-module_movements trick.  get_movement_store is monkeypatched
+    so both the resolver and get_prompt()'s registry reload see the tmp
+    store; the real registry content is restored afterwards.
+    """
 
     def setUp(self):
         super().setUp()
-        fake = types.ModuleType("modules.module_movements")
-        for mid in module_movement_registry.MOVEMENTS:
-            setattr(fake, mid, mock.MagicMock(name=mid))
-        # Real-looking module attributes that are NOT registry ids — the
-        # dispatcher must never resolve them (registry-only dispatch).
-        fake.set_swap_turn_directions = mock.MagicMock()
-        fake.cleanup = mock.MagicMock()
-        self.fake_movements = fake
+        from modules.module_movementstore import MovementStore
+        # registered FIRST so it runs LAST (after the patcher stops):
+        # restore the real registry from the real store for other tests
+        self.addCleanup(module_movement_registry.reload_from_store)
+        self._tmp = tempfile.mkdtemp()
+        self.store = MovementStore(
+            store_path=os.path.join(self._tmp, "movements.json"),
+            defaults_path=os.path.join(_SRC, "movements_defaults.json"))
+        self.store.load()  # live file absent -> defaults content (S-M1-03)
+        self.records = []
 
-        import modules
-        self._saved_mod = sys.modules.get("modules.module_movements")
-        self._saved_attr = getattr(modules, "module_movements", None)
-        sys.modules["modules.module_movements"] = fake
-        modules.module_movements = fake
-        self.addCleanup(self._restore_fake_movements)
+        def _rec(mid):  # record only — never touches servo hardware
+            self.records.append(mid)
+            return True
 
-    def _restore_fake_movements(self):
-        import modules
-        if self._saved_mod is None:
-            sys.modules.pop("modules.module_movements", None)
-        else:
-            sys.modules["modules.module_movements"] = self._saved_mod
-        if self._saved_attr is None:
-            try:
-                delattr(modules, "module_movements")
-            except AttributeError:
-                pass
-        else:
-            modules.module_movements = self._saved_attr
+        self.store.execute = _rec
+        patcher = mock.patch.object(module_movementstore,
+                                    "get_movement_store",
+                                    return_value=self.store)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(shutil.rmtree, self._tmp, ignore_errors=True)
 
 
-class TestSkillPrompt(unittest.TestCase):
-    """The SKILL prompt must expose the full movement registry."""
+class TestResolveMovement(_FakeStoreMixin):
+    """_resolve_movement(movement_id, arms_present) — pure registry dispatcher."""
+
+    def test_legs_move_resolves_to_store_callable(self):
+        fn, reason = skill_execute_movement._resolve_movement(
+            "step_forward", arms_present=False)
+        self.assertIsNone(reason)
+        self.assertTrue(fn())
+        self.assertEqual(self.records, ["step_forward"])
+
+    def test_arms_move_resolves_with_arms_present(self):
+        fn, reason = skill_execute_movement._resolve_movement(
+            "left_hi", arms_present=True)
+        self.assertIsNone(reason)
+        fn()
+        self.assertEqual(self.records, ["left_hi"])
+
+    def test_arms_move_gated_without_arms(self):
+        fn, reason = skill_execute_movement._resolve_movement(
+            "left_hi", arms_present=False)
+        self.assertIsNone(fn)
+        self.assertEqual(reason, "arm_gated")
+        self.assertEqual(self.records, [])
+
+    def test_unknown_id_returns_none(self):
+        fn, reason = skill_execute_movement._resolve_movement(
+            "flurb", arms_present=True)
+        self.assertIsNone(fn)
+        self.assertEqual(reason, "unknown")
+        self.assertEqual(self.records, [])
+
+    def test_registry_only_dispatch_never_resolves_unlisted_names(self):
+        # "cleanup" is not a store id at all; "set_swap_turn_directions"
+        # is a module_movements attribute but outside the registry — both
+        # must never resolve, even with arms_present=True.
+        for dangerous in ("cleanup", "set_swap_turn_directions"):
+            fn, reason = skill_execute_movement._resolve_movement(
+                dangerous, arms_present=True)
+            self.assertIsNone(fn, f"'{dangerous}' must not resolve")
+            self.assertEqual(reason, "unknown")
+        self.assertEqual(self.records, [])
+
+
+class TestSkillPrompt(_FakeStoreMixin):
+    """The per-request prompt (D5) exposes the full store pool, bounded."""
 
     def test_prompt_lists_all_registry_ids(self):
-        prompt = skill_execute_movement.SKILL["prompt"]
+        prompt = skill_execute_movement.get_prompt()
         for mid in module_movement_registry.MOVEMENTS:
-            self.assertIn(f'"{mid}"', prompt, f"registry id '{mid}' missing from prompt")
+            self.assertIn(f'"{mid}"', prompt,
+                          f"registry id '{mid}' missing from prompt")
 
     def test_prompt_includes_clarifying_leg_vs_arm_note(self):
-        prompt = skill_execute_movement.SKILL["prompt"]
+        prompt = skill_execute_movement.get_prompt()
         self.assertIn(
             "Note: wave_left and wave_right wave the LEGS", prompt)
         self.assertIn(
@@ -79,7 +142,7 @@ class TestSkillPrompt(unittest.TestCase):
             prompt)
 
     def test_prompt_shows_description_for_every_registry_entry(self):
-        prompt = skill_execute_movement.SKILL["prompt"]
+        prompt = skill_execute_movement.get_prompt()
         for mid, entry in module_movement_registry.MOVEMENTS.items():
             description = entry.get("description", "")
             if description:
@@ -88,50 +151,48 @@ class TestSkillPrompt(unittest.TestCase):
                     f"description for '{mid}' missing from prompt")
 
     def test_prompt_groups_legs_and_arms(self):
-        prompt = skill_execute_movement.SKILL["prompt"]
+        prompt = skill_execute_movement.get_prompt()
         self.assertIn("Legs (always available)", prompt)
         self.assertIn("Arms (only if arms installed)", prompt)
 
     def test_prompt_keeps_parameter_format_and_examples(self):
-        prompt = skill_execute_movement.SKILL["prompt"]
+        prompt = skill_execute_movement.get_prompt()
         self.assertIn('{"movements": ["<id>", ...]}', prompt)
         # One leg example and one arm example
         self.assertIn('"wave_left"', prompt)
         self.assertIn('"left_hi"', prompt)
-        self.assertIn("Do NOT infer or guess movement", prompt)
+        self.assertIn("Do NOT infer or guess movement from suggestions or questions",
+                      prompt)
+
+    def test_prompt_reflects_store_add(self):
+        # D5 pin: the prompt is built from the store at call time — a
+        # movement created via UI/CLI is LLM-callable without a restart
+        self.store.add("my_move", _valid_entry())
+        self.assertIn('"my_move"', skill_execute_movement.get_prompt())
+
+    def test_prompt_bounded(self):
+        with mock.patch.object(skill_execute_movement,
+                               "PROMPT_BUDGET_CHARS", 1200), \
+             mock.patch("modules.module_messageQue.queue_message") as qm:
+            prompt = skill_execute_movement.get_prompt()
+        self.assertLessEqual(len(prompt), 1200)
+        messages = [call.args[0] for call in qm.call_args_list]
+        dropped = [m for m in messages if "dropped from skill prompt" in m]
+        self.assertTrue(dropped,
+                        f"expected drop logs, got: {messages}")
+        first_dropped = dropped[0].split("'")[1]
+        self.assertNotIn(f'"{first_dropped}"', prompt,
+                         "dropped id must be absent from the bounded prompt")
 
 
-class TestResolveMovement(_FakeMovementsMixin):
-    """_resolve_movement(movement_id, arms_present) — pure registry dispatcher."""
+class TestRegistryRefresh(_FakeStoreMixin):
+    """Store mutations refresh the registry (S-M2-06 hook)."""
 
-    def test_legs_move_resolves_to_callable(self):
-        fn, reason = skill_execute_movement._resolve_movement("step_forward", arms_present=False)
-        self.assertIsNone(reason)
-        self.assertIs(fn, self.fake_movements.step_forward)
-
-    def test_arms_move_resolves_with_arms_present(self):
-        fn, reason = skill_execute_movement._resolve_movement("left_hi", arms_present=True)
-        self.assertIsNone(reason)
-        self.assertIs(fn, self.fake_movements.left_hi)
-
-    def test_arms_move_gated_without_arms(self):
-        fn, reason = skill_execute_movement._resolve_movement("left_hi", arms_present=False)
-        self.assertIsNone(fn)
-        self.assertEqual(reason, "arm_gated")
-
-    def test_unknown_id_returns_none(self):
-        fn, reason = skill_execute_movement._resolve_movement("flurb", arms_present=True)
-        self.assertIsNone(fn)
-        self.assertEqual(reason, "unknown")
-
-    def test_registry_only_dispatch_never_resolves_unlisted_attributes(self):
-        # "cleanup" is not a module_movements attribute at all; "set_swap_turn_directions"
-        # IS one — both are outside the registry and must never resolve, even with
-        # arms_present=True. getattr is only ever called on registry ids.
-        for dangerous in ("cleanup", "set_swap_turn_directions"):
-            fn, reason = skill_execute_movement._resolve_movement(dangerous, arms_present=True)
-            self.assertIsNone(fn, f"'{dangerous}' must not resolve")
-            self.assertEqual(reason, "unknown")
+    def test_store_mutation_refreshes_registry(self):
+        self.store.add("my_move", _valid_entry())  # no explicit reload
+        self.assertIn("my_move", module_movement_registry.MOVEMENTS)
+        self.store.delete("my_move")
+        self.assertNotIn("my_move", module_movement_registry.MOVEMENTS)
 
 
 class TestExecuteWiring(unittest.TestCase):

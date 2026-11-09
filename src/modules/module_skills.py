@@ -342,6 +342,12 @@ class SkillManager:
                 continue
             meta = self._skill_meta[name]
             prompt = meta.get("prompt", "")
+            if not prompt:
+                # per-request prompt (D5): any skill module exposing
+                # get_prompt() gets its prompt built at call time
+                _get_prompt = getattr(self._skills[name], "get_prompt", None)
+                if callable(_get_prompt):
+                    prompt = _get_prompt()
             if prompt:
                 lines.append(prompt)
                 lines.append("")

@@ -5,19 +5,8 @@ import threading
 from modules.module_movement_registry import MOVEMENTS, LEGS_ONLY, HAS_ARMS
 
 
-def _build_prompt():
-    """Build the LLM prompt from the movement registry.
-
-    Iterates MOVEMENTS so registry additions appear in the prompt automatically.
-    """
-    legs = [
-        f'     * "{mid}" - {entry["name"]} ({entry.get("description", "")})'
-        for mid, entry in MOVEMENTS.items() if entry["type"] == LEGS_ONLY
-    ]
-    arms = [
-        f'     * "{mid}" - {entry["name"]} ({entry.get("description", "")})'
-        for mid, entry in MOVEMENTS.items() if entry["type"] == HAS_ARMS
-    ]
+def _render_prompt(legs, arms):
+    """Render the movement prompt from pre-built leg/arm id lines."""
     return f"""execute_movement
    Triggers: Use ONLY when user explicitly commands a movement or gesture
      * "walk forward", "turn left", "step back", "move backward", "go forward", "turn right"
@@ -36,11 +25,51 @@ def _build_prompt():
    Example: {{"function": "execute_movement", "parameters": {{"movements": ["left_hi"]}}}}"""
 
 
+PROMPT_BUDGET_CHARS = 4000  # bound for the movement prompt (D5)
+
+
+def get_prompt():
+    """Build the movement prompt from the store at call time (D5), bounded.
+
+    The prompt is assembled per request (never at import time), so a
+    movement created via the UI or CLI is LLM-callable without a restart.
+    Descriptions are truncated (200 -> 100 -> 50 chars), then entries are
+    dropped alphabetically until the prompt fits the budget; every dropped
+    id is logged.
+    """
+    from modules.module_movement_registry import (MOVEMENTS, LEGS_ONLY,
+                                                  HAS_ARMS, reload_from_store)
+    from modules.module_messageQue import queue_message
+    reload_from_store()
+
+    def _lines(desc_limit):
+        mk = lambda mid, e: (f'     * "{mid}" - {e["name"]} '
+                             f'({e.get("description", "")[:desc_limit]})')
+        legs = [mk(m, e) for m, e in sorted(MOVEMENTS.items())
+                if e["type"] == LEGS_ONLY]
+        arms = [mk(m, e) for m, e in sorted(MOVEMENTS.items())
+                if e["type"] == HAS_ARMS]
+        return legs, arms
+
+    legs, arms = _lines(200)
+    for limit in (100, 50):                      # 1) truncate descriptions
+        if len(_render_prompt(legs, arms)) <= PROMPT_BUDGET_CHARS:
+            break
+        legs, arms = _lines(limit)
+    dropped = []
+    for pool in (legs, arms):                    # 2) drop alphabetically
+        while pool and len(_render_prompt(legs, arms)) > PROMPT_BUDGET_CHARS:
+            dropped.append(pool.pop(0).split('"')[1])
+    for mid in dropped:
+        queue_message(f"MOVEMENTS: '{mid}' dropped from skill prompt "
+                      f"(budget {PROMPT_BUDGET_CHARS} chars)")
+    return _render_prompt(legs, arms)
+
+
 SKILL = {
     "name": "execute_movement",
     "required_params": ["movements"],
     "description": "Perform physical movements and gestures",
-    "prompt": _build_prompt(),
     "examples": [
         """Example - Movement command:
 User: "Walk forward and then turn left"
@@ -49,27 +78,18 @@ Response: {"reply": "Moving now.", "function_calls": [{"function": "execute_move
 }
 
 
-def _import_movements():
-    """Import module_movements, guarding its circular import with servoctl.
-
-    module_movements imports module_servoctl at module level, and servoctl
-    re-imports module_movements at its end — the pair only initializes cleanly
-    when servoctl loads first (the app's startup order). If a fresh
-    module_movements import hits that cycle, load servoctl first, then retry.
-    """
-    try:
-        from modules import module_movements
-    except ImportError:
-        from modules import module_servoctl  # noqa: F401  (breaks import cycle)
-        from modules import module_movements
-    return module_movements
+def _dispatch_via_store(mid):
+    """Execute a movement through the store (lazy import so tests can
+    monkeypatch modules.module_movementstore.get_movement_store)."""
+    from modules.module_movementstore import get_movement_store
+    return get_movement_store().execute(mid)
 
 
 def _resolve_movement(movement_id, arms_present):
-    """Resolve a registry movement id to its callable in module_movements.
+    """Resolve a registry movement id to a store-dispatch callable.
 
-    Registry-only dispatch: getattr is ONLY called on ids present in MOVEMENTS —
-    never on raw caller/LLM strings.
+    Registry-only dispatch: the store is only ever asked for ids present
+    in MOVEMENTS — never on raw caller/LLM strings.
 
     Returns (callable, None) on success, or (None, reason) where reason is
     "unknown" (id not in the registry) or "arm_gated" (arm move without arms).
@@ -79,24 +99,12 @@ def _resolve_movement(movement_id, arms_present):
         return None, "unknown"
     if entry["type"] == HAS_ARMS and not arms_present:
         return None, "arm_gated"
-
-    module_movements = _import_movements()
-    function = getattr(module_movements, movement_id, None)
-    if not callable(function):
-        return None, "unknown"
-    return function, None
+    return lambda: _dispatch_via_store(movement_id), None
 
 
 def _execute_movement(movements, arms_present):
     """Execute a sequence of movements in a separate thread."""
     from modules.module_messageQue import queue_message
-
-    # Fail fast if the servo stack is unavailable (no hardware / import error).
-    try:
-        _import_movements()
-    except ImportError:
-        queue_message("[ERROR] Servo control module not available.")
-        return
 
     def movement_task():
         try:
@@ -128,6 +136,7 @@ def execute(parameters, context):
         return None
 
     arms_present = bool(config.get("SERVO", {}).get("arms_present", False))
+
     movements = parameters.get("movements", [])
     if movements:
         _execute_movement(movements, arms_present)
