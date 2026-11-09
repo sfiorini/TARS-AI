@@ -113,7 +113,8 @@ def _run(text="Hello there.", env_key=ENV_KEY, responses=None, exc=None,
     """
     env = {"SPEECHIFY_API_KEY": env_key} if env_key is not None else {}
     clear_env = env_key is None
-    post = mock.MagicMock(name="requests.post")
+    session = mock.MagicMock(name="_session")
+    post = session.post
     if exc is not None:
         post.side_effect = exc
     elif responses is not None:
@@ -126,7 +127,7 @@ def _run(text="Hello there.", env_key=ENV_KEY, responses=None, exc=None,
     cfg = config if config is not None else _fake_config()
     with mock.patch.dict(os.environ, env, clear=clear_env), \
          mock.patch.object(module_speechify, "CONFIG", cfg), \
-         mock.patch.object(module_speechify.requests, "post", post), \
+         mock.patch.object(module_speechify, "_session", session), \
          mock.patch.object(module_speechify, "queue_message") as qmsg, \
          mock.patch.object(module_speechify, "_backoff", new=mock.AsyncMock()) as backoff:
         chunks, raised = _collect(
@@ -212,10 +213,11 @@ class TestSpeechifySuccess(unittest.TestCase):
     def test_base64_with_whitespace_still_decodes(self):
         b64 = base64.b64encode(WAV_BYTES).decode("ascii")
         spaced = b64[:4] + "\n" + b64[4:]
-        chunks, exc, _, _, _ = _run(responses=[_ok_response(audio_b64=spaced)])
+        chunks, exc, post, _, _ = _run(responses=[_ok_response(audio_b64=spaced)])
         self.assertIsNone(exc)
         self.assertEqual(len(chunks), 1)
         self.assertEqual(chunks[0].read(), WAV_BYTES)
+        post.assert_called_once()
 
     def test_200_without_audio_data_yields_no_chunk_no_exception(self):
         chunks, exc, post, qmsg, _ = _run(responses=[_FakeResponse(200, payload={})])
@@ -226,21 +228,24 @@ class TestSpeechifySuccess(unittest.TestCase):
         self.assertTrue(any("audio_data" in str(c.args[0]) for c in warnings))
 
     def test_200_with_empty_audio_data_yields_no_chunk(self):
-        chunks, exc, _, qmsg, _ = _run(responses=[_ok_response(audio_b64="")])
+        chunks, exc, post, qmsg, _ = _run(responses=[_ok_response(audio_b64="")])
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
+        post.assert_called_once()
 
     def test_200_with_invalid_base64_yields_no_chunk_no_exception(self):
-        chunks, exc, _, qmsg, _ = _run(responses=[_ok_response(audio_b64="!!!not-base64!!!")])
+        chunks, exc, post, qmsg, _ = _run(responses=[_ok_response(audio_b64="!!!not-base64!!!")])
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
+        post.assert_called_once()
         warnings = [c for c in qmsg.call_args_list if "WARNING" in str(c.args[0])]
         self.assertTrue(warnings)
 
     def test_200_with_non_json_body_yields_no_chunk(self):
-        chunks, exc, _, _, _ = _run(responses=[_FakeResponse(200, payload=None, text="ok")])
+        chunks, exc, post, _, _ = _run(responses=[_FakeResponse(200, payload=None, text="ok")])
         self.assertIsNone(exc)
         self.assertEqual(chunks, [])
+        post.assert_called_once()
 
 
 class TestSpeechifyErrorCodes(unittest.TestCase):
