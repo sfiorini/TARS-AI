@@ -239,3 +239,7 @@ ai_plan/
 
 # TARS per-robot live state (seeded from tracked defaults on first start)
 src/movements.json
+
+# TARS agent-skills live pool (seeded from tracked defaults on first start)
+src/agent_skills/*
+!src/agent_skills/.gitkeep

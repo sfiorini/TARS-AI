@@ -306,6 +306,13 @@ if __name__ == "__main__":
     except Exception as e:
         queue_message(f"WARNING: Movement store unavailable: {e}")
 
+    # === Agent Skills: seed the live pool from tracked defaults on first start ===
+    try:
+        from modules.module_agent_skills import get_agent_skill_store
+        get_agent_skill_store().seed_if_absent()
+    except Exception as e:
+        queue_message(f"WARNING: Agent skills seeding failed: {e}")
+
     # Shutdown event
     shutdown_event = threading.Event()
 

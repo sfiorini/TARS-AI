@@ -60,6 +60,21 @@ class TestLegacySequencesFile(unittest.TestCase):
             os.path.exists(os.path.join(_REPO, "src", "custom_sequences.json")))
 
 
+class TestGitignoreAgentSkills(unittest.TestCase):
+    """The live agent-skills pool is per-robot state (seeded from the
+    tracked defaults on first start); only the .gitkeep marker is tracked."""
+
+    def test_agent_skills_pool_ignored(self):
+        self.assertTrue(_ignored("src/agent_skills/dice-roll/SKILL.md"))
+
+    def test_agent_skills_gitkeep_tracked(self):
+        self.assertFalse(_ignored("src/agent_skills/.gitkeep"))
+
+    def test_defaults_tracked(self):
+        self.assertFalse(
+            _ignored("src/agent_skills_defaults/dice-roll/SKILL.md"))
+
+
 class TestGitignoreLiveState(unittest.TestCase):
     """Per-robot live state: src/movements.json is gitignored (seeded from
     the tracked src/movements_defaults.json on first start, D5)."""
