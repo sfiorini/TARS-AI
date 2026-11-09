@@ -71,6 +71,7 @@ python3 src/app-mcp.py test myserver        # handshake + tools/list
 - **Server won't start / marked degraded** — check `MCP: server '…' failed to start` log lines (the reason is included); after `restart_max_attempts` consecutive failures the server is degraded until a successful call resets the backoff. `python3 src/app-mcp.py test <name>` shows the failure directly.
 - **Session header errors (HTTP)** — TARS sends `MCP-Session-Id` + `MCP-Protocol-Version` on every post-handshake request; a server 400 on the first request usually means the transport era mismatch.
 - **A tool is missing from the prompt** — the `[MCP] prompt_budget_chars` budget dropped it (check the `dropped from MCP prompt block` log line); raise the budget or disable unused servers.
+- **A hard kill left MCP processes behind** — if the app was SIGKILLed before its shutdown path ran, stdio servers survive (own session); clean up with `pkill -f mcp_example_server` (or `pkill -f mcp_` for custom servers). `App-Stop.py` does this sweep automatically.
 - **A tool returned an error** — `isError: true` results are fed back to the model by design so it can retry or answer differently; check the tool's own message in the log.
 
 ## Where things live

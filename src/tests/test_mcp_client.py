@@ -1034,5 +1034,26 @@ class TestPromptDropOrder(unittest.TestCase):
                          f"drops must be alphabetical, got {dropped}")
 
 
+class TestHardKillOrphanSweep(unittest.TestCase):
+    """M6 review F5: a hard-killed app orphans its MCP stdio children —
+    App-Stop must sweep them after the escalation."""
+
+    def test_app_stop_sweeps_mcp_children(self):
+        with open(os.path.join(_REPO_ROOT, "App-Stop.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        # the sweep runs AFTER the escalation (a hard kill already happened)
+        escalate_idx = src.index('_pkill_escalate("python app.py")')
+        sweep_idx = src.index("mcp_example_server")
+        self.assertLess(escalate_idx, sweep_idx,
+                        "the MCP child sweep must run after the escalation")
+
+    def test_docs_troubleshooting_hard_kill(self):
+        with open(os.path.join(_REPO_ROOT, "docs", "mcp.md"),
+                  encoding="utf-8") as fh:
+            doc = fh.read()
+        self.assertIn("pkill -f mcp_example_server", doc)
+
+
 if __name__ == "__main__":
     unittest.main()

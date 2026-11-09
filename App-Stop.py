@@ -60,6 +60,11 @@ def stop_tars_ai():
     # itself uses to kill it (App-Start.py:474). "python app.py" also cannot
     # match this script's own cmdline ("python3 App-Stop.py").
     _pkill_escalate("python app.py")
+    # Final sweep: a HARD-killed app (SIGKILL before its finally could run)
+    # leaves its MCP stdio children alive — they run in their own session
+    # and match neither pattern above (review F5). Kill them too.
+    _pkill_escalate("mcp_example_server")
+    _pkill_escalate("mcp_")
 
 
 if __name__ == "__main__":
