@@ -20,6 +20,7 @@ import copy
 import json
 import os
 import re
+import shutil
 import threading
 import time
 
@@ -98,10 +99,13 @@ class MovementStore:
     def load(self):
         """Load the live store; fall back to defaults on any problem.
 
-        On a parse error or an invalid entry the reason is logged via
-        queue_message and the defaults content is loaded instead (the
-        robot keeps moving).  Returns the loaded movements dict.
+        First start: if the live store file is absent it is seeded from
+        the tracked defaults (D5).  On a parse error or an invalid entry
+        the reason is logged via queue_message and the defaults content
+        is loaded instead (the robot keeps moving).  Returns the loaded
+        movements dict.
         """
+        self._seed_from_defaults_if_absent()
         entries = None
         if os.path.exists(self.store_path):
             candidate = None
@@ -391,6 +395,19 @@ class MovementStore:
                   if servoctl.ARMS_PRESENT and entry["steps_arms"]
                   else entry["steps"])
         return self.play_steps(branch)
+
+    def _seed_from_defaults_if_absent(self):
+        """Seed the live store from the tracked defaults on first start."""
+        if os.path.exists(self.store_path):
+            return
+        if not os.path.exists(self.defaults_path):
+            return
+        try:
+            shutil.copyfile(self.defaults_path, self.store_path)
+            queue_message("MOVEMENTS: seeded movements.json from defaults")
+        except OSError as exc:
+            # read-only fs: warn and continue (defaults load in-memory)
+            queue_message(f"WARNING: could not seed movements.json: {exc}")
 
     def _refresh_registry(self):
         """Keep module_movement_registry in sync after any mutation so a

@@ -277,6 +277,13 @@ if __name__ == "__main__":
     # === Skills System (auto-discover tool plugins) ===
     initialize_skills()
 
+    # === Movement store: seed live store from tracked defaults on first start ===
+    try:
+        from modules.module_movementstore import get_movement_store
+        get_movement_store()  # seeds movements.json from defaults if absent
+    except Exception as e:
+        queue_message(f"WARNING: Movement store unavailable: {e}")
+
     # Shutdown event
     shutdown_event = threading.Event()
 

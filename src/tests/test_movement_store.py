@@ -459,6 +459,30 @@ class TestPlayback(_PlaybackTestCase):
         self.assertEqual(self.servo.legs_calls[-1], (50, 50, 50, 50, 0.8))
 
 
+class TestSeeding(_StoreTestCase):
+    """First start seeds movements.json from the tracked defaults (D5)."""
+
+    def test_seeds_store_from_defaults_when_absent(self):
+        from modules import module_movementstore
+        tmp_store = os.path.join(self.tmp, "movements.json")
+        self.assertFalse(os.path.exists(tmp_store))
+        with mock.patch.object(module_movementstore, "_STORE_PATH",
+                               tmp_store), \
+             mock.patch.object(module_movementstore, "_DEFAULTS_PATH",
+                               _DEFAULTS_PATH), \
+             mock.patch.object(module_movementstore, "_store_instance",
+                               None), \
+             mock.patch("modules.module_movementstore.queue_message") as qm:
+            store = module_movementstore.get_movement_store()
+        self.assertTrue(os.path.exists(tmp_store),
+                         "get_movement_store() must seed movements.json")
+        self.assertEqual(set(store.movements), set(MOVEMENTS))
+        seeded = [call.args[0] for call in qm.call_args_list
+                  if "seeded" in call.args[0]]
+        self.assertEqual(len(seeded), 1)
+
+
+
 class TestRegistryShim(_StoreTestCase):
     """module_movement_registry becomes a store-backed shim (S-M2-01)."""
 
