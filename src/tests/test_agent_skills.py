@@ -314,5 +314,57 @@ class TestCrud(_PoolTestCase):
                          [s["name"] for s in self.store.list_skills()])
 
 
+import re as _re  # noqa: E402
+
+from modules import module_agent_skills  # noqa: E402
+
+
+class TestLoadAndRun(_PoolTestCase):
+    """load_skill / run_skill_script (S-M5-05) — the REAL shipped script
+    runs via real subprocesses, never mocked (D7)."""
+
+    def setUp(self):
+        super().setUp()
+        ok, errors = self.store.install_from_folder(_DICE_DEFAULTS)
+        self.assertTrue(ok, errors)
+
+    def test_run_dice_script_real_subprocess(self):
+        result = self.store.run_skill_script("dice-roll", "roll_dice.py",
+                                             ["2", "20"])
+        self.assertFalse(result.is_error)
+        self.assertRegex(result.content,
+                         _re.compile(r"Rolled 2d20: \d+, \d+ \(total \d+\)"))
+
+    def test_run_dice_script_error_contract(self):
+        result = self.store.run_skill_script("dice-roll", "roll_dice.py",
+                                             ["99", "6"])
+        self.assertTrue(result.is_error)
+        self.assertIn("count must be 1-10 and sides must be 2-100",
+                      result.content)
+
+    def test_load_skill_returns_body(self):
+        result = self.store.load_skill("dice-roll")
+        self.assertFalse(result.is_error)
+        self.assertIn("run_skill_script", result.content)
+        # unknown skill -> is_error with the bounded valid list
+        missing = self.store.load_skill("no-such-skill")
+        self.assertTrue(missing.is_error)
+        self.assertIn("Unknown skill 'no-such-skill'", missing.content)
+        self.assertIn("dice-roll", missing.content)
+
+    def test_load_skill_truncates(self):
+        with mock.patch.object(
+                module_agent_skills, "load_config",
+                return_value={"STANDARD_SKILLS": {"body_char_limit": 10}}):
+            result = self.store.load_skill("dice-roll")
+        self.assertLessEqual(len(result.content), 10)
+
+    def test_script_traversal_rejected(self):
+        result = self.store.run_skill_script("dice-roll", "../SKILL.md",
+                                             [])
+        self.assertTrue(result.is_error)
+        self.assertIn("invalid script name", result.content)
+
+
 if __name__ == "__main__":
     unittest.main()

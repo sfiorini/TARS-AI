@@ -26,10 +26,14 @@ import json
 import os
 import re
 import shutil
+import subprocess
+import sys
 import tempfile
 import zipfile
 
 from modules.module_messageQue import queue_message
+from modules.module_config import load_config
+from modules.module_toolregistry import ToolResult
 
 SPEC_FIELDS = ("name", "description", "license", "compatibility",
                "metadata", "allowed-tools")
@@ -344,6 +348,68 @@ class AgentSkillStore:
                      if os.path.isdir(os.path.join(self.pool_dir, n))])
         queue_message(f"SKILLS: seeded agent_skills from defaults "
                       f"({count} skills)")
+
+    # ── progressive disclosure: load_skill / run_skill_script ─────
+
+    def load_skill(self, name):
+        """The skill's SKILL.md body (after the frontmatter), truncated to
+        [STANDARD_SKILLS] body_char_limit. Unknown skill -> is_error with
+        the bounded valid-name list."""
+        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
+        if not os.path.isfile(skill_md):
+            valid = ", ".join(sorted(s["name"]
+                                     for s in self.list_skills()))[:200]
+            return ToolResult(
+                is_error=True,
+                content=f"Unknown skill '{name}'. Valid: {valid or '(none)'}")
+        with open(skill_md, "r", encoding="utf-8") as fh:
+            text = fh.read()
+        lines = text.splitlines()
+        try:
+            close = next(i for i in range(1, len(lines))
+                         if lines[i].strip() == "---")
+        except StopIteration:
+            close = 0
+        body = "\n".join(lines[close + 1:]).strip()
+        limit = load_config().get("STANDARD_SKILLS", {}).get(
+            "body_char_limit", 4000)
+        if len(body) > limit:
+            queue_message(f"SKILLS: load_skill('{name}') body truncated "
+                          f"{len(body)} -> {limit} chars")
+            body = body[:limit]
+        return ToolResult(content=body)
+
+    def run_skill_script(self, skill, script, args):
+        """Run python3 <pool>/<skill>/scripts/<script> <args...>.
+
+        Exit 0 -> stdout is ToolResult.content; non-zero exit ->
+        is_error with stderr; timeout -> is_error with a timeout message.
+        Scripts run with the app's privileges — no sandbox.
+        """
+        # path-traversal guard: script must be a bare filename
+        if (not script or "/" in script or "\\" in script or ".." in script
+                or os.path.isabs(script)):
+            return ToolResult(is_error=True,
+                              content=f"invalid script name '{script}'")
+        script_path = os.path.join(self._skill_path(skill), "scripts",
+                                   script)
+        if not os.path.isfile(script_path):
+            return ToolResult(
+                is_error=True,
+                content=f"unknown script '{script}' in skill '{skill}'")
+        timeout = load_config().get("LLM", {}).get("tool_call_timeout", 60)
+        try:
+            proc = subprocess.run(
+                [sys.executable, script_path] + [str(a) for a in (args or [])],
+                capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return ToolResult(is_error=True, content="Script timed out")
+        if proc.returncode != 0:
+            return ToolResult(
+                is_error=True,
+                content=(proc.stderr or "").strip()
+                          or f"script exited with code {proc.returncode}")
+        return ToolResult(content=(proc.stdout or "").strip())
 
     def uninstall(self, name):
         """Remove an installed skill (its whole folder)."""
