@@ -25,7 +25,6 @@ from evdev import InputDevice, list_devices
 from modules.module_config import load_config
 from modules.module_messageQue import queue_message
 from modules.module_movement_registry import MOVEMENTS, get_legs_only, get_has_arms
-import modules.module_movements as movements
 
 config = load_config()
 controller_name = config["CONTROLS"]["controller_name"]
@@ -43,7 +42,11 @@ DEBOUNCE_TIME = 0.1
 controller_search_notified = False
 
 def get_movement(name):
-    return getattr(movements, name, None)
+    from modules.module_movement_registry import MOVEMENTS
+    if name not in MOVEMENTS:
+        return None
+    from modules.module_movementstore import get_movement_store
+    return lambda: get_movement_store().execute(name)
 
 def find_controller(controller_name):
     global gamepad_path, controller_search_notified
