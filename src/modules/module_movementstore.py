@@ -51,6 +51,18 @@ _SWAP_TURNS = {
     "turn_left_slow": "turn_right_slow",
 }
 
+# Motion D-pad directions (chatui /robot_move) → store movement ids
+ROBOT_MOVE_IDS = {
+    "forward": "step_forward",
+    "backward": "step_backward",
+    "left": "turn_left",
+    "right": "turn_right",
+    "forward_slow": "walk_forward",
+    "backward_slow": "walk_backward",
+    "left_slow": "turn_left_slow",
+    "right_slow": "turn_right_slow",
+}
+
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STORE_PATH = os.path.join(_SRC_DIR, "movements.json")
 _DEFAULTS_PATH = os.path.join(_SRC_DIR, "movements_defaults.json")

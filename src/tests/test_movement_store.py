@@ -537,6 +537,49 @@ class TestRegistryShim(_StoreTestCase):
         self.assertIn("binding_probe", bound)
 
 
+def _chatui_source():
+    with open(os.path.join(_SRC, "modules", "module_chatui.py"),
+              encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _route_source(func_name, src):
+    start = src.index(f"def {func_name}")
+    next_route = src.find("@flask_app.route", start)
+    return src[start:next_route if next_route != -1 else len(src)]
+
+
+class TestRobotMoveDispatch(unittest.TestCase):
+    """The motion D-pad's /robot_move must dispatch through the store
+    (review F1: the bare movement calls raised NameError after the
+    33-function deletion — the D-pad was completely broken)."""
+
+    def test_robot_move_direction_map(self):
+        from modules.module_movementstore import ROBOT_MOVE_IDS
+        self.assertEqual(ROBOT_MOVE_IDS, {
+            "forward": "step_forward",
+            "backward": "step_backward",
+            "left": "turn_left",
+            "right": "turn_right",
+            "forward_slow": "walk_forward",
+            "backward_slow": "walk_backward",
+            "left_slow": "turn_left_slow",
+            "right_slow": "turn_right_slow",
+        })
+
+    def test_robot_move_route_uses_store_dispatch(self):
+        route = _route_source("robot_move", _chatui_source())
+        self.assertIn("ROBOT_MOVE_IDS", route)
+        self.assertIn("get_movement_store().execute", route)
+        self.assertIn("Robot is already moving", route)
+        self.assertIn("400", route)  # unknown direction
+        for bare in ("step_forward()", "step_backward()", "turn_left()",
+                     "turn_right()", "walk_forward()", "walk_backward()",
+                     "turn_left_slow()", "turn_right_slow()"):
+            self.assertNotIn(bare, route,
+                             f"bare movement call '{bare}' must be gone")
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 

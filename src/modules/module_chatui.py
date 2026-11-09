@@ -1042,36 +1042,18 @@ def robot_move():
     
     data = request.get_json()
     direction = data.get('direction')
-    
-    valid_directions = ['forward', 'backward', 'left', 'right', 
-                       'forward_slow', 'backward_slow', 'left_slow', 'right_slow']
-    
-    if direction not in valid_directions:
-        return jsonify({"error": f"Invalid direction. Must be one of: {', '.join(valid_directions)}"}), 400
-    
-    # Execute the robot movement command
+
+    from modules.module_movementstore import ROBOT_MOVE_IDS, get_movement_store
+    if direction not in ROBOT_MOVE_IDS:
+        return jsonify({"error": f"Invalid direction. Must be one of: {', '.join(ROBOT_MOVE_IDS)}"}), 400
+
+    # Execute the robot movement command through the movement store
     try:
-        # Fast movements
-        if direction == 'forward':
-            step_forward()
-        elif direction == 'backward':
-            step_backward()
-        elif direction == 'left':
-            turn_left()
-        elif direction == 'right':
-            turn_right()
-        # Slow movements
-        elif direction == 'forward_slow':
-            walk_forward()
-        elif direction == 'backward_slow':
-            walk_backward()
-        elif direction == 'left_slow':
-            turn_left_slow()
-        elif direction == 'right_slow':
-            turn_right_slow()
-            
+        ok = get_movement_store().execute(ROBOT_MOVE_IDS[direction])
+        if not ok:
+            return jsonify({"error": "Robot is already moving"}), 409
         return jsonify({"success": True, "message": f"Robot moved {direction}"}), 200
-        
+
     except Exception as e:
         queue_message(f"Error moving robot: {e}")
         return jsonify({"error": f"Failed to move robot: {str(e)}"}), 500
