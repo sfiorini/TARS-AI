@@ -336,6 +336,25 @@ class MovementStore:
     # ------------------------------------------------------------------
     # playback
 
+    # the legacy builder defaults (audit B4): raw client steps from
+    # /play_sequence may miss keys — the old _execute_steps used .get()
+    # with these defaults; a KeyError mid-playback would 500 with the
+    # servos stuck at a partial pose
+    _STEP_DEFAULTS = {"left_height": 50, "right_height": 50,
+                      "left_leg": 50, "right_leg": 50,
+                      "left_main": None, "left_forearm": None,
+                      "left_hand": None, "right_main": None,
+                      "right_forearm": None, "right_hand": None,
+                      "speed": 0.85, "hold_time": 0.0, "movement": None}
+
+    @classmethod
+    def _step_defaults(cls, step):
+        if all(key in step for key in cls._STEP_DEFAULTS):
+            return step
+        merged = dict(cls._STEP_DEFAULTS)
+        merged.update(step)
+        return merged
+
     def play_steps(self, steps, tail_neutral=False):
         """Play a step list on the servos.  Returns False if the robot
         is already moving (zero servo calls in that case).
@@ -353,6 +372,11 @@ class MovementStore:
         self._tls.play_depth = depth + 1
         try:
             for step in steps:
+                if not isinstance(step, dict):
+                    raise ValueError(
+                        "each step must be an object "
+                        "(use the movement builder format)")
+                step = self._step_defaults(step)
                 if step.get("movement") is not None:
                     if step["movement"] in self.movements:
                         self.execute(step["movement"])

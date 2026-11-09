@@ -2929,6 +2929,9 @@ def play_sequence():
     if not request.is_json:
         return jsonify({"error": "Request must be JSON"}), 400
     steps = request.get_json().get('steps', [])
+    if not isinstance(steps, list) or any(not isinstance(s, dict)
+                                          for s in steps):
+        return jsonify({"error": "steps must be a list of step objects"}), 400
     return _execute_steps(steps)
 
 

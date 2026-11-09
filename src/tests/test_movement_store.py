@@ -623,6 +623,26 @@ class TestBuilderPreservation(unittest.TestCase):
         self.assertNotIn('"steps_arms": None', route)
 
 
+class TestMalformedStepTolerance(_PlaybackTestCase):
+    """Audit B4: /play_sequence passes raw client steps into play_steps —
+    a step missing keys must not raise KeyError mid-playback (the old
+    _execute_steps used .get() defaults; a 500 would leave the servos at
+    a partial pose with MOVING released but disable never reached)."""
+
+    def test_partial_step_plays_with_defaults(self):
+        # the old semantics: missing keys default (heights/legs 50,
+        # speed 0.85, hold 0) instead of raising KeyError
+        result = self.store.play_steps([{"hold_time": 1}])
+        self.assertTrue(result)
+        # the default pose was played
+        self.assertEqual(self.servo.legs_calls[0], (50, 50, 50, 50, 0.85))
+        self.assertEqual(self.servo.disable_calls, [True])
+
+    def test_non_dict_step_rejected_cleanly(self):
+        with self.assertRaises(ValueError):
+            self.store.play_steps(["not a step"])
+
+
 class TestMovementRefSafety(_StoreTestCase):
     """Audit A2: movement refs must resolve AND be acyclic at write time —
     a self-reference or cycle would recurse forever at playback."""
