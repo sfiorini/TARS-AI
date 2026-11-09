@@ -833,5 +833,69 @@ class TestDescriptorsAndPromptBlock(_ManagerTestCase):
         self.assertIn('"a": number', block)
 
 
+class TestMcpCli(unittest.TestCase):
+    """app-mcp.py CLI (S-M6-10) — real subprocess, real exit codes."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.registry = os.path.join(self.tmp, "mcp_servers.json")
+        shutil.copyfile(os.path.join(_SRC, "mcp_servers.json.template"),
+                        self.registry)
+        self.env = dict(os.environ)
+        self.env["TARS_MCP_REGISTRY"] = self.registry
+
+    def run_cli(self, *args):
+        return subprocess.run(
+            [sys.executable, os.path.join(_SRC, "app-mcp.py")] + list(args),
+            cwd=_REPO_ROOT, env=self.env,
+            capture_output=True, text=True, timeout=60)
+
+    def test_cli_test_example_prints_tools(self):
+        result = self.run_cli("test", "example")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("mcp_example_get_time", result.stdout)
+        self.assertIn("mcp_example_add_numbers", result.stdout)
+        self.assertIn("Get the current local time", result.stdout)
+
+    def test_cli_disable_enable(self):
+        result = self.run_cli("disable", "example")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(self.registry) as fh:
+            self.assertFalse(json.load(fh)["servers"]["example"]["enabled"])
+        listed = self.run_cli("list")
+        self.assertIn("disabled", listed.stdout)
+        result = self.run_cli("enable", "example")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(self.registry) as fh:
+            self.assertTrue(json.load(fh)["servers"]["example"]["enabled"])
+
+    def test_cli_add_remove(self):
+        result = self.run_cli("add", "myserver", "stdio",
+                              sys.executable, _SERVER)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(self.registry) as fh:
+            entry = json.load(fh)["servers"]["myserver"]
+        self.assertEqual(entry["transport"], "stdio")
+        self.assertEqual(entry["args"], [_SERVER])
+        # duplicate rejected (exit 1)
+        result = self.run_cli("add", "myserver", "stdio",
+                              sys.executable, _SERVER)
+        self.assertEqual(result.returncode, 1)
+        # invalid name rejected
+        result = self.run_cli("add", "Bad-Name", "stdio", "x")
+        self.assertEqual(result.returncode, 1)
+        result = self.run_cli("remove", "myserver")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        with open(self.registry) as fh:
+            self.assertNotIn("myserver", json.load(fh)["servers"])
+
+    def test_cli_unknown_name_exits_1(self):
+        result = self.run_cli("enable", "no-such-server")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("no-such-server", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
