@@ -1149,13 +1149,11 @@ def execute_action():
         
         # Check if action exists in the movement registry
         if action in MOVEMENTS:
-            # Get the function from globals (imported from module_servoctl)
-            if action in globals():
-                func = globals()[action]
-                func()
+            from modules.module_movementstore import get_movement_store
+            ok = get_movement_store().execute(action)
+            if ok:
                 return jsonify({"success": True, "message": f"{MOVEMENTS[action]['name']} executed successfully."}), 200
-            else:
-                return jsonify({"error": f"Movement function '{action}' not found."}), 400
+            return jsonify({"error": "Robot is already moving"}), 409
         else:
             return jsonify({"error": f"Unknown action: {action}"}), 400
 
