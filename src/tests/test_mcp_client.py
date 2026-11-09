@@ -1104,5 +1104,47 @@ class TestTransportThreadSafety(_ManagerTestCase):
         self.assertEqual(len(tools), 2)
 
 
+class TestRemoveStopsTransport(_ManagerTestCase):
+    """Audit A5/B3: remove/disable must STOP the transport — servers start
+    at boot, so a stale child would run for the rest of the app's life."""
+
+    def test_remove_server_stops_child(self):
+        manager = self._real_manager()
+        manager.list_tools("example")  # starts the real server
+        transport = manager._transports["example"]
+        self.assertIsNone(transport.poll())  # alive
+        ok, errors = manager.remove_server("example")
+        self.assertTrue(ok, errors)
+        # the transport is gone and the child exited
+        self.assertNotIn("example", manager._transports)
+        deadline = time.monotonic() + 3
+        while transport.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertIsNotNone(transport.poll(), "child survived removal")
+        check = subprocess.run(["pgrep", "-f", "mcp_example_server"],
+                               capture_output=True, text=True)
+        self.assertEqual(check.stdout.strip(), "",
+                         f"orphan after removal: {check.stdout}")
+        # state/cache dropped
+        self.assertNotIn("example", manager._tools_cache)
+
+    def test_disable_server_stops_child(self):
+        manager = self._real_manager()
+        manager.list_tools("example")
+        transport = manager._transports["example"]
+        ok, errors = manager.set_enabled("example", False)
+        self.assertTrue(ok, errors)
+        self.assertNotIn("example", manager._transports)
+        deadline = time.monotonic() + 3
+        while transport.poll() is None and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertIsNotNone(transport.poll(), "child survived disable")
+        # re-enable works and restarts cleanly
+        ok, errors = manager.set_enabled("example", True)
+        self.assertTrue(ok, errors)
+        tools = manager.list_tools("example")
+        self.assertEqual(len(tools), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

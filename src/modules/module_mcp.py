@@ -442,9 +442,27 @@ class McpManager:
         self.save_registry()
         return True, []
 
+    def _stop_and_forget(self, name):
+        """Stop the transport and drop all per-server state (audit A5/B3:
+        remove/disable must not leak a running child)."""
+        transport = self._transports.pop(name, None)
+        if transport is not None:
+            try:
+                transport.stop()
+            except Exception as exc:  # noqa: BLE001 — best effort
+                queue_message(f"MCP: stopping '{name}' failed: {exc}")
+        self._tools_cache.pop(name, None)
+        self._state.pop(name, None)
+        try:
+            from modules.module_heartbeat import cancel_task
+            cancel_task(f"mcp_health_{name}")
+        except Exception:
+            pass
+
     def remove_server(self, name):
         if name not in self.servers:
             return False, [f"unknown server '{name}'"]
+        self._stop_and_forget(name)
         del self.servers[name]
         self.save_registry()
         return True, []
@@ -452,6 +470,8 @@ class McpManager:
     def set_enabled(self, name, enabled):
         if name not in self.servers:
             return False, [f"unknown server '{name}'"]
+        if not enabled:
+            self._stop_and_forget(name)  # audit A5/B3: no stale child
         self.servers[name]["enabled"] = bool(enabled)
         self.save_registry()
         return True, []
