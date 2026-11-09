@@ -472,6 +472,14 @@ class TestCfgNoneSafeReads(unittest.TestCase):
             self.assertEqual(module_speechify._cfg("speechify_voice_id", "fallback"), "fallback")
 
 
+class TestModuleDocstringMatchesBehavior(unittest.TestCase):
+    def test_header_documents_streaming_endpoint_and_default(self):
+        doc = module_speechify.__doc__ or ""
+        self.assertIn("/v1/audio/stream", doc)
+        self.assertIn("pcm_24000", doc)
+        self.assertIn("speechify_stream", doc)
+
+
 if __name__ == "__main__":
     unittest.main()
     unittest.main()

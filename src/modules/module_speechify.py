@@ -3,12 +3,16 @@ module_speechify.py
 
 Speechify TTS provider for TARS-AI (cloud, low-cost alternative to ElevenLabs).
 
-Endpoint: POST https://api.speechify.ai/v1/audio/speech
+Endpoint: POST https://api.speechify.ai/v1/audio/stream  (streaming, default)
+          ONE request per utterance; body {input, voice_id, model, output_format}
+          -> raw 16-bit mono PCM (audio/L16) over chunked transfer, coalesced
+          into ~1 s WAV slices at the configured rate (pcm_24000 default).
+          speechify_stream = False rolls back to the legacy path:
+          POST /v1/audio/speech per sentence, body {input, voice_id,
+          audio_format: "wav", model} -> JSON {"audio_data": base64}.
 Auth:     Authorization: Bearer $SPEECHIFY_API_KEY  (key from .env, never logged)
-Body:     {input, voice_id, audio_format: "wav", model}
-          model is read from [TTS] speechify_model at call time (default
-          "simba-3.5") and sent verbatim in the body.
-Response: HTTP 200 -> JSON {"audio_data": <base64 wav>} -> decoded to bytes.
+Session:  one module-level requests.Session is reused for every request
+          (measured warm TTFB ~0.2 s vs ~0.7 s cold).
 
 Error classification (typed exceptions consumed by the TTS fallback chain).
 Speechify reports failures in the body as {"error": {"code", "message"}}, so
@@ -23,6 +27,11 @@ classification branches on error.code FIRST, then falls back to the status:
 
 The typed error classes are IMPORTED from module_fishaudio (not redefined) so
 the fallback chain in module_tts.py catches a single exception hierarchy.
+
+Mid-stream failures: Speechify closes errored streams silently after the first
+byte, so a truncation ends the utterance with a logged WARNING (no mid-utterance
+voice switch); the byte-count DEBUG line is the only diagnostic. Typed errors
+apply ONLY to pre-stream (pre-first-byte) failures.
 
 Public interface: text_to_speech_with_speechify(text, ...) — async generator
 yielding io.BytesIO wav chunks (one per sentence), same shape as the other
@@ -87,6 +96,7 @@ __all__ = [
     "AuthFailed",
     "TransientError",
     "SPEECHIFY_TTS_URL",
+    "SPEECHIFY_STREAM_URL",
 ]
 
 
