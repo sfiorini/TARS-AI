@@ -853,6 +853,13 @@ def raw_complete_llm(user_prompt, istext=True):
     llm_backend = CONFIG['LLM']['llm_backend']
     url, data = _prepare_request_data(llm_backend, user_prompt)
 
+    # raw_complete_llm consumes a single JSON body via response.json();
+    # _prepare_request_data defaults to streaming (SSE), which is NOT JSON
+    # and made every follow-up / vision call fail with JSONDecodeError.
+    # process_completion keeps the streaming default — do not change it there.
+    data["stream"] = False
+
+    response = None
     try:
         response = _http_session.post(url, headers=headers, json=data,
                                 timeout=CONFIG['LLM'].get('request_timeout', 120))
@@ -860,6 +867,14 @@ def raw_complete_llm(user_prompt, istext=True):
         bot_reply = _extract_text(response.json(), istext)
         return bot_reply
 
+    except json.JSONDecodeError:
+        # Body was not JSON (e.g. an SSE stream despite stream=False): log
+        # the HTTP status and a truncated body so this is diagnosable instead
+        # of a bare "Expecting value: line 1 column 1 (char 0)".
+        status = getattr(response, 'status_code', 'no-response')
+        body = getattr(response, 'text', '') or ''
+        queue_message(f"ERROR: LLM response is not JSON (HTTP {status}): {body[:200]!r}")
+        return None
     except requests.RequestException as e:
         queue_message(f"ERROR: LLM request failed: {e}")
         return None
