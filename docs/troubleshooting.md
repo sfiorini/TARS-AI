@@ -86,8 +86,7 @@ After a tool call (web search, camera, script) TARS says a holding line but the 
 | Config | `src/config.ini` (seeded from `src/config.ini.template`) |
 | Secrets | `.env` (gitignored — never commit) |
 | Servo positions | `~/.servo_positions.json` |
-| Custom sequences | `src/custom_sequences.json` |
-| Movement registry | `src/modules/module_movement_registry.py` (33 entries) |
+| Movement store | `src/movements_defaults.json` (tracked) + `src/movements.json` (live, gitignored) via `src/modules/module_movementstore.py` |
 | Servo controller + watchdog | `src/modules/module_servoctl.py` |
 
 ## Web UI unreachable
