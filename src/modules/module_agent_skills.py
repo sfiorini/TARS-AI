@@ -64,9 +64,9 @@ def parse_skill_md(path):
             in_metadata = False
             key, _, value = line.partition(":")
             key = key.strip()
-            if key == "metadata" and not value.strip():
+            if key == "metadata" and value.strip() in ("", "{}"):
                 data["metadata"] = {}
-                in_metadata = True
+                in_metadata = not value.strip()  # {} has no nested entries
             else:
                 data[key] = value.strip()
         elif in_metadata:
@@ -237,6 +237,113 @@ class AgentSkillStore:
                     shutil.rmtree(tmp, ignore_errors=True)
         except zipfile.BadZipFile as exc:
             return False, [f"not a zip file: {exc}"]
+
+    # ── create / edit / rename / reset / seed (S-M5-04) ─────────
+
+    def create(self, name, description, body, license="MIT"):
+        """Create a new skill folder with spec-pure frontmatter."""
+        if not name or not _NAME_RE.match(name) \
+                or name.startswith("-") or name.endswith("-") \
+                or "--" in name or not (1 <= len(name) <= 64):
+            return False, [f"invalid skill name '{name}' (1-64 chars, "
+                           "[a-z0-9-], no leading/trailing/consecutive "
+                           "hyphens)"]
+        if not (1 <= len(description or "") <= 1024):
+            return False, ["description must be 1-1024 chars"]
+        target = self._skill_path(name)
+        if os.path.exists(target):
+            return False, [f"skill '{name}' already exists"]
+        os.makedirs(target)
+        content = (f"---\nname: {name}\ndescription: {description}\n"
+                   f"license: {license}\nmetadata:\n---\n{body}\n")
+        with open(os.path.join(target, "SKILL.md"), "w",
+                  encoding="utf-8") as fh:
+            fh.write(content)
+        queue_message(f"SKILLS: created agent skill '{name}'")
+        return True, []
+
+    def edit(self, name, description=None, body=None):
+        """Edit description and/or body in place (line-level rewrite)."""
+        skill_md = os.path.join(self._skill_path(name), "SKILL.md")
+        if not os.path.isfile(skill_md):
+            return False, [f"unknown skill '{name}'"]
+        with open(skill_md, "r", encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+        try:
+            close = next(i for i in range(1, len(lines))
+                        if lines[i].strip() == "---")
+        except StopIteration:
+            return False, [f"'{name}': malformed SKILL.md"]
+        if description is not None:
+            if not (1 <= len(description) <= 1024):
+                return False, ["description must be 1-1024 chars"]
+            for i in range(1, close):
+                if lines[i].startswith("description:"):
+                    lines[i] = f"description: {description}"
+                    break
+            else:
+                lines.insert(close, f"description: {description}")
+        if body is not None:
+            lines = lines[:close + 1] + [body]
+        with open(skill_md, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+        return True, []
+
+    def rename(self, old, new):
+        """Rename: validate the new name, move the dir, fix frontmatter."""
+        old_dir = self._skill_path(old)
+        if not os.path.isdir(old_dir):
+            return False, [f"unknown skill '{old}'"]
+        if not new or not _NAME_RE.match(new) \
+                or new.startswith("-") or new.endswith("-") \
+                or "--" in new or not (1 <= len(new) <= 64):
+            return False, [f"invalid skill name '{new}'"]
+        new_dir = self._skill_path(new)
+        if os.path.exists(new_dir):
+            return False, [f"skill '{new}' already exists"]
+        shutil.move(old_dir, new_dir)
+        ok, errors = self.edit(new, description=None, body=None)
+        if ok:
+            # fix the frontmatter name line
+            skill_md = os.path.join(new_dir, "SKILL.md")
+            with open(skill_md, "r", encoding="utf-8") as fh:
+                lines = fh.read().splitlines()
+            close = next(i for i in range(1, len(lines))
+                         if lines[i].strip() == "---")
+            for i in range(1, close):
+                if lines[i].startswith("name:"):
+                    lines[i] = f"name: {new}"
+                    break
+            with open(skill_md, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(lines) + "\n")
+        return ok, errors
+
+    def reset(self):
+        """Wipe the pool and re-copy from the shipped defaults (locked
+        meaning: user skills die on reset — asserted, not fixed)."""
+        if os.path.isdir(self.pool_dir):
+            for name in os.listdir(self.pool_dir):
+                target = os.path.join(self.pool_dir, name)
+                if os.path.isdir(target):
+                    shutil.rmtree(target)
+                else:
+                    os.remove(target)
+        else:
+            os.makedirs(self.pool_dir)
+        if os.path.isdir(self.defaults_dir):
+            shutil.copytree(self.defaults_dir, self.pool_dir,
+                            dirs_exist_ok=True)
+        queue_message("SKILLS: agent skills reset from defaults")
+
+    def seed_if_absent(self):
+        """First app start: copy defaults → pool (only when absent)."""
+        if os.path.exists(self.pool_dir):
+            return
+        shutil.copytree(self.defaults_dir, self.pool_dir)
+        count = len([n for n in os.listdir(self.pool_dir)
+                     if os.path.isdir(os.path.join(self.pool_dir, n))])
+        queue_message(f"SKILLS: seeded agent_skills from defaults "
+                      f"({count} skills)")
 
     def uninstall(self, name):
         """Remove an installed skill (its whole folder)."""

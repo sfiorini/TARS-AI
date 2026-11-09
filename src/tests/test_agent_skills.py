@@ -243,5 +243,76 @@ class TestInstall(_PoolTestCase):
         self.assertEqual(self.store.list_skills(), [])
 
 
+class TestCrud(_PoolTestCase):
+    """Create/edit/rename/reset + seed-from-defaults (S-M5-04)."""
+
+    def test_delete_then_reset_restores_dice_roll(self):
+        # the D7 round-trip: delete dice-roll, reset, it's back
+        self.store.reset()
+        self.assertIn("dice-roll",
+                     [s["name"] for s in self.store.list_skills()])
+        self.store.uninstall("dice-roll")
+        self.assertNotIn("dice-roll",
+                         [s["name"] for s in self.store.list_skills()])
+        self.store.reset()
+        self.assertIn("dice-roll",
+                     [s["name"] for s in self.store.list_skills()])
+
+    def test_create_validates_name(self):
+        ok, errors = self.store.create("Bad_Name", "d", "body")
+        self.assertFalse(ok)
+        self.assertTrue(any("name" in e.lower() for e in errors), errors)
+        ok, errors = self.store.create("good-skill", "a created skill",
+                                       "# Body\nDo the thing.")
+        self.assertTrue(ok, errors)
+        skills = {s["name"]: s for s in self.store.list_skills()}
+        self.assertIn("good-skill", skills)
+        self.assertEqual(skills["good-skill"]["description"],
+                         "a created skill")
+        # created skills load clean (spec-pure)
+        data, errs = self.store._read_skill("good-skill")
+        self.assertEqual(errs, [])
+
+    def test_rename_reparents_dir(self):
+        ok, _ = self.store.create("old-name", "d", "body")
+        self.assertTrue(ok)
+        ok, errors = self.store.rename("old-name", "new-name")
+        self.assertTrue(ok, errors)
+        self.assertFalse(os.path.exists(os.path.join(self.pool,
+                                                    "old-name")))
+        data, errs = self.store._read_skill("new-name")
+        self.assertEqual(errs, [])
+        self.assertEqual(data["name"], "new-name")
+
+    def test_edit_updates_description_only(self):
+        ok, _ = self.store.create("edit-me", "before", "ORIGINAL BODY")
+        self.assertTrue(ok)
+        ok, errors = self.store.edit("edit-me", description="after")
+        self.assertTrue(ok, errors)
+        data, _ = self.store._read_skill("edit-me")
+        self.assertEqual(data["description"], "after")
+        with open(os.path.join(self.pool, "edit-me", "SKILL.md")) as fh:
+            self.assertIn("ORIGINAL BODY", fh.read())
+        ok, errors = self.store.edit("edit-me", body="REPLACED BODY")
+        self.assertTrue(ok, errors)
+        with open(os.path.join(self.pool, "edit-me", "SKILL.md")) as fh:
+            content = fh.read()
+        self.assertIn("REPLACED BODY", content)
+        self.assertNotIn("ORIGINAL BODY", content)
+        self.assertIn("after", content)  # description survived the body edit
+
+    def test_seed_if_absent(self):
+        shutil.rmtree(self.pool)
+        self.assertFalse(os.path.exists(self.pool))
+        self.store.seed_if_absent()
+        names = [s["name"] for s in self.store.list_skills()]
+        self.assertIn("dice-roll", names)
+        # present pool is NOT re-seeded (only absent triggers)
+        self.store.uninstall("dice-roll")
+        self.store.seed_if_absent()
+        self.assertNotIn("dice-roll",
+                         [s["name"] for s in self.store.list_skills()])
+
+
 if __name__ == "__main__":
     unittest.main()
