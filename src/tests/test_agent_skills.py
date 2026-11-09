@@ -845,5 +845,17 @@ class TestEditGate(_PoolTestCase):
         self.assertNotIn("hacked", content)
 
 
+class TestNameRegexAnchor(unittest.TestCase):
+    """M5 review F10: `$` matches before a trailing newline, so a name
+    like "foo\n" passed the gate and produced a ghost skill — the anchor
+    must be `\\Z`."""
+
+    def test_create_rejects_trailing_newline_name(self):
+        from modules.module_agent_skills import _NAME_RE
+        self.assertIsNone(_NAME_RE.match("foo\n"),
+                          "a trailing newline must not match the name rule")
+        self.assertIsNotNone(_NAME_RE.match("dice-roll"))
+
+
 if __name__ == "__main__":
     unittest.main()

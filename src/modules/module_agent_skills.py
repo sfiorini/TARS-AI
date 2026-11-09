@@ -46,7 +46,9 @@ run_skill_script
    Runs a skill's script. Params: {"skill": "<name>", "script": "<filename>", "args": ["..."]}
    Scripts run with the app's privileges. Returns stdout."""
 
-_NAME_RE = re.compile(r"^[a-z0-9-]+$")
+# `\Z` (not `$`): `$` matches before a trailing newline, which let
+# names like "foo\n" through the gate (review F10)
+_NAME_RE = re.compile(r"^[a-z0-9-]+\Z")
 
 
 def parse_skill_md(path):
