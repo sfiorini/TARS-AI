@@ -71,6 +71,17 @@ def test_voice_pipeline_piper_lazy_load():
     assert "kept resident" not in doc
 
 
+# --- Speechify streaming (S-M3-11) ---------------------------------------------
+
+def test_voice_pipeline_documents_speechify_streaming():
+    doc = _read("voice-pipeline.md")
+    assert "speechify_stream" in doc
+    assert "speechify_output_format" in doc
+    assert "/v1/audio/stream" in doc
+    assert "pcm_24000" in doc
+    assert "mid-stream" in doc
+
+
 # --- D5: server-mode chain -----------------------------------------------------
 
 def test_server_mode_current_chain():
