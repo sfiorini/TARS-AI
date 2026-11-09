@@ -807,5 +807,24 @@ class TestZipNameSecurity(_PoolTestCase):
                       [s["name"] for s in self.store.list_skills()])
 
 
+class TestLoadSkillContainment(_PoolTestCase):
+    """M5 review F8: load_skill must carry the same realpath containment
+    as run_skill_script — a symlinked pool entry must not read outside."""
+
+    def test_symlinked_skill_dir_rejected(self):
+        # a secret skill OUTSIDE the pool
+        secret = os.path.join(self.tmp, "secret-skill")
+        os.makedirs(secret)
+        with open(os.path.join(secret, "SKILL.md"), "w") as fh:
+            fh.write("---\nname: secret-skill\ndescription: s\n---\n"
+                      "TOP SECRET BODY\n")
+        # symlinked INTO the pool (isdir passes through the link)
+        os.symlink(secret, os.path.join(self.pool, "secret-skill"))
+        result = self.store.load_skill("secret-skill")
+        self.assertTrue(result.is_error,
+                        "a symlinked pool entry must not read outside")
+        self.assertNotIn("TOP SECRET BODY", result.content)
+
+
 if __name__ == "__main__":
     unittest.main()

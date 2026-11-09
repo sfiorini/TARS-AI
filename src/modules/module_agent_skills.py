@@ -407,6 +407,12 @@ class AgentSkillStore:
                 is_error=True,
                 content=f"Unknown skill '{name}'. Valid: {valid or '(none)'}")
         skill_md = os.path.join(self._skill_path(name), "SKILL.md")
+        # realpath containment (review F8): a symlinked pool entry must
+        # not read a SKILL.md outside the pool
+        if not os.path.realpath(skill_md).startswith(
+                os.path.realpath(self.pool_dir) + os.sep):
+            return ToolResult(is_error=True,
+                              content=f"skill path escapes the skill pool")
         with open(skill_md, "r", encoding="utf-8") as fh:
             text = fh.read()
         lines = text.splitlines()
