@@ -96,9 +96,10 @@ from modules.module_toolloop import (  # noqa: E402
 )
 
 
-def _descriptor(name, result_bearing=True, execute=None, timeout_s=5.0):
+def _descriptor(name, result_bearing=True, execute=None, timeout_s=5.0,
+                kind="builtin"):
     return ToolDescriptor(
-        name=name, kind="builtin", description="", parameters=None,
+        name=name, kind=kind, description="", parameters=None,
         result_bearing=result_bearing, timeout_s=timeout_s,
         execute=execute or (lambda params, ctx: "tool result"))
 
@@ -439,6 +440,56 @@ class TestTurnMemories(unittest.TestCase):
         self.assertIn("threading.Thread(target=write_turn_memories", tail)
         self.assertIn("elif func_calls or new_mems:", tail)
         self.assertIn("target=llm_execute_side_effects", tail)
+
+
+LEGACY_UNAVAILABLE = "That tool isn't available in legacy mode."
+
+
+class TestRollbackSwitch(_LoopTestCase):
+    """deferred_loop_enabled = false → one-release live rollback (S-M4-08)."""
+
+    def _rollback_config(self):
+        return mock.patch("modules.module_toolloop.load_config",
+                          return_value={"LLM": {
+                              "deferred_loop_enabled": False}})
+
+    def test_rollback_switch_bypasses_loop(self):
+        self.registry.register(_descriptor(
+            "search", execute=lambda p, c: "search results here"))
+        with self._rollback_config():
+            started = self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+        self.assertTrue(started)
+        self.assertEqual(self.followup_calls, [])  # the loop is bypassed
+        self.assertIn("search results here", self.spoken)
+
+    def test_rollback_mcp_result_tools_canned_fallback(self):
+        self.registry.register(_descriptor(
+            "mcp_example_get_time", kind="mcp",
+            execute=lambda p, c: "12:00"))
+        with self._rollback_config():
+            started = self._runner().start_turn(
+                self._parsed([{"function": "mcp_example_get_time",
+                                "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+        self.assertTrue(started)
+        self.assertEqual(self.followup_calls, [])
+        self.assertIn(LEGACY_UNAVAILABLE, self.spoken)
+        self.assertNotIn("12:00", self.spoken)
+
+    def test_rollback_fire_and_forget_still_returns_false(self):
+        exec_calls = []
+        self.registry.register(_descriptor(
+            "move", result_bearing=False,
+            execute=lambda p, c: exec_calls.append(p) or "moved"))
+        with self._rollback_config():
+            started = self._runner().start_turn(
+                self._parsed([{"function": "move", "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+        self.assertFalse(started)  # caller's side-effect thread dispatches
+        self.assertEqual(exec_calls, [])
+        self.assertEqual(self.spoken, [])
 
 
 if __name__ == "__main__":

@@ -36,6 +36,7 @@ from modules.module_toolregistry import (get_registry, ToolContext,
 
 FALLBACK_LINE = "I hit a snag finishing that — check the logs."
 HOLDING_LINE = "On it — I'll report back."
+LEGACY_UNAVAILABLE_LINE = "That tool isn't available in legacy mode."
 TOOL_RESULT_CHAR_LIMIT = 10000  # result text truncated before the follow-up
 
 STATES = ("IDLE", "CLASSIFY", "TOOLS_RUNNING", "FOLLOWUP_LLM",
@@ -93,6 +94,12 @@ class ToolLoopRunner:
         """
         if not isinstance(parsed, dict):
             return False
+        # Rollback switch (checked once per turn): config false → the
+        # one-release legacy blocking path, no loop
+        if not load_config().get("LLM", {}).get("deferred_loop_enabled",
+                                                 True):
+            return self._run_blocking_legacy(parsed, user_text, source,
+                                             callbacks)
         callbacks.on_state("CLASSIFY")
         calls = self._result_bearing_calls(parsed.get("function_calls"))
         if not calls:
@@ -118,6 +125,43 @@ class ToolLoopRunner:
             target=self._run_turn,
             args=(parsed, user_text, source, callbacks, epoch, calls),
             daemon=True, name=f"toolloop-{source}").start()
+        return True
+
+    def _run_blocking_legacy(self, parsed, user_text, source, callbacks):
+        """One-release rollback (deferred_loop_enabled = false).
+
+        Reproduces today's behavior: when a result-bearing tool is present,
+        ALL calls dispatch inline (blocking); result-bearing builtin
+        results are spoken directly; MCP/agent-skill result tools (not yet
+        existing) speak the canned fallback.  Returns False for turns with
+        no result-bearing calls — the caller's background side-effect
+        thread handles those exactly as today.
+        """
+        all_calls = parsed.get("function_calls") or []
+        result_calls = self._result_bearing_calls(all_calls)
+        if not result_calls:
+            return False
+        ctx = ToolContext(bot_response=parsed, user_input=user_text,
+                          source=source, config=load_config())
+        result_results = []
+        for call in all_calls:
+            name = call.get("function", "")
+            descriptor = get_registry().get(name)
+            result = get_registry().dispatch(
+                name, call.get("parameters", {}) or {}, ctx)
+            if descriptor is not None and descriptor.result_bearing:
+                result_results.append((descriptor, result))
+        for descriptor, result in result_results:
+            if (descriptor.kind == "builtin"
+                    and result.content and not result.is_error):
+                line = result.content
+            else:
+                line = LEGACY_UNAVAILABLE_LINE
+            try:
+                callbacks.speak(line)
+            except Exception as exc:  # noqa: BLE001
+                queue_message(f"TOOLLOOP: speak callback failed: {exc}")
+        callbacks.on_state("IDLE")
         return True
 
     # ── the turn thread ───────────────────────────────────────────
