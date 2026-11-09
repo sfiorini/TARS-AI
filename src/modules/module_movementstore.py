@@ -1,0 +1,234 @@
+"""
+Module : Movement Store
+Author: Charles-Olivier Dion (AtomikSpace)
+Contact: atomikspace.labs@gmail.com
+Copyright (c) 2026 Charles-Olivier Dion
+
+This file is authored by Charles-Olivier Dion and is dual-licensed.
+
+Non-Commercial License:
+This file is licensed under Creative Commons Attribution-NonCommercial 4.0 International (CC-BY-NC 4.0).
+You may use, modify, and redistribute this file for NON-COMMERCIAL purposes only, with attribution.
+
+Commercial License:
+Commercial use (including selling products, paid services, SaaS, subscriptions, Patreon rewards, or derivatives)
+requires a separate written license from Charles-Olivier Dion (AtomikSpace).
+
+This license applies only to this file and does not override licenses of other files in the repository.
+"""
+import json
+import os
+import re
+
+from modules.module_messageQue import queue_message
+
+LEGS_ONLY = "legs_only"
+HAS_ARMS = "has_arms"
+_TYPES = (LEGS_ONLY, HAS_ARMS)
+
+_ID_RE = re.compile(r"^[a-z0-9_]+$")
+
+_STEP_KEYS = frozenset((
+    "left_height", "right_height", "left_leg", "right_leg",
+    "left_main", "left_forearm", "left_hand",
+    "right_main", "right_forearm", "right_hand",
+    "speed", "hold_time", "movement",
+))
+_LEG_KEYS = ("left_height", "right_height", "left_leg", "right_leg")
+_ARM_KEYS = ("left_main", "left_forearm", "left_hand",
+             "right_main", "right_forearm", "right_hand")
+
+_SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_STORE_PATH = os.path.join(_SRC_DIR, "movements.json")
+_DEFAULTS_PATH = os.path.join(_SRC_DIR, "movements_defaults.json")
+
+
+def _is_number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+class MovementStore:
+    """JSON-backed movement pool (live store + tracked defaults).
+
+    The live store (``movements.json``, gitignored) is seeded from the
+    tracked defaults (``movements_defaults.json``).  A corrupt or invalid
+    live file never stops the robot: the offending entry is logged and
+    the defaults content is used instead.
+    """
+
+    def __init__(self, store_path, defaults_path):
+        self.store_path = str(store_path)
+        self.defaults_path = str(defaults_path)
+        self.movements = {}
+
+    # ------------------------------------------------------------------
+    # loading
+
+    def _read_json(self, path):
+        with open(path, "r") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            raise ValueError("top level must be an object")
+        return data
+
+    def _load_defaults(self):
+        data = self._read_json(self.defaults_path)
+        entries = data.get("movements")
+        if not isinstance(entries, dict) or not entries:
+            raise ValueError(
+                f"defaults file has no movements: {self.defaults_path}")
+        return entries
+
+    def load(self):
+        """Load the live store; fall back to defaults on any problem.
+
+        On a parse error or an invalid entry the reason is logged via
+        queue_message and the defaults content is loaded instead (the
+        robot keeps moving).  Returns the loaded movements dict.
+        """
+        entries = None
+        if os.path.exists(self.store_path):
+            candidate = None
+            try:
+                data = self._read_json(self.store_path)
+                candidate = data.get("movements")
+                if not isinstance(candidate, dict) or not candidate:
+                    raise ValueError("no movements object")
+            except ValueError as exc:
+                queue_message(
+                    f"MOVEMENTS: invalid movements.json: {exc} — using defaults")
+                candidate = None
+            if candidate is not None:
+                # first pass: structural validation of every entry
+                for mid, entry in candidate.items():
+                    try:
+                        self.validate_entry(mid, entry)
+                    except ValueError as exc:
+                        queue_message(
+                            f"MOVEMENTS: invalid entry '{mid}': {exc}")
+                        candidate = None
+                        break
+            if candidate is not None:
+                # second pass: movement refs resolve once all ids are known
+                known = set(candidate)
+                for mid, entry in candidate.items():
+                    try:
+                        self.validate_entry(mid, entry, known_ids=known)
+                    except ValueError as exc:
+                        queue_message(
+                            f"MOVEMENTS: invalid entry '{mid}': {exc}")
+                        candidate = None
+                        break
+            entries = candidate
+        if entries is None:
+            entries = self._load_defaults()
+        self.movements = entries
+        return self.movements
+
+    # ------------------------------------------------------------------
+    # validation
+
+    def validate_entry(self, mid, entry, known_ids=None):
+        """Raise ValueError with a reason if the entry is invalid.
+
+        Structural checks always run; movement references are only
+        checked when ``known_ids`` is provided (the second pass, after
+        all entries have loaded).
+        """
+        if not isinstance(mid, str) or not _ID_RE.match(mid):
+            raise ValueError(f"id {mid!r} must match [a-z0-9_]+")
+        if not isinstance(entry, dict):
+            raise ValueError("entry must be an object")
+        etype = entry.get("type")
+        if etype not in _TYPES:
+            raise ValueError(
+                f"type {etype!r} must be one of {sorted(_TYPES)}")
+        for field in ("name", "description"):
+            value = entry.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"{field} must be a non-empty string")
+        steps = entry.get("steps")
+        if not isinstance(steps, list) or not steps:
+            raise ValueError("steps must be a non-empty list")
+        steps_arms = entry.get("steps_arms")
+        if steps_arms is not None and not isinstance(steps_arms, list):
+            raise ValueError("steps_arms must be a list or null")
+        for branch_name, branch in (("steps", steps),
+                                    ("steps_arms", steps_arms)):
+            if branch is None:
+                continue
+            for idx, step in enumerate(branch):
+                self._validate_step(f"{branch_name}[{idx}]", step, known_ids)
+
+    def _validate_step(self, where, step, known_ids):
+        if not isinstance(step, dict):
+            raise ValueError(f"{where} must be an object")
+        missing = _STEP_KEYS - set(step)
+        unknown = set(step) - _STEP_KEYS
+        if missing or unknown:
+            raise ValueError(
+                f"{where} has missing keys {sorted(missing)} "
+                f"and unknown keys {sorted(unknown)}")
+        speed = step["speed"]
+        if not _is_number(speed) or not 0 <= speed <= 1:
+            raise ValueError(
+                f"{where} speed {speed!r} must be a number in 0..1")
+        for key in _LEG_KEYS:
+            value = step[key]
+            if value is None:
+                continue
+            if not _is_number(value) or not 0 <= value <= 100:
+                raise ValueError(
+                    f"{where} {key} {value!r} must be null or 0..100")
+        for key in _ARM_KEYS:
+            value = step[key]
+            if value is None or value == -1:
+                continue
+            if not _is_number(value) or not 0 <= value <= 100:
+                raise ValueError(
+                    f"{where} {key} {value!r} must be null, -1 or 0..100")
+        hold = step["hold_time"]
+        if not _is_number(hold) or hold < 0:
+            raise ValueError(f"{where} hold_time {hold!r} must be >= 0")
+        ref = step["movement"]
+        if ref is None:
+            return
+        if not isinstance(ref, str):
+            raise ValueError(f"{where} movement must be null or an id string")
+        if known_ids is not None and ref not in known_ids:
+            raise ValueError(
+                f"{where} references unknown movement '{ref}'")
+
+    def is_valid(self):
+        """Validate the store file without touching it: (ok, errors).
+
+        Collects every entry's errors instead of raising (the CLI
+        ``validate`` path).
+        """
+        errors = []
+        try:
+            data = self._read_json(self.store_path)
+        except (OSError, ValueError) as exc:
+            return (False, [f"movements.json: {exc}"])
+        entries = data.get("movements")
+        if not isinstance(entries, dict):
+            return (False, ["movements.json: no movements object"])
+        known = set(entries)
+        for mid, entry in entries.items():
+            try:
+                self.validate_entry(mid, entry, known_ids=known)
+            except ValueError as exc:
+                errors.append(f"{mid}: {exc}")
+        return (not errors, errors)
+
+
+_store_instance = None
+
+
+def get_movement_store():
+    """Module-level singleton over src/movements.json + defaults."""
+    global _store_instance
+    if _store_instance is None:
+        _store_instance = MovementStore(_STORE_PATH, _DEFAULTS_PATH)
+        _store_instance.load()
+    return _store_instance
