@@ -55,7 +55,7 @@ While the app runs, the watchdog performs the equivalent automatically every 15 
 
 ## Tests
 
-`src/tests/test_servo_watchdog.py` (31 tests) is the executable spec: `_mode1_healthy`/`_mode2_healthy`/`_chip_state_healthy` truth tables, `_is_moving_stuck` timeout logic, fake-I2C register read/write (including the atomic `writeto_then_readfrom` fallback path), watchdog tick repair + position re-apply, and `force_servo_recovery()`. Run the whole suite with `python3 -m pytest src/tests -q` (green on V3 — the count grows with every feature and is not hardcoded here).
+`src/tests/test_servo_watchdog.py` is the executable spec (run `python3 -m pytest src/tests/test_servo_watchdog.py -q` for the current count): `_mode1_healthy`/`_mode2_healthy`/`_chip_state_healthy` truth tables, `_is_moving_stuck` timeout logic, fake-I2C register read/write (including the atomic `writeto_then_readfrom` fallback path), watchdog tick repair + position re-apply, and `force_servo_recovery()`. Run the whole suite with `python3 -m pytest src/tests -q` (green on V3 — the count grows with every feature and is not hardcoded here).
 
 ## Constants and failure scenarios
 
