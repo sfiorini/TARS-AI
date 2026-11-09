@@ -73,7 +73,7 @@ The first provider that yields ≥ 1 audio chunk wins and its chunks are streame
 | `elevenlabs` | `module_elevenlabs.py` | `POST https://api.elevenlabs.io/v1/text-to-speech/{elevenlabs_voice_id}/stream` — Bearer `ELEVENLABS_API_KEY`, `elevenlabs_model = eleven_multilingual_v2` (or the character-card voice when `toggle_charvoice = True`) | 429/401 with a quota body → `QuotaExhausted`; 429 otherwise → one retry → `RateLimited`; 401/4xx → `AuthFailed`; 5xx/timeout → one retry → `TransientError` |
 | `openai` | `module_openai.py` | OpenAI TTS SDK — `openai_voice`, Bearer `OPENAI_API_KEY` | 429 with quota body (`insufficient_quota`) → `QuotaExhausted`; 429 → `RateLimited`; 401/4xx → `AuthFailed`; timeout/5xx → `TransientError` |
 | `external` | `module_tts.py` (`_external_tts_chunks`) | `POST {ttsurl}/tts/generate` — Bearer `EXTERNAL_API_KEY`, optional `voice` = `tts_voice` → raw audio | server-side Piper on the server host |
-| `piper` | `module_piper.py` | local, offline; model **lazy-loaded on first use** (`PiperVoice.load()` at the first synthesis) and **pre-loaded in a background warmup thread at startup** when `piper` is anywhere in the fallback chain — no blocking load at boot, no per-utterance reload once warm | no chunks when the model is not loaded ⇒ chain moves on; with `piper_multispeaker`, the detected emotion selects `piper_speaker_<emotion>` |
+| `piper` | `module_piper.py` | local, offline; model **lazy-loaded on first use** (`PiperVoice.load()` at the first synthesis) and **pre-loaded in a background warmup thread at startup** when `piper` is anywhere in the fallback chain — no blocking load at boot, no per-utterance reload once warm; synthesis runs **OFF the asyncio event loop** (`asyncio.to_thread`) — one WAV chunk per sentence at the voice's native rate (22050 Hz), so STT, barge-in and the web UI stay responsive during synthesis; `speaker_id` is passed via `SynthesisConfig` (piper-tts ≥ 1.3 / the robot's 1.8.0) | no chunks when the model is not loaded ⇒ chain moves on; with `piper_multispeaker`, the detected emotion selects `piper_speaker_<emotion>` |
 | `silero` | `module_silero.py` | local, offline | — |
 | `espeak` | `module_espeak.py` | local, offline | always the guaranteed final fallback |
 
@@ -86,6 +86,8 @@ All cloud providers (`fishaudio`, `speechify`, `elevenlabs`, `openai`) and `exte
 ### Is local Piper fast enough on a Pi 5?
 
 Yes. With the model kept in memory after the first load (no per-utterance CLI reload), Piper on a Pi 5 runs at **RTF ≈ 0.10–0.13** (≈ 8–10× realtime) for low/medium voices — roughly **0.3–0.6 s to first audio** for a typical 10-word sentence (RPi5 edge-TTS benchmark). High-quality voices sit around RTF 0.66, still fine as a fallback. So the local chain (`piper` → `espeak`) is a realistic no-cloud path, not a last-ditch whisper.
+
+**Behavior change (speaker IDs)**: `piper_speaker_<emotion>` now actually takes effect — it is passed as `SynthesisConfig(speaker_id=…)` instead of a dead `voice.config.speaker_id` assignment that no piper-tts version read (multispeaker voices silently used speaker 0 = "anger"). Escape hatch: set `piper_multispeaker = False`, or set the `piper_speaker_*` ids back to `0` to reproduce the old (accidental) sound.
 
 ### Voice sources & attribution
 

@@ -145,3 +145,12 @@ def test_mkdocs_nav_matches_docs_files():
         f"mkdocs.yml nav out of sync with docs/: only-docs={doc_files - nav_files}, "
         f"only-nav={nav_files - doc_files}"
     )
+
+
+# --- Piper off-loop streaming + speaker_id behaviour change (S-M4-11) --------
+
+def test_voice_pipeline_documents_piper_offloop_and_speaker_fix():
+    doc = _read("voice-pipeline.md")
+    assert "event loop" in doc or "to_thread" in doc
+    assert "SynthesisConfig" in doc
+    assert "piper_multispeaker" in doc
