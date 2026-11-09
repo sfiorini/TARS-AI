@@ -65,7 +65,7 @@ The LLM can call three kinds of tools, all dispatched through one registry (`mod
 | **Agent skill** | A spec-pure `SKILL.md` folder with optional scripts — installable from folder/zip at runtime, no restart | Create in the web UI **skills** tab, `app-skills.py install`, or drop a folder in `src/agent_skills/` | `src/agent_skills_defaults/dice-roll/` — see [Agent Skills](skills.md) |
 | **MCP tool** | An external server process (stdio or Streamable HTTP) — tools appear as `mcp_<server>_<tool>` | Add a registry entry via the web UI **MCP** tab or `app-mcp.py add` | `src/mcp_example_server.py` — see [MCP](mcp.md) |
 
-Movements are data, not code: the 33 shipped movements live in `src/movements_defaults.json` (regenerate with `scripts/export_movement_defaults.py`); add or edit movements in the web UI **movements** tab or `app-movements.py` — see [Movements](movements.md).
+Movements are data, not code: the 33 shipped movements live in `src/movements_defaults.json` — the authoritative, hand-edited source of truth (`scripts/export_movement_defaults.py` is retained only as historical provenance for how the file was first derived and can no longer regenerate it — its input functions were deleted when the store took over). Add or edit movements in the web UI **movements** tab or `app-movements.py` — see [Movements](movements.md).
 
 ### Builtin tools (skills)
 
