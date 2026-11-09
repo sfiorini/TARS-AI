@@ -52,6 +52,7 @@ from modules.module_config import (
     load_config,
     DEFAULT_SPEECHIFY_VOICE_ID,
     DEFAULT_SPEECHIFY_MODEL,
+    DEFAULT_SPEECHIFY_OUTPUT_FORMAT,
     DEFAULT_TTS_TIMEOUT,
 )
 from modules.module_messageQue import queue_message
@@ -64,11 +65,17 @@ from modules.module_fishaudio import (
     AuthFailed,
     TransientError,
     _split_into_sentences,
+    _pcm_to_wav_buffer,
 )
 
 CONFIG = load_config()
 
 SPEECHIFY_TTS_URL = "https://api.speechify.ai/v1/audio/speech"
+SPEECHIFY_STREAM_URL = "https://api.speechify.ai/v1/audio/stream"
+_MAX_STREAM_INPUT_CHARS = 20000          # documented /v1/audio/stream input limit
+
+# D3: one reused session per provider (measured cold 0.718 s vs warm 0.203 s TTFB)
+_session = requests.Session()
 
 # One backoff retry for transient failures (429 / 5xx / timeout), then fail over.
 _RETRY_BACKOFF_SECONDS = 1.0
