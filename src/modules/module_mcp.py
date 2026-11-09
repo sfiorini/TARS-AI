@@ -76,7 +76,8 @@ class McpManager:
         transport._send({"jsonrpc": "2.0",
                          "method": "notifications/initialized"})
         transport.negotiated_version = negotiated
-        transport.session_id = result.get("session_id")  # HTTP (S-M6-06)
+        # NOTE: the HTTP transport captures MCP-Session-Id from the
+        # initialize response headers itself (_post) — do not clobber it
         self._transports[name] = transport
         self._tools_cache.pop(name, None)  # re-fetch on restart
         return transport
@@ -266,28 +267,76 @@ def _result_from_content(result):
 
 
 class _HttpServer:
-    """Streamable HTTP transport placeholder — implemented in S-M6-06."""
+    """Streamable HTTP transport (D4): one persistent requests.Session,
+    POST per JSON-RPC message, `MCP-Session-Id` (captured from the
+    initialize response) + `MCP-Protocol-Version` headers on every
+    request, both `application/json` and `text/event-stream` responses
+    (SSE `data:` frames parsed, resumption channel ignored).  No httpx —
+    the existing requests dependency only."""
 
     def __init__(self, name, entry):
         self.name = name
         self.entry = entry
         self.negotiated_version = None
         self.session_id = None
+        self._session = None
 
     def start(self):
-        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+        import requests
+        self._session = requests.Session()
 
     def poll(self):
-        return 0
+        # stdio convention: None while alive, non-None when dead
+        # (ensure_started treats poll() is None as alive)
+        return None if self._session is not None else 0
+
+    def _headers(self):
+        headers = {"Content-Type": "application/json",
+                   "Accept": "application/json, text/event-stream"}
+        if self.session_id:
+            headers["MCP-Session-Id"] = self.session_id
+        if self.negotiated_version:
+            headers["MCP-Protocol-Version"] = self.negotiated_version
+        return headers
+
+    def _post(self, msg, timeout):
+        response = self._session.post(self.entry["url"], json=msg,
+                                      headers=self._headers(),
+                                      timeout=timeout)
+        response.raise_for_status()
+        # capture the session id advertised by the server (initialize)
+        session_id = response.headers.get("MCP-Session-Id")
+        if session_id:
+            self.session_id = session_id
+        return response
 
     def _send(self, msg):
-        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+        """Notifications are POSTed; the response is ignored."""
+        try:
+            self._post(msg, _request_timeout())
+        except Exception as exc:  # noqa: BLE001 — notification is fire-and-forget
+            queue_message(f"MCP: notification to '{self.name}' failed: {exc}")
 
     def _request(self, msg, timeout=30):
-        raise NotImplementedError("Streamable HTTP lands in S-M6-06")
+        response = self._post(msg, timeout)
+        content_type = response.headers.get("Content-Type", "")
+        if "text/event-stream" in content_type:
+            # SSE: take the first JSON-RPC response from the data: frames;
+            # the resumption channel is ignored (we don't stream)
+            for line in response.text.splitlines():
+                if line.startswith("data:"):
+                    return json.loads(line[len("data:"):].strip())
+            raise TimeoutError(
+                f"MCP server '{self.name}' sent no data: frame")
+        return response.json()
 
     def stop(self):
-        return None
+        if self._session is not None:
+            try:
+                self._session.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._session = None
 
 
 class _StdioServer:

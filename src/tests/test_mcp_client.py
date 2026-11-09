@@ -485,5 +485,147 @@ class TestHandshakeListCall(_ManagerTestCase):
         self.assertEqual(result.raw[0]["type"], "image")
 
 
+import http.server  # noqa: E402
+import threading  # noqa: E402
+
+
+def _header(headers, name):
+    """Case-insensitive header lookup (urllib3 titlecases header names)."""
+    for key, value in headers.items():
+        if key.lower() == name.lower():
+            return value
+    return None
+
+
+class _McpHttpFixture:
+    """In-test Streamable HTTP server: records request headers, replies
+    JSON or SSE, always advertises MCP-Session-Id."""
+
+    SESSION_ID = "sess-123"
+
+    def __init__(self, mode="json"):
+        self.mode = mode
+        self.recorded = []
+        handler_class = self._make_handler()
+        self.server = http.server.HTTPServer(("127.0.0.1", 0),
+                                             handler_class)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever,
+                                       daemon=True)
+        self.thread.start()
+
+    def _make_handler(self):
+        fixture = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                length = int(self.headers.get("Content-Length", 0))
+                body = self.rfile.read(length)
+                fixture.recorded.append((dict(self.headers),
+                                         json.loads(body)))
+                msg = json.loads(body)
+                if "id" not in msg:  # notification
+                    self.send_response(202)
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if msg.get("method") == "initialize":
+                    payload = {"jsonrpc": "2.0", "id": msg["id"],
+                               "result": {"protocolVersion": "2025-06-18",
+                                           "capabilities": {},
+                                           "serverInfo": {"name": "http-fake",
+                                                           "version": "1"}}}
+                elif msg.get("method") == "tools/list":
+                    payload = {"jsonrpc": "2.0", "id": msg["id"],
+                               "result": {"tools": [
+                                   {"name": "http_tool",
+                                    "description": "over http",
+                                    "inputSchema": {"type": "object",
+                                                    "properties": {}}}]}}
+                else:
+                    payload = {"jsonrpc": "2.0", "id": msg["id"],
+                               "result": {"content": [
+                                   {"type": "text", "text": "http result"}],
+                                   "isError": False}}
+                self.send_response(200)
+                self.send_header("MCP-Session-Id", fixture.SESSION_ID)
+                if fixture.mode == "json":
+                    self.send_header("Content-Type", "application/json")
+                    data = json.dumps(payload).encode()
+                else:
+                    self.send_header("Content-Type",
+                                     "text/event-stream")
+                    data = ("data: " + json.dumps(payload) + "\n\n").encode()
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        return Handler
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class TestHttpTransport(unittest.TestCase):
+    """Streamable HTTP transport (S-M6-06) — real in-test HTTP fixture."""
+
+    def _manager_over(self, fixture):
+        from modules.module_mcp import McpManager
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        registry_path = os.path.join(tmp, "mcp_servers.json")
+        with open(registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {
+                "httpfake": {"transport": "http",
+                             "url": f"http://127.0.0.1:{fixture.port}/",
+                             "env": {}, "cwd": None, "enabled": True,
+                             "auto_start": False}}}, fh)
+        manager = McpManager(registry_path,
+                             os.path.join(_SRC, "mcp_servers.json.template"))
+        self.assertEqual(manager.load_registry(), [])
+        self.addCleanup(manager.shutdown)
+        return manager
+
+    def test_http_json_response(self):
+        fixture = _McpHttpFixture(mode="json")
+        self.addCleanup(fixture.close)
+        manager = self._manager_over(fixture)
+        tools = manager.list_tools("httpfake")
+        self.assertEqual([t["name"] for t in tools], ["http_tool"])
+        result = manager.call_tool("httpfake", "http_tool", {})
+        self.assertFalse(result.is_error)
+        self.assertEqual(result.content, "http result")
+        # the session id was captured from the initialize response and
+        # sent on every subsequent request
+        self.assertEqual(manager._transports["httpfake"].session_id,
+                         _McpHttpFixture.SESSION_ID)
+        subsequent = [headers for headers, _body in fixture.recorded[1:]]
+        self.assertTrue(subsequent)
+        for headers in subsequent:
+            self.assertEqual(_header(headers, "MCP-Session-Id"),
+                             _McpHttpFixture.SESSION_ID)
+        # the negotiated protocol version is carried on every request
+        # AFTER the handshake (the initialized notification is sent before
+        # the version is known — initialize's params carry it instead)
+        post_handshake = [headers for headers, _body
+                          in fixture.recorded[2:]]
+        for headers in post_handshake:
+            self.assertEqual(_header(headers, "MCP-Protocol-Version"),
+                             "2025-06-18")
+
+    def test_http_sse_response(self):
+        fixture = _McpHttpFixture(mode="sse")
+        self.addCleanup(fixture.close)
+        manager = self._manager_over(fixture)
+        tools = manager.list_tools("httpfake")
+        self.assertEqual([t["name"] for t in tools], ["http_tool"])
+        result = manager.call_tool("httpfake", "http_tool", {})
+        self.assertEqual(result.content, "http result")
+
+
 if __name__ == "__main__":
     unittest.main()
