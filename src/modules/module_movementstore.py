@@ -16,6 +16,7 @@ requires a separate written license from Charles-Olivier Dion (AtomikSpace).
 
 This license applies only to this file and does not override licenses of other files in the repository.
 """
+import copy
 import json
 import os
 import re
@@ -124,6 +125,96 @@ class MovementStore:
             entries = self._load_defaults()
         self.movements = entries
         return self.movements
+
+    # ------------------------------------------------------------------
+    # CRUD
+
+    def get_all(self):
+        """A deep copy of every entry, id -> entry."""
+        return copy.deepcopy(self.movements)
+
+    def get(self, mid):
+        entry = self.movements.get(mid)
+        return copy.deepcopy(entry) if entry is not None else None
+
+    def add(self, mid, entry):
+        self.validate_entry(mid, entry)
+        if mid in self.movements:
+            raise ValueError(f"duplicate movement id '{mid}'")
+        self.movements[mid] = copy.deepcopy(entry)
+        self.save()
+
+    def update(self, mid, entry):
+        self.validate_entry(mid, entry)
+        if mid not in self.movements:
+            raise ValueError(f"unknown movement id '{mid}'")
+        self.movements[mid] = copy.deepcopy(entry)
+        self.save()
+
+    def delete(self, mid):
+        if mid not in self.movements:
+            raise ValueError(f"unknown movement id '{mid}'")
+        del self.movements[mid]
+        self.save()
+
+    def save(self):
+        """Atomic write: tmp file + os.replace."""
+        payload = json.dumps({"version": 1, "movements": self.movements},
+                             indent=2, sort_keys=True)
+        tmp_path = self.store_path + ".tmp"
+        with open(tmp_path, "w") as fh:
+            fh.write(payload)
+            fh.write("\n")
+        os.replace(tmp_path, self.store_path)
+
+    def reset_from_defaults(self, prune=False):
+        """D5: for every id in defaults, delete the store entry and
+        re-insert fresh from defaults; ids absent from defaults are
+        untouched (``prune=True`` additionally deletes those)."""
+        defaults = self._load_defaults()
+        for mid in defaults:
+            self.movements.pop(mid, None)
+            self.movements[mid] = copy.deepcopy(defaults[mid])
+        if prune:
+            for mid in list(self.movements):
+                if mid not in defaults:
+                    del self.movements[mid]
+        self.save()
+
+    def export_to(self, path):
+        """Write the whole pool to ``path`` (atomic)."""
+        payload = json.dumps({"version": 1, "movements": self.movements},
+                             indent=2, sort_keys=True)
+        tmp_path = str(path) + ".tmp"
+        with open(tmp_path, "w") as fh:
+            fh.write(payload)
+            fh.write("\n")
+        os.replace(tmp_path, str(path))
+
+    def import_from(self, path):
+        """Replace the pool from ``path`` — all or nothing.
+
+        Every entry is validated first (movement refs must resolve
+        within the imported set); on any invalid entry nothing is
+        imported and the error list is returned.  Returns [] on
+        success.
+        """
+        data = self._read_json(path)
+        entries = data.get("movements")
+        if not isinstance(entries, dict) or not entries:
+            return [f"{path}: no movements object"]
+        errors = []
+        known = set(entries)
+        for mid, entry in entries.items():
+            try:
+                self.validate_entry(mid, entry, known_ids=known)
+            except ValueError as exc:
+                errors.append(f"{mid}: {exc}")
+        if errors:
+            return errors
+        self.movements = copy.deepcopy(entries)
+        self.save()
+        return []
 
     # ------------------------------------------------------------------
     # validation

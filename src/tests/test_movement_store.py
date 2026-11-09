@@ -160,6 +160,111 @@ class _StoreTestCase(unittest.TestCase):
             return json.load(fh)["movements"]
 
 
+class TestCrud(_StoreTestCase):
+    """MovementStore CRUD + persistence (S-M1-04)."""
+
+    def test_get_all_returns_copy(self):
+        self.store.load()
+        snapshot = self.store.get_all()
+        self.assertEqual(set(snapshot), set(MOVEMENTS))
+        snapshot["bow"]["name"] = "MUTATED"
+        self.assertNotEqual(self.store.get("bow")["name"], "MUTATED")
+
+    def test_add_rejects_duplicate_id(self):
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.add("bow", _valid_entry())
+
+    def test_add_rejects_invalid_entry(self):
+        self.store.load()
+        bad = _valid_entry()
+        bad["type"] = "flurb"
+        with self.assertRaises(ValueError):
+            self.store.add("my_move", bad)
+        self.assertIsNone(self.store.get("my_move"))
+
+    def test_update_rejects_unknown_id(self):
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.update("never_added", _valid_entry())
+
+    def test_delete_removes_entry(self):
+        self.store.load()
+        self.store.delete("bow")
+        self.assertIsNone(self.store.get("bow"))
+        with self.assertRaises(ValueError):
+            self.store.delete("bow")
+
+    def test_save_roundtrips_through_a_new_store(self):
+        self.store.load()
+        self.store.add("my_move", _valid_entry())
+        self.store.save()
+        from modules.module_movementstore import MovementStore
+        reopened = MovementStore(store_path=self.store_path,
+                                 defaults_path=_DEFAULTS_PATH)
+        reopened.load()
+        self.assertIsNotNone(reopened.get("my_move"))
+        self.assertEqual(set(reopened.get_all()),
+                         set(MOVEMENTS) | {"my_move"})
+
+    def test_export_import_roundtrip(self):
+        self.store.load()
+        self.store.add("my_move", _valid_entry())
+        export_path = os.path.join(self.tmp, "export.json")
+        self.store.export_to(export_path)
+        # a fresh store over the same import file reproduces the pool
+        from modules.module_movementstore import MovementStore
+        other = MovementStore(store_path=os.path.join(self.tmp, "other.json"),
+                               defaults_path=_DEFAULTS_PATH)
+        other.load()
+        errors = other.import_from(export_path)
+        self.assertEqual(errors, [])
+        self.assertEqual(other.get_all(), self.store.get_all())
+
+
+class TestResetSemantics(_StoreTestCase):
+    """D5 reset semantics: delete + re-insert from defaults (S-M1-04)."""
+
+    def _setup_edited_default_plus_user_entry(self):
+        self.store.load()
+        default_bow = json.loads(json.dumps(self.store.get("bow")))
+        edited = json.loads(json.dumps(default_bow))
+        edited["name"] = "Edited Bow"
+        edited["description"] = "user edit"
+        self.store.update("bow", edited)
+        self.store.add("my_move", _valid_entry())
+        return default_bow
+
+    def test_reset_restores_edited_default_keeps_user_entry(self):
+        default_bow = self._setup_edited_default_plus_user_entry()
+        self.store.reset_from_defaults()
+        self.assertEqual(self.store.get("bow"), default_bow)
+        self.assertIsNotNone(self.store.get("my_move"))
+
+    def test_prune_deletes_orphans(self):
+        self._setup_edited_default_plus_user_entry()
+        self.store.reset_from_defaults(prune=True)
+        self.assertIsNone(self.store.get("my_move"))
+        self.assertIn("bow", self.store.get_all())
+
+    def test_import_rejects_invalid_wholesale(self):
+        self.store.load()
+        before = self.store.get_all()
+        good = _valid_entry()
+        bad = _valid_entry()
+        bad["steps"][0]["speed"] = 5  # out of range
+        import_path = os.path.join(self.tmp, "import.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"ok_move": good, "bad_move": bad}}, fh)
+        errors = self.store.import_from(import_path)
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bad_move", errors[0])
+        # all-or-nothing: nothing was imported, store unchanged
+        self.assertIsNone(self.store.get("ok_move"))
+        self.assertEqual(self.store.get_all(), before)
+
+
 class TestValidation(_StoreTestCase):
     """MovementStore entry validation (S-M1-03)."""
 
