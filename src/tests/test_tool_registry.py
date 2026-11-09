@@ -212,6 +212,17 @@ class TestBuiltinAdapter(unittest.TestCase):
             by_name["web_search"].parameters["properties"],
             {"query": {"type": "string"}})
 
+    def test_builtin_timeout_s_is_none(self):
+        # review F3: builtins carry no per-call timeout — the loop falls back
+        # to [LLM] tool_call_timeout (single source of truth)
+        manager = self._real_manager()
+        manager._disabled.clear()
+        descriptors = list(manager.iter_descriptors())
+        self.assertTrue(descriptors)
+        for d in descriptors:
+            self.assertIsNone(d.timeout_s,
+                               f"{d.name} must defer to the config default")
+
     def test_disabled_skills_yield_no_descriptor(self):
         manager = self._real_manager()
         manager._disabled.add("web_search")

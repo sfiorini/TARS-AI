@@ -427,7 +427,9 @@ class SkillManager:
                     "required": list(meta.get("required_params", [])),
                 },
                 result_bearing=bool(meta.get("followup", False)),
-                timeout_s=60.0, execute=_make_exec(name, meta))
+                # None = defer to [LLM] tool_call_timeout (single source of
+                # truth, review F3 — the docs' advice must be actionable)
+                timeout_s=None, execute=_make_exec(name, meta))
 
     def reload_config(self):
         """Reload config from disk. Call after external changes."""

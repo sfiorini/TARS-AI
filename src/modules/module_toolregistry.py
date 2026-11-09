@@ -34,7 +34,8 @@ class ToolDescriptor:
     description: str          # for prompt assembly, pre-truncated by pool
     parameters: Optional[dict]  # {"properties": {...}, "required": [...]} | None
     result_bearing: bool      # True -> participates in the deferred loop
-    timeout_s: float          # per-call override of tool_call_timeout
+    timeout_s: Optional[float]  # per-call override; None = pool default
+                                 # ([LLM] tool_call_timeout for builtins)
     execute: Callable[[dict, "ToolContext"], "ToolResult"]
 
 

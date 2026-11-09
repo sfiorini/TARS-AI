@@ -288,7 +288,9 @@ class ToolLoopRunner:
             for call in calls:
                 name = call.get("function", "")
                 descriptor = get_registry().get(name)
-                timeout = (descriptor.timeout_s if descriptor
+                timeout = (descriptor.timeout_s
+                           if descriptor is not None
+                           and descriptor.timeout_s is not None
                            else default_timeout)
                 futures.append((name, timeout, pool.submit(
                     get_registry().dispatch, name,

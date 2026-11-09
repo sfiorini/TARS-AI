@@ -631,5 +631,47 @@ class TestReply0Gate(_LoopTestCase):
                         src.index("_reply0_drained.set()"))
 
 
+class TestConfigToolTimeout(_LoopTestCase):
+    """Review F3: [LLM] tool_call_timeout must govern builtin tools —
+    descriptors with timeout_s=None fall back to the configured default."""
+
+    def test_tool_call_timeout_config_honored(self):
+        import modules.module_toolloop as toolloop
+
+        def slow(params, ctx):
+            time.sleep(1.0)
+            return "late"
+
+        # timeout_s=None — the builtin registration shape (review F3)
+        self.registry.register(_descriptor("slow", execute=slow,
+                                           timeout_s=None))
+        small = mock.patch.object(toolloop, "load_config",
+                                  return_value={"LLM": {
+                                      "tool_call_timeout": 0.2}})
+        small.start()
+        self.addCleanup(small.stop)
+        self._runner().start_turn(
+            self._parsed([{"function": "slow", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertIn("ERROR: timeout", self.followup_calls[0][2])
+
+    def test_tool_call_timeout_config_generous(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor(
+            "quick", execute=lambda p, c: "fast result", timeout_s=None))
+        generous = mock.patch.object(toolloop, "load_config",
+                                     return_value={"LLM": {
+                                         "tool_call_timeout": 30}})
+        generous.start()
+        self.addCleanup(generous.stop)
+        self._runner().start_turn(
+            self._parsed([{"function": "quick", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertIn("quick: fast result", self.followup_calls[0][2])
+        self.assertNotIn("ERROR", self.followup_calls[0][2])
+
+
 if __name__ == "__main__":
     unittest.main()
