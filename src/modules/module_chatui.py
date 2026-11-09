@@ -3228,6 +3228,117 @@ def agent_skills_reset():
     return jsonify({"success": True}), 200
 
 
+# ── MCP servers (/mcp/*) — thin wrappers over the manager ──
+MCP_ROUTES = ["/mcp"]
+
+
+@flask_app.route('/mcp', methods=['GET'])
+def mcp_list():
+    """Registry + live status per server, with discovered tools."""
+    from modules.module_mcp import get_mcp_manager
+    manager = get_mcp_manager()
+    status = manager.status()
+    servers = []
+    for name in sorted(manager.servers):
+        entry = manager.servers[name]
+        st = status.get(name, {})
+        tools = []
+        if entry.get("enabled", True) and not st.get("degraded"):
+            try:
+                tools = [t.get("name", "") for t in manager.list_tools(name)]
+            except Exception:  # noqa: BLE001 — status must not fail
+                tools = []
+        servers.append({
+            "name": name,
+            "transport": entry.get("transport"),
+            "enabled": bool(entry.get("enabled", True)),
+            "auto_start": bool(entry.get("auto_start", False)),
+            "status": ("degraded" if st.get("degraded")
+                       else "running" if st.get("running") else "stopped"),
+            "tools": tools,
+            "in_prompt": [f"mcp_{name}_{t}" for t in tools]
+                          if st.get("in_prompt") else [],
+        })
+    return jsonify({"success": True, "servers": servers}), 200
+
+
+@flask_app.route('/mcp', methods=['POST'])
+def mcp_create():
+    """Add a server: {name, transport, command?, args?, url?, env?,
+    auto_start} → 200 / 400 invalid / 409 duplicate."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    name = (data.get("name") or "").strip()
+    transport = (data.get("transport") or "").strip()
+    entry = {"transport": transport, "env": data.get("env") or {},
+             "cwd": None, "enabled": True,
+             "auto_start": bool(data.get("auto_start", False))}
+    if transport == "stdio":
+        if not data.get("command"):
+            return jsonify({"error": "command required for stdio"}), 400
+        entry["command"] = data["command"]
+        entry["args"] = data.get("args") or []
+    elif transport == "http":
+        if not data.get("url"):
+            return jsonify({"error": "url required for http"}), 400
+        entry["url"] = data["url"]
+    else:
+        return jsonify({"error": "transport must be stdio or http"}), 400
+    from modules.module_mcp import get_mcp_manager
+    ok, errors = get_mcp_manager().add_server(name, entry)
+    if not ok:
+        conflict = any("already" in e.lower() for e in errors)
+        return jsonify({"error": "; ".join(errors)}), \
+            (409 if conflict else 400)
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/mcp/<name>', methods=['PUT'])
+def mcp_update(name):
+    """Enable/disable (body {enabled: bool})."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json()
+    from modules.module_mcp import get_mcp_manager
+    manager = get_mcp_manager()
+    if name not in manager.servers:
+        return jsonify({"error": f"Server '{name}' not found"}), 404
+    ok, errors = manager.set_enabled(name, bool(data.get("enabled", True)))
+    if not ok:
+        return jsonify({"error": "; ".join(errors)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/mcp/<name>', methods=['DELETE'])
+def mcp_delete(name):
+    from modules.module_mcp import get_mcp_manager
+    manager = get_mcp_manager()
+    if name not in manager.servers:
+        return jsonify({"error": f"Server '{name}' not found"}), 404
+    ok, errors = manager.remove_server(name)
+    if not ok:
+        return jsonify({"error": "; ".join(errors)}), 400
+    return jsonify({"success": True}), 200
+
+
+@flask_app.route('/mcp/<name>/test', methods=['POST'])
+def mcp_test(name):
+    """Handshake + tools/list; returns the discovered tools."""
+    from modules.module_mcp import get_mcp_manager
+    manager = get_mcp_manager()
+    if name not in manager.servers:
+        return jsonify({"error": f"Server '{name}' not found"}), 404
+    try:
+        tools = manager.list_tools(name)
+    except Exception as exc:  # noqa: BLE001 — surface the failure
+        return jsonify({"error": str(exc)}), 400
+    return jsonify({"success": True,
+                     "tools": [{"name": f"mcp_{name}_{t.get('name', '')}",
+                                "description": t.get("description", "")}
+                               for t in tools]}), 200
+
+
 def start_flask_app(port=None):
     if port is None:
         port = CONFIG['ACCESS'].get('webui_port', 80)

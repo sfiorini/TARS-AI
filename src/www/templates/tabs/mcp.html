@@ -1,0 +1,165 @@
+<div class="tab-pane fade" id="mcp" role="tabpanel">
+  <div class="builder-wrap">
+
+    <div class="builder-header">
+      <span class="section-label">MCP SERVERS</span>
+    </div>
+
+    <div class="bld-hint">
+      <span>External tool servers (Model Context Protocol). Tools appear in the AI prompt as mcp_&lt;server&gt;_&lt;tool&gt;.</span>
+    </div>
+
+    <!-- Add -->
+    <div class="bld-section">
+      <div class="section-label">ADD SERVER</div>
+      <div class="bld-save-row">
+        <input type="text" id="mcpName" class="hud-input bld-name-input" placeholder="name ([a-z0-9_], 1-32)">
+        <select id="mcpTransport" class="hud-select bld-movement-sel">
+          <option value="stdio">stdio</option>
+          <option value="http">http</option>
+        </select>
+      </div>
+      <div class="bld-save-row">
+        <input type="text" id="mcpCommand" class="hud-input bld-name-input" placeholder="command (stdio), e.g. python3">
+        <input type="text" id="mcpArgs" class="hud-input bld-name-input" placeholder="args, space-separated (stdio)">
+      </div>
+      <div class="bld-save-row">
+        <input type="text" id="mcpUrl" class="hud-input bld-name-input" placeholder="url (http transport)">
+      </div>
+      <div class="bld-row-actions">
+        <button class="hud-btn hud-btn-primary" id="mcpAddBtn">+ Add</button>
+      </div>
+    </div>
+
+    <!-- Server list -->
+    <div class="bld-section">
+      <div class="section-label">SERVERS</div>
+      <div class="bld-step-list" id="mcpServerList">Loading…</div>
+    </div>
+
+    <div class="bld-overwrite-confirm" id="mcpError" style="display:none">
+      <span class="bld-confirm-msg"></span>
+    </div>
+
+  </div>
+
+  <script>
+  (function () {
+    'use strict';
+
+    function el(id) { return document.getElementById(id); }
+
+    function feedback(msg, isError) {
+      var box = el('mcpError');
+      box.style.display = '';
+      box.querySelector('.bld-confirm-msg').textContent = msg;
+      box.style.color = isError ? '#ff6b6b' : '';
+      if (!isError) setTimeout(function () { box.style.display = 'none'; }, 2500);
+    }
+
+    function loadServers() {
+      fetch('/mcp').then(function (r) { return r.json(); }).then(function (d) {
+        render(d.servers || []);
+      }).catch(function () {
+        el('mcpServerList').textContent = 'Failed to load servers.';
+      });
+    }
+
+    function render(servers) {
+      var list = el('mcpServerList');
+      list.innerHTML = '';
+      if (!servers.length) { list.textContent = 'No MCP servers registered.'; return; }
+      servers.forEach(function (s) {
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:6px 0;flex-wrap:wrap;';
+        var label = document.createElement('span');
+        label.style.flex = '1';
+        var badge = s.status === 'degraded' ? ' <b style="color:#ff6b6b">[degraded]</b>'
+          : s.status === 'running' ? ' <small>[running]</small>' : ' <small>[stopped]</small>';
+        var enabled = s.enabled ? '' : ' <small>[disabled]</small>';
+        label.innerHTML = '<b>' + s.name + '</b> (' + s.transport + ')' + badge + enabled +
+                          ' <small>' + (s.tools || []).length + ' tool(s)</small>';
+        var test = document.createElement('button');
+        test.className = 'hud-btn hud-btn-secondary';
+        test.textContent = 'test';
+        test.onclick = function () { testServer(s.name); };
+        var toggle = document.createElement('button');
+        toggle.className = 'hud-btn hud-btn-secondary';
+        toggle.textContent = s.enabled ? 'disable' : 'enable';
+        toggle.onclick = function () { toggleServer(s.name, !s.enabled); };
+        var del = document.createElement('button');
+        del.className = 'hud-btn hud-btn-danger';
+        del.textContent = '🗑';
+        del.onclick = function () { deleteServer(s.name); };
+        row.appendChild(label); row.appendChild(test);
+        row.appendChild(toggle); row.appendChild(del);
+        var tools = document.createElement('div');
+        tools.style.cssText = 'width:100%;padding-left:16px;color:#9aa;';
+        tools.textContent = (s.in_prompt || []).join(', ');
+        row.appendChild(tools);
+        list.appendChild(row);
+      });
+    }
+
+    function testServer(name) {
+      feedback('Testing ' + name + '…', false);
+      fetch('/mcp/' + encodeURIComponent(name) + '/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}'
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) {
+          var names = (res.d.tools || []).map(function (t) { return t.name; });
+          feedback(name + ': ' + (names.join(', ') || 'no tools'), false);
+          loadServers();
+        } else feedback(res.d.error || 'Test failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function toggleServer(name, enabled) {
+      fetch('/mcp/' + encodeURIComponent(name), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: enabled })
+      }).then(function () { loadServers(); })
+        .catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function deleteServer(name) {
+      if (!window.confirm('Remove MCP server "' + name + '"?')) return;
+      fetch('/mcp/' + encodeURIComponent(name), { method: 'DELETE' })
+        .then(function () { loadServers(); })
+        .catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    function addServer() {
+      var transport = el('mcpTransport').value;
+      var payload = { name: el('mcpName').value.trim(), transport: transport,
+                      auto_start: false };
+      if (transport === 'stdio') {
+        payload.command = el('mcpCommand').value.trim();
+        payload.args = el('mcpArgs').value.trim().split(/\s+/).filter(Boolean);
+      } else {
+        payload.url = el('mcpUrl').value.trim();
+      }
+      fetch('/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      }).then(function (r) {
+        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+      }).then(function (res) {
+        if (res.ok) {
+          ['mcpName', 'mcpCommand', 'mcpArgs', 'mcpUrl'].forEach(function (id) { el(id).value = ''; });
+          loadServers(); feedback('Added');
+        } else feedback(res.d.error || 'Add failed', true);
+      }).catch(function (err) { feedback('Error: ' + err.message, true); });
+    }
+
+    el('mcpAddBtn').addEventListener('click', addServer);
+    loadServers();
+  })();
+  </script>
+</div>

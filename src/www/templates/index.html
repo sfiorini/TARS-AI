@@ -39,6 +39,7 @@
       <button class="custom-tab"        id="config-tab"   data-bs-toggle="tab" data-bs-target="#config"   role="tab" aria-label="Config"><i class="bi bi-gear-fill"></i></button>
       <button class="custom-tab"        id="movements-tab" data-bs-toggle="tab" data-bs-target="#movements" role="tab" aria-label="Movements"><i class="bi bi-person-arms-crossed"></i></button>
       <button class="custom-tab"        id="skills-std-tab" data-bs-toggle="tab" data-bs-target="#skills-std" role="tab" aria-label="Agent Skills"><i class="bi bi-box-seam"></i></button>
+      <button class="custom-tab"        id="mcp-tab" data-bs-toggle="tab" data-bs-target="#mcp" role="tab" aria-label="MCP"><i class="bi bi-hdd-network"></i></button>
     </div>
     <div class="tab-bar-right">
       <div class="connection-indicator" id="connIndicator">
@@ -61,6 +62,7 @@
       {% include 'tabs/config.html' %}
       {% include 'tabs/movements.html' %}
       {% include 'tabs/skills-std.html' %}
+      {% include 'tabs/mcp.html' %}
     </div>
   </div>
 
@@ -74,6 +76,7 @@
       <button class="mobile-nav-btn" data-tab-index="4" aria-label="Config"><i class="bi bi-gear-fill"></i><span>Config</span></button>
       <button class="mobile-nav-btn" data-tab-index="5" aria-label="Movements"><i class="bi bi-person-arms-crossed"></i><span>Move+</span></button>
       <button class="mobile-nav-btn" data-tab-index="6" aria-label="Agent Skills"><i class="bi bi-box-seam"></i><span>Skills</span></button>
+      <button class="mobile-nav-btn" data-tab-index="7" aria-label="MCP"><i class="bi bi-hdd-network"></i><span>MCP</span></button>
     </div>
   </nav>
 
