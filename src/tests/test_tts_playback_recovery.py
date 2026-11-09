@@ -299,6 +299,27 @@ class TestTtsPlayingDuringPersistentWrite(PlayTestCase):
         self.assertEqual(len(fake.writes), 2)         # both slices played
         self.assertFalse(tts.is_tts_playing())       # cleared once drained (A1)
 
+    def test_flag_does_not_flicker_between_slices_on_sd_play_path(self):
+        """Regression (live bug, second branch): when the USB card is wedged
+        (-9985) the persistent stream is unavailable and playback falls back
+        to per-chunk sd.play. That branch ALSO cleared _tts_playing after
+        every chunk, so the same mid-sentence barge-in cutoff reappeared on
+        the fallback path even after the persistent path was fixed.
+
+        Sampled at each sd.play() call: the flag must still be set when the
+        SECOND slice starts, i.e. it was not cleared between slices."""
+        seen = []
+        # stream_factory default raises -> the per-chunk sd.play branch runs
+        with self._play_ctx([_wav_chunk(0.05), _wav_chunk(0.05)]) as ctx:
+            ctx.sd_play.side_effect = lambda *a, **k: seen.append(tts.is_tts_playing())
+            asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertEqual(len(seen), 2, "expected two sd.play calls")
+        self.assertFalse(seen[0], "flag should not be set before the first slice")
+        self.assertTrue(seen[1],
+                        "flag was cleared between slices on the sd.play path — "
+                        "barge-in would collect TARS's own voice mid-sentence")
+        self.assertFalse(tts.is_tts_playing())   # A1 backstop still clears
+
     def test_is_tts_playing_cleared_after_playback(self):
         fake = _FakeOutputStream()
         with self._play_ctx([_wav_chunk(0.05)],

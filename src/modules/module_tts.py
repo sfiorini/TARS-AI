@@ -1021,7 +1021,14 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                     finally:
                         _cleanup_pwplay_proc(pw_proc)
 
-                    _tts_playing.clear()
+                    # Same rule as the persistent-stream path: keep the flag
+                    # SET while more audio is queued. This sd.play branch is the
+                    # one that actually runs when the USB card is wedged (-9985),
+                    # and clearing per chunk there opened a barge-in window
+                    # between ~1 s streaming slices — the barge-in loop then
+                    # collected TARS's own voice and cut the sentence short.
+                    if audio_queue.empty() and synthesis_done.is_set():
+                        _tts_playing.clear()
                     if not is_wakeword:
                         _tts_needs_flush.set()
 
