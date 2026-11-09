@@ -73,6 +73,8 @@ CONFIG = load_config()
 SPEECHIFY_TTS_URL = "https://api.speechify.ai/v1/audio/speech"
 SPEECHIFY_STREAM_URL = "https://api.speechify.ai/v1/audio/stream"
 _MAX_STREAM_INPUT_CHARS = 20000          # documented /v1/audio/stream input limit
+_MIN_PCM_SAMPLE_RATE = 8000              # 8 kHz telephony floor; a lower rate
+                                         # degenerates slice math (0 => hang)
 
 # D3: one reused session per provider (measured cold 0.718 s vs warm 0.203 s TTFB)
 _session = requests.Session()
@@ -127,12 +129,19 @@ def _cfg(key, default=None):
 
 
 def _resolve_output_format(raw):
-    """Return (format_str, sample_rate) for a pcm_<rate> output_format, else None."""
+    """Return (format_str, sample_rate) for a pcm_<rate> output_format, else None.
+
+    Rates below _MIN_PCM_SAMPLE_RATE (8 kHz) are rejected: a degenerate rate
+    (e.g. pcm_0) makes slice_bytes 0 and the stream loop never advances.
+    """
     fmt = str(raw or "").strip()
     m = re.fullmatch(r"pcm_(\d+)", fmt)
     if not m:
         return None
-    return fmt, int(m.group(1))
+    rate = int(m.group(1))
+    if rate < _MIN_PCM_SAMPLE_RATE:
+        return None
+    return fmt, rate
 
 
 def _parse_error_body(response):
@@ -284,7 +293,7 @@ async def _synthesize_sentence(sentence, headers, body, timeout):
             f"Speechify returned {status}{label} after retry: {message}", status_code=status)
 
 
-async def _synthesize_streaming(text, headers, payload, timeout):
+async def _synthesize_streaming(headers, payload, timeout):
     """POST the whole utterance to /v1/audio/stream and yield WAV-wrapped
     ~1 s PCM slices as they arrive. Raises typed errors ONLY for pre-stream
     failures (before the first byte); a mid-stream abort ends the utterance
@@ -306,7 +315,9 @@ async def _synthesize_streaming(text, headers, payload, timeout):
         status = response.status_code
         if status == 200:
             break
-        err_body = await asyncio.to_thread(lambda: response.content)
+        # Drain the error body (off the event loop) so the connection can be
+        # reused; the bytes themselves are deliberately discarded.
+        _ = await asyncio.to_thread(lambda: response.content)
         code, message = _parse_error_body(response)
         exc_class = _classify_error(code, status)
         label = f" [{code}]" if code else ""
@@ -426,7 +437,7 @@ async def text_to_speech_with_speechify(text, voice_id=None, model=None,
             "model": model,
             "output_format": fmt,   # ALWAYS explicit; never send "audio_format" here
         }
-        async for buffer in _synthesize_streaming(stream_text, headers, payload, timeout):
+        async for buffer in _synthesize_streaming(headers, payload, timeout):
             yield buffer
         return
 

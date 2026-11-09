@@ -533,7 +533,7 @@ class TestSpeechifyStreamPreStreamErrors(unittest.TestCase):
              mock.patch.object(module_speechify, "queue_message"), \
              mock.patch.object(module_speechify, "_backoff", new=mock.AsyncMock()) as backoff:
             chunks, raised = _collect(module_speechify._synthesize_streaming(
-                "Hi.", {"Authorization": "Bearer k"}, p, 30.0))
+                {"Authorization": "Bearer k"}, p, 30.0))
         return chunks, raised, session.post, backoff
 
     def test_quota_code_raises_quota_exhausted_no_retry(self):
@@ -643,7 +643,9 @@ class TestSpeechifyStreamDispatch(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 30.0)
 
     def test_invalid_format_warns_and_falls_back(self):
-        for bad in ("mp3_24000_64", ""):
+        # pcm_0 parses the regex but degenerates the slice math (P3 hardening):
+        # it must fall back like any other invalid format, not hang the stream.
+        for bad in ("mp3_24000_64", "", "pcm_0"):
             with self.subTest(bad=bad):
                 resp = _StreamResp([b"\x11\x22" * 24000])
                 chunks, exc, post, qmsg, _ = _run(
@@ -653,6 +655,18 @@ class TestSpeechifyStreamDispatch(unittest.TestCase):
                 self.assertEqual(post.call_args.kwargs["json"]["output_format"], "pcm_24000")
                 self.assertTrue(any("speechify_output_format" in str(c.args[0])
                                     for c in qmsg.call_args_list))
+
+    def test_input_over_20000_chars_truncated_with_warning(self):
+        long_text = "a" * 20500
+        resp = _StreamResp([b"\x11\x22" * 24000])
+        chunks, exc, post, qmsg, _ = _run(text=long_text, responses=[resp])
+        self.assertIsNone(exc)
+        self.assertEqual(len(chunks), 1)
+        sent = post.call_args.kwargs["json"]["input"]
+        self.assertEqual(len(sent), 20000)   # exactly the documented cap
+        self.assertEqual(sent, "a" * 20000)
+        self.assertTrue(any("truncated" in str(c.args[0]) for c in qmsg.call_args_list),
+                        [str(c.args[0]) for c in qmsg.call_args_list])
 
     def test_explicit_false_bool_selects_legacy_path(self):
         s1 = "This is the first long sentence that TARS needs to speak out loud today."
@@ -767,6 +781,18 @@ class TestResolveOutputFormat(unittest.TestCase):
     def test_valid_pcm_formats(self):
         self.assertEqual(module_speechify._resolve_output_format("pcm_24000"), ("pcm_24000", 24000))
         self.assertEqual(module_speechify._resolve_output_format(" pcm_44100 "), ("pcm_44100", 44100))
+
+    def test_degenerate_pcm_rates_below_8000_return_none(self):
+        # A rate of 0 makes slice_bytes == 0 and the stream loop
+        # (`while len(pending) >= slice_bytes`) never advances — a hang.
+        # Nothing legitimate is below 8 kHz telephony, so reject the floor.
+        for bad in ("pcm_0", "pcm_1", "pcm_7999", "pcm_00000"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(module_speechify._resolve_output_format(bad), bad)
+
+    def test_pcm_8000_is_the_lowest_accepted_rate(self):
+        self.assertEqual(module_speechify._resolve_output_format("pcm_8000"),
+                         ("pcm_8000", 8000))
 
     def test_invalid_formats_return_none(self):
         for bad in ("mp3_24000_64", "", None, "wav", "pcm_", "pcm_abc"):
