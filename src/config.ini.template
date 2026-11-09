@@ -173,6 +173,13 @@ speechify_stream = True
 speechify_output_format = pcm_24000
 # OpenAI TTS voice: alloy | echo | fable | onyx | nova | shimmer
 openai_voice = onyx
+# Piper voice: empty (default) = the character voice
+# (character/<name>/voice/<name>.onnx, downloaded from the TARS-AI Hugging Face
+# repo). Set a stock Piper voice id — e.g. en_US-hfc_male-medium — to use that
+# voice instead: it is stored as character/<name>/voice/<id>.onnx and downloaded
+# from the upstream rhasspy/piper-voices repo, so a voice swap survives a
+# reinstall. A malformed id falls back to the character voice with a warning.
+piper_voice =
 # Enable multi-speaker Piper model — maps detected emotion to a speaker ID (True/False)
 piper_multispeaker = True
 # Speaker ID for each emotion (only used when piper_multispeaker = True)

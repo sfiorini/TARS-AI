@@ -147,6 +147,24 @@ def test_mkdocs_nav_matches_docs_files():
     )
 
 
+# --- Piper voice selection (piper_voice) ---------------------------------------
+
+def test_voice_pipeline_documents_piper_voice():
+    doc = _read("voice-pipeline.md")
+    assert "piper_voice" in doc
+    # both modes: empty = character voice, stock id = rhasspy/piper-voices
+    assert "rhasspy/piper-voices" in doc
+    assert "en_US-hfc_male-medium" in doc
+    # the URL derivation must be documented with the verified example
+    assert "en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx" in doc
+
+
+def test_configuration_documents_piper_voice():
+    doc = _read("configuration.md")
+    assert "piper_voice" in doc
+    assert "en_US-hfc_male-medium" in doc
+
+
 # --- Piper off-loop streaming + speaker_id behaviour change (S-M4-11) --------
 
 def test_voice_pipeline_documents_piper_offloop_and_speaker_fix():

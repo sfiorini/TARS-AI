@@ -91,7 +91,7 @@ If you run the companion server on a server machine, point the robot at it after
 ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>   # api_key from the server host's config-server.ini
 ```
 
-TTS works out of the box with the template default (`ttsoption = piper`, `tts_fallback_list = external,piper,espeak` — fully offline). To use the cloud chain instead (Fish.audio → Speechify → ElevenLabs → external → local Piper → espeak, the order `configure_tars_client.sh` sets on the robot), add `FISH_AUDIO_API_KEY` / `SPEECHIFY_API_KEY` to `.env` and set `ttsoption = fishaudio` — see [Voice Pipeline](voice-pipeline.md).
+TTS works out of the box with the template default (`ttsoption = piper`, `tts_fallback_list = external,piper,espeak` — fully offline). `configure_tars_client.sh` keeps local Piper primary (stock voice `piper_voice = en_US-hfc_male-medium`) and puts the cloud providers behind it as fallbacks (local Piper → Fish.audio → Speechify → ElevenLabs → external → espeak) — add `FISH_AUDIO_API_KEY` / `SPEECHIFY_API_KEY` to `.env` so the cloud fallbacks can serve; to go cloud-first instead, set `ttsoption = fishaudio` — see [Voice Pipeline](voice-pipeline.md).
 
 ## 5. Launch
 

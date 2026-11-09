@@ -264,6 +264,54 @@ class TestLoadConfigEnvKeys(unittest.TestCase):
         self.assertEqual(tts.speechify_output_format, "pcm_44100")
 
 
+class TestPiperVoiceConfig(unittest.TestCase):
+    """[TTS] piper_voice: '' = character voice (historical behaviour),
+    a stock Piper voice id (e.g. en_US-hfc_male-medium) = voice stored as
+    character/<char>/voice/<id>.onnx and downloaded from rhasspy/piper-voices,
+    so a manual voice swap survives a reinstall."""
+
+    def test_default_piper_voice_is_empty(self):
+        self.assertEqual(module_config.DEFAULT_PIPER_VOICE, "")
+        cfg = module_config.TTSConfig.from_config_dict(_base_dict())
+        self.assertEqual(cfg.piper_voice, "")
+
+    def test_explicit_piper_voice_read_by_from_config_dict(self):
+        cfg = module_config.TTSConfig.from_config_dict(
+            _base_dict(piper_voice="en_US-hfc_male-medium"))
+        self.assertEqual(cfg.piper_voice, "en_US-hfc_male-medium")
+
+    def test_load_config_reads_piper_voice_from_ini(self):
+        # Anti-tautology (same pattern as the speechify keys): the template
+        # ships piper_voice empty — identical to load_config()'s fallback —
+        # so reading the default proves nothing. Assert a NON-default value:
+        # a typo'd key name in the ini read would silently fall back to ""
+        # and fail here.
+        ini = os.path.join(_TMP, "config-pipervoice.ini")
+        with open(_CONFIG_INI, encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("piper_voice =", text, "template must declare piper_voice")
+        text = text.replace("piper_voice =", "piper_voice = en_GB-alan-medium", 1)
+        with open(ini, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        old_cache = module_config._config_cache
+        self.addCleanup(setattr, module_config, "_config_cache", old_cache)
+        module_config._config_cache = None
+        with mock.patch.dict(os.environ, {"TARS_CONFIG_PATH": ini}, clear=False):
+            cfg = module_config.load_config()
+        self.assertEqual(cfg["TTS"].piper_voice, "en_GB-alan-medium")
+
+
+    def test_piper_voice_in_schema_and_template(self):
+        schema = module_config.CONFIG_METADATA["TTS"]
+        parser = configparser.ConfigParser()
+        parser.read(os.path.join(_SRC, "config.ini.template"))
+        self.assertIn("piper_voice", schema, "webui schema missing piper_voice")
+        self.assertTrue(parser.has_option("TTS", "piper_voice"),
+                        "template missing piper_voice")
+        self.assertEqual(schema["piper_voice"]["depends_on"],
+                         [{"field": "ttsoption", "values": ["piper"]}])
+
+
 class TestWebuiMetadata(unittest.TestCase):
     def test_ttsoption_options_include_new_providers(self):
         opts = module_config.CONFIG_METADATA["TTS"]["ttsoption"]["options"]
@@ -328,13 +376,24 @@ class TestEnvTemplate(unittest.TestCase):
 
 
 class TestConfigureScriptChain(unittest.TestCase):
-    def test_robot_chain_set_to_fishaudio_first(self):
+    def test_robot_chain_piper_first_with_stock_voice(self):
+        # The user's chosen robot setup: local Piper primary with the stock
+        # voice en_US-hfc_male-medium (survives reinstalls via piper_voice),
+        # cloud providers as the fallback chain.
         path = os.path.join(_REPO, "scripts", "configure_tars_client.sh")
         with open(path, encoding="utf-8") as fh:
             text = fh.read()
-        self.assertIn("set_kv TTS ttsoption fishaudio", text)
+        self.assertIn("set_kv TTS ttsoption piper", text)
         self.assertIn(
-            "set_kv TTS tts_fallback_list speechify,elevenlabs,external,piper,espeak", text)
+            "set_kv TTS tts_fallback_list fishaudio,elevenlabs,speechify,external,espeak", text)
+        self.assertIn("set_kv TTS piper_voice en_US-hfc_male-medium", text)
+        self.assertIn("set_kv TTS piper_multispeaker False", text)
+        self.assertIn("set_kv TTS piper_robot_fx True", text)
+        # per-robot sox chain (differs from DEFAULT_PIPER_FX on purpose —
+        # re-auditioned for the hfc_male timbre)
+        self.assertIn(
+            'set_kv TTS piper_fx "pitch -50 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"',
+            text)
         # Task 0 voice config stays on the robot
         self.assertIn(f"set_kv TTS fishaudio_reference_id {FISH_TARS_REF}", text)
         # The script must never write a literal API key into .env/config.ini

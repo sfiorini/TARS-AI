@@ -62,9 +62,15 @@ asound = ctypes.cdll.LoadLibrary('libasound.so')
 
 # Load the Piper model globally
 script_dir = os.path.dirname(__file__)
+# Import-time DEFAULT path (character voice). The path actually used is
+# resolved at CALL time by _resolve_voice_path() so the [TTS] piper_voice
+# setting takes effect without a re-import; kept because tests pin it as the
+# historical character-voice path.
 model_path = os.path.join(script_dir, '..', f'character/{character_name}/voice/{character_name}.onnx')
 
 HF_BASE_URL = "https://huggingface.co/olivierdion007/TARS-AI/resolve/main"
+# Upstream stock Piper voices repo (e.g. en_US-hfc_male-medium)
+PIPER_VOICES_BASE_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 
 def _download_voice_model(character, dest_path):
     """Download Piper voice model (.onnx and .onnx.json) from Hugging Face.
@@ -100,6 +106,89 @@ def _is_lfs_pointer(filepath):
     except Exception:
         return False
 
+def _stock_piper_voice_urls(voice_id):
+    """Download URLs (.onnx, .onnx.json) for a stock Piper voice id such as
+    en_US-hfc_male-medium, or None when the id does not match the expected
+    {lang}_{REGION}-{name}-{quality} shape.
+
+    The id splits on '-': first segment = locale (en_US / en_GB), last =
+    quality (low|medium|high), everything in between = speaker name (may
+    itself contain underscores, e.g. libritts_r). The upstream layout is
+    {lang}/{locale}/{name}/{quality}/{voice_id}.onnx — verified upstream:
+      en_US-hfc_male-medium -> .../en/en_US/hfc_male/medium/en_US-hfc_male-medium.onnx
+      en_GB-alan-medium     -> .../en/en_GB/alan/medium/en_GB-alan-medium.onnx
+    """
+    parts = voice_id.split('-')
+    if len(parts) < 3:
+        return None
+    locale, quality = parts[0], parts[-1]
+    name = '-'.join(parts[1:-1])
+    lang = locale.split('_', 1)[0]
+    if '_' not in locale or not lang or not name or quality not in ('low', 'medium', 'high'):
+        return None
+    base = f"{PIPER_VOICES_BASE_URL}/{lang}/{locale}/{name}/{quality}/{voice_id}"
+    return base + ".onnx", base + ".onnx.json"
+
+def _resolve_voice():
+    """Resolve (model_path, stock_voice_id) from the CURRENT config.
+
+    [TTS] piper_voice = "" (default) keeps the character voice
+    character/{character}/voice/{character}.onnx from the TARS-AI Hugging Face
+    repo — byte-for-byte the historical behaviour. A stock Piper voice id
+    (e.g. en_US-hfc_male-medium) stores the voice as
+    character/{character}/voice/{piper_voice}.onnx and downloads it from the
+    upstream rhasspy/piper-voices repo, so a manual voice swap survives a
+    reinstall. A malformed id logs a WARNING and falls back to the character
+    voice rather than guessing a URL. stock_voice_id is None whenever the
+    character voice is in effect.
+    """
+    voice_id = ''
+    try:
+        voice_id = (CONFIG['TTS'].get('piper_voice', '') or '').strip()
+    except Exception:
+        voice_id = ''
+    if voice_id and _stock_piper_voice_urls(voice_id) is None:
+        queue_message(
+            f"[Piper] WARNING: piper_voice={voice_id!r} is not a valid stock Piper "
+            f"voice id (expected <lang>_<REGION>-<name>-<quality>, e.g. "
+            f"en_US-hfc_male-medium) — falling back to the character voice "
+            f"({character_name}.onnx)")
+        voice_id = ''
+    name = voice_id if voice_id else character_name
+    path = os.path.join(script_dir, '..', f'character/{character_name}/voice/{name}.onnx')
+    return path, (voice_id or None)
+
+def _resolve_voice_path():
+    """Call-time voice model path for the current config (see _resolve_voice)."""
+    return _resolve_voice()[0]
+
+def _download_stock_voice(voice_id, dest_path):
+    """Download a stock Piper voice (.onnx and .onnx.json) from the upstream
+    rhasspy/piper-voices Hugging Face repo.
+
+    Returns True if the voice is available after download, False on failure.
+    """
+    urls = _stock_piper_voice_urls(voice_id)
+    if urls is None:
+        return False
+    voice_dir = os.path.dirname(dest_path)
+    os.makedirs(voice_dir, exist_ok=True)
+
+    for url, local in zip(urls, (dest_path, dest_path + ".json")):
+        if os.path.isfile(local) and not _is_lfs_pointer(local):
+            continue
+        queue_message(f"[Piper] Downloading {os.path.basename(local)} from Hugging Face...")
+        try:
+            urlretrieve(url, local)
+            size_mb = os.path.getsize(local) / (1024 * 1024)
+            queue_message(f"[Piper] Downloaded {os.path.basename(local)} ({size_mb:.1f} MB)")
+        except Exception as e:
+            queue_message(f"[Piper] Failed to download {url}: {e}")
+            if os.path.exists(local):
+                os.remove(local)
+            return False
+    return True
+
 voice = None
 
 def _ensure_voice_loaded():
@@ -112,10 +201,17 @@ def _ensure_voice_loaded():
     global voice
     if voice is not None:
         return True
+    # Resolve the voice path/id from the CURRENT config (call time, not import
+    # time) so [TTS] piper_voice takes effect without a re-import.
+    model_path, stock_voice_id = _resolve_voice()
     # Auto-download from Hugging Face if missing or is a Git LFS pointer
     if not os.path.isfile(model_path) or _is_lfs_pointer(model_path):
         queue_message(f"[Piper] Voice model missing or incomplete, attempting download from Hugging Face...")
-        if not _download_voice_model(character_name, model_path):
+        if stock_voice_id:
+            downloaded = _download_stock_voice(stock_voice_id, model_path)
+        else:
+            downloaded = _download_voice_model(character_name, model_path)
+        if not downloaded:
             queue_message("[Piper] Auto-download failed. Please manually place a valid .onnx voice model in the character voice folder.")
 
     # Load the model if it now exists

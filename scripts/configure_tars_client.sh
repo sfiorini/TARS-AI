@@ -1,10 +1,13 @@
 #!/bin/bash
-# Configure the TARS client (robot): Fish.audio cloud TTS primary with an
-# ordered fallback chain (speechify -> elevenlabs -> external server ->
-# local piper -> espeak); ElevenLabs cloud STT primary; vision/embeddings
-# offloaded to the external server.
+# Configure the TARS client (robot): local Piper TTS primary — the stock
+# Piper voice en_US-hfc_male-medium (durable across reinstalls via
+# piper_voice) — with an ordered cloud fallback chain (fishaudio ->
+# elevenlabs -> speechify -> external server -> espeak); ElevenLabs cloud
+# STT primary; vision/embeddings offloaded to the external server.
 # Also sets the robot voice config: Fish.audio public "Tars" voice
-# (fishaudio_reference_id) and the local-Piper sox robot-FX chain.
+# (fishaudio_reference_id) and the local-Piper sox robot-FX chain
+# (re-auditioned for the hfc_male timbre: pitch -50 instead of the repo
+# default's -150).
 #
 # Usage: ./scripts/configure_tars_client.sh <EXTERNAL_API_KEY>
 # Idempotent: safe to run multiple times. [LLM] is intentionally untouched.
@@ -97,10 +100,11 @@ os.replace(tmp, path)
 PYEOF
 }
 
-# --- [TTS]: Fish.audio primary; ordered fallback chain on the robot:
-# fishaudio -> speechify -> elevenlabs -> external -> piper (local) -> espeak ---
-set_kv TTS ttsoption fishaudio
-set_kv TTS tts_fallback_list speechify,elevenlabs,external,piper,espeak
+# --- [TTS]: local Piper primary (stock voice); ordered cloud fallback chain
+# on the robot: piper (local) -> fishaudio -> elevenlabs -> speechify ->
+# external -> espeak ---
+set_kv TTS ttsoption piper
+set_kv TTS tts_fallback_list fishaudio,elevenlabs,speechify,external,espeak
 set_kv TTS ttsurl "$SERVER_URL"
 
 # --- [TTS]: voice/model config ---
@@ -116,9 +120,15 @@ set_kv TTS fishaudio_latency low
 if ! sed -n "/^\[TTS\]/,/^\[/p" "$CONFIG" | grep -qE "^[[:space:]]*fishaudio_reference_id[[:space:]]*=[[:space:]]*[^[:space:]]"; then
     set_kv TTS fishaudio_reference_id 6a57e35f5c8244dbb5d012a3c434ec16
 fi
-# Local-Piper robot voice: sox FX chain applied post-synthesis (needs sox installed)
+# Local-Piper voice: the stock Piper voice the user prefers (single speaker,
+# 22050 Hz). Stored as character/<name>/voice/en_US-hfc_male-medium.onnx and
+# downloaded from the upstream rhasspy/piper-voices repo — survives reinstalls.
+set_kv TTS piper_voice en_US-hfc_male-medium
+set_kv TTS piper_multispeaker False
+# Local-Piper robot voice: sox FX chain applied post-synthesis (needs sox
+# installed). Re-auditioned for the hfc_male timbre (pitch -50).
 set_kv TTS piper_robot_fx True
-set_kv TTS piper_fx "pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
+set_kv TTS piper_fx "pitch -50 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
 
 # --- [STT]: ElevenLabs Scribe (cloud) primary; external whisper fallback ---
 set_kv STT stt_processor elevenlabs

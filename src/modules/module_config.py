@@ -257,6 +257,11 @@ DEFAULT_SPEECHIFY_MODEL = "simba-3.5"
 DEFAULT_SPEECHIFY_STREAM = True
 DEFAULT_SPEECHIFY_OUTPUT_FORMAT = "pcm_24000"
 DEFAULT_TTS_TIMEOUT = 30.0
+# [TTS] piper_voice: "" = character voice (character/<name>/voice/<name>.onnx
+# from the TARS-AI HF repo); a stock Piper voice id (e.g. en_US-hfc_male-medium)
+# = voice stored as character/<name>/voice/<id>.onnx, downloaded from the
+# upstream rhasspy/piper-voices repo (survives reinstalls).
+DEFAULT_PIPER_VOICE = ""
 
 
 def _parse_tts_fallback_list(value) -> List[str]:
@@ -316,6 +321,7 @@ class TTSConfig:
     piper_speaker_anger: int = 7
     piper_robot_fx: bool = False
     piper_fx: Optional[str] = None
+    piper_voice: str = DEFAULT_PIPER_VOICE
     tts_fallback_list: List[str] = field(default_factory=lambda: _parse_tts_fallback_list(None))
     fishaudio_api_key: Optional[str] = None
     fishaudio_model: Optional[str] = None
@@ -376,6 +382,7 @@ class TTSConfig:
             piper_speaker_anger=config_dict.get('piper_speaker_anger', 7),
             piper_robot_fx=_as_bool(config_dict.get('piper_robot_fx', False), False),
             piper_fx=config_dict.get('piper_fx'),
+            piper_voice=config_dict.get('piper_voice') or DEFAULT_PIPER_VOICE,
             tts_fallback_list=_parse_tts_fallback_list(config_dict.get('tts_fallback_list')),
             fishaudio_api_key=config_dict.get('fishaudio_api_key'),
             fishaudio_model=config_dict.get('fishaudio_model') or DEFAULT_FISHAUDIO_MODEL,
@@ -594,6 +601,7 @@ def load_config():
             "piper_speaker_anger": config.getint('TTS', 'piper_speaker_anger', fallback=7),
             "piper_robot_fx": config.getboolean('TTS', 'piper_robot_fx', fallback=False),
             "piper_fx": config.get('TTS', 'piper_fx', fallback=''),
+            "piper_voice": config.get('TTS', 'piper_voice', fallback=DEFAULT_PIPER_VOICE),
             "tts_fallback_list": config.get('TTS', 'tts_fallback_list', fallback=DEFAULT_TTS_FALLBACK_LIST),
             "fishaudio_api_key": os.getenv('FISH_AUDIO_API_KEY'),
             "fishaudio_model": config.get('TTS', 'fishaudio_model', fallback=DEFAULT_FISHAUDIO_MODEL),
@@ -1168,6 +1176,11 @@ CONFIG_METADATA = {
             'label': 'Speaker ID — Anger',
             'depends_on': [{'field': 'ttsoption', 'values': ['piper']}, {'field': 'piper_multispeaker', 'values': ['true', 'True']}],
             'description': 'Piper speaker ID to use when TARS expresses anger.'
+        },
+        'piper_voice': {
+            'label': 'Piper Voice',
+            'depends_on': [{'field': 'ttsoption', 'values': ['piper']}],
+            'description': 'Stock Piper voice id, e.g. en_US-hfc_male-medium. Empty (default) = the character voice (character/<name>/voice/<name>.onnx, downloaded from the TARS-AI Hugging Face repo). A stock id is stored as character/<name>/voice/<id>.onnx and downloaded from the upstream rhasspy/piper-voices repo, so a manual voice swap survives a reinstall. A malformed id logs a warning and falls back to the character voice.'
         },
         'piper_robot_fx': {
             'label': 'Robot Voice FX',
