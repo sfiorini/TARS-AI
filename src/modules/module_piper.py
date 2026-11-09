@@ -140,9 +140,9 @@ def _get_piper_speaker_id(emotion):
             return None
 
 
-# Robot-voice sox recipe (inspired by dsidlo/ComfyUI_SoX_Effects SoxVeRobotNode):
-# chorus + overdrive + pitch down. Configurable via [TTS] piper_fx.
-DEFAULT_PIPER_FX = "chorus 0.5 0.9 50 0.4 0.25 2 -t overdrive 10 pitch -100"
+# Robot-voice sox recipe (user-auditioned chain C2 on the robot's speaker):
+# flanger + pitch down. Configurable via [TTS] piper_fx.
+DEFAULT_PIPER_FX = "pitch -150 flanger 5 3 0 70 0.4 triangle 25 quad gain -n -3"
 SOX_TIMEOUT = 30
 
 
