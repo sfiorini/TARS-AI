@@ -542,6 +542,13 @@ def load_config():
             "body_char_limit": config.getint('STANDARD_SKILLS', 'body_char_limit', fallback=4000),
             "prompt_budget_chars": config.getint('STANDARD_SKILLS', 'prompt_budget_chars', fallback=3000),
         },
+        "MCP": {
+            "enabled": config.getboolean('MCP', 'enabled', fallback=True),
+            "prompt_budget_chars": config.getint('MCP', 'prompt_budget_chars', fallback=4000),
+            "request_timeout": config.getint('MCP', 'request_timeout', fallback=30),
+            "health_interval_s": config.getint('MCP', 'health_interval_s', fallback=60),
+            "restart_max_attempts": config.getint('MCP', 'restart_max_attempts', fallback=3),
+        },
         "VISION": {
             "enabled": config.getboolean('VISION', 'enabled'),
             "camera_rotation": config.getint('VISION', 'camera_rotation', fallback=0),
@@ -841,6 +848,24 @@ CONFIG_METADATA = {
         },
         'deferred_loop_enabled': {
             'description': 'Master switch for the deferred reply loop. When ON, tools that produce results (like web search) trigger a follow-up: TARS says a short holding line, runs the tool, then speaks the final answer built from the results. When OFF, TARS falls back to the old blocking behavior for one release. Flip this OFF and restart if the robot ever speaks oddly after tool use.'
+        },
+    },
+    'MCP': {
+        '__description__': 'MCP (Model Context Protocol) client — external tool servers TARS can call',
+        'enabled': {
+            'description': 'Master switch for the MCP client. When OFF, no MCP server is started and the MCP prompt block is omitted.'
+        },
+        'prompt_budget_chars': {
+            'description': 'Character budget for the MCP tools block in the AI prompt. On overflow, tool descriptions are shortened first, then whole tools are dropped alphabetically — every dropped name is logged.'
+        },
+        'request_timeout': {
+            'description': 'How long TARS waits for any single MCP JSON-RPC request before giving up on it. 30 seconds covers slow tool servers; raise it for servers that regularly take longer.'
+        },
+        'health_interval_s': {
+            'description': 'How often TARS pings each running MCP server to check its health, in seconds. 0 disables the periodic ping (health is still checked before every call).'
+        },
+        'restart_max_attempts': {
+            'description': 'How many consecutive restart attempts a crashed MCP server gets before TARS marks it degraded and removes its tools from the prompt. Any successful call resets the counter.'
         },
     },
     'STANDARD_SKILLS': {

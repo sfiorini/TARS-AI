@@ -80,6 +80,16 @@ class TestGitignoreAgentSkills(unittest.TestCase):
             _ignored("src/agent_skills_defaults/dice-roll/SKILL.md"))
 
 
+class TestGitignoreMcp(unittest.TestCase):
+    """The live MCP registry is per-robot state; the template is tracked."""
+
+    def test_mcp_servers_json_ignored(self):
+        self.assertTrue(_ignored("src/mcp_servers.json"))
+
+    def test_mcp_template_tracked(self):
+        self.assertFalse(_ignored("src/mcp_servers.json.template"))
+
+
 class TestGitignoreLiveState(unittest.TestCase):
     """Per-robot live state: src/movements.json is gitignored (seeded from
     the tracked src/movements_defaults.json on first start, D5)."""

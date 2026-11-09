@@ -190,5 +190,110 @@ class TestRawProtocol(_RealServerPipe):
         self.assertEqual(response["id"], 7)
 
 
+import tempfile  # noqa: E402
+
+
+class TestRegistryAndSeeding(unittest.TestCase):
+    """Registry validation, template seeding, [MCP] config keys (S-M6-03)."""
+
+    def setUp(self):
+        super().setUp()
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.registry_path = os.path.join(self.tmp, "mcp_servers.json")
+        self.template_path = os.path.join(_SRC, "mcp_servers.json.template")
+
+    def _write_registry(self, servers):
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": servers}, fh)
+
+    def test_registry_validates_names(self):
+        from modules.module_mcp import McpManager
+        self._write_registry({"Bad-Name": {
+            "transport": "stdio", "command": "python3", "args": [],
+            "env": {}, "cwd": None, "enabled": True, "auto_start": False}})
+        manager = McpManager(self.registry_path, self.template_path)
+        errors = manager.load_registry()
+        self.assertTrue(any("Bad-Name" in e for e in errors), errors)
+
+    def test_registry_rejects_duplicate(self):
+        from modules.module_mcp import McpManager
+        manager = McpManager(self.registry_path, self.template_path)
+        ok, errors = manager.add_server("example", {
+            "transport": "stdio", "command": "python3", "args": [],
+            "env": {}, "cwd": None, "enabled": True, "auto_start": False})
+        self.assertTrue(ok, errors)
+        ok, errors = manager.add_server("example", {
+            "transport": "stdio", "command": "python3", "args": [],
+            "env": {}, "cwd": None, "enabled": True, "auto_start": False})
+        self.assertFalse(ok)
+        self.assertTrue(any("already" in e.lower() for e in errors),
+                        errors)
+
+    def test_transport_must_be_stdio_or_http(self):
+        from modules.module_mcp import McpManager
+        self._write_registry({"weird": {
+            "transport": "carrier-pigeon", "command": "x", "args": [],
+            "env": {}, "cwd": None, "enabled": True, "auto_start": False}})
+        manager = McpManager(self.registry_path, self.template_path)
+        errors = manager.load_registry()
+        self.assertTrue(any("carrier-pigeon" in e for e in errors), errors)
+
+    def test_seed_from_template(self):
+        from modules.module_mcp import McpManager
+        self.assertFalse(os.path.exists(self.registry_path))
+        manager = McpManager(self.registry_path, self.template_path)
+        manager.seed_if_absent()
+        self.assertTrue(os.path.exists(self.registry_path))
+        with open(self.registry_path) as fh:
+            data = json.load(fh)
+        self.assertIn("example", data["servers"])
+        self.assertTrue(data["servers"]["example"]["enabled"])
+        # present registry is NOT re-seeded
+        with open(self.registry_path, "w") as fh:
+            json.dump({"version": 1, "servers": {}}, fh)
+        manager.seed_if_absent()
+        with open(self.registry_path) as fh:
+            self.assertEqual(json.load(fh)["servers"], {})
+
+    def test_mcp_keys_default(self):
+        from modules import module_config
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        minimal = os.path.join(tmp, "config.ini")
+        with open(os.path.join(_SRC, "config.ini.template")) as fh:
+            text = fh.read()
+        lines, skipping = [], False
+        for ln in text.splitlines():
+            if ln.strip() == "[MCP]":
+                skipping = True
+                continue
+            if skipping and ln.startswith("["):
+                skipping = False
+            if not skipping:
+                lines.append(ln)
+        with open(minimal, "w") as fh:
+            fh.write("\n".join(lines))
+        saved_path = os.environ.get("TARS_CONFIG_PATH")
+        saved_cache = module_config._config_cache
+        os.environ["TARS_CONFIG_PATH"] = minimal
+        module_config._config_cache = None
+        self.addCleanup(module_config.__setattr__, "_config_cache",
+                        saved_cache)
+
+        def _restore():
+            if saved_path is None:
+                os.environ.pop("TARS_CONFIG_PATH", None)
+            else:
+                os.environ["TARS_CONFIG_PATH"] = saved_path
+        self.addCleanup(_restore)
+        mcp = module_config.load_config().get("MCP", {})
+        self.assertIs(mcp.get("enabled"), True)
+        self.assertEqual(mcp.get("prompt_budget_chars"), 4000)
+        self.assertEqual(mcp.get("request_timeout"), 30)
+        self.assertEqual(mcp.get("health_interval_s"), 60)
+        self.assertEqual(mcp.get("restart_max_attempts"), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

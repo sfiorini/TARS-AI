@@ -243,3 +243,6 @@ src/movements.json
 # TARS agent-skills live pool (seeded from tracked defaults on first start;
 # the directory is absent on a fresh clone so first-start seeding fires)
 src/agent_skills/*
+
+# TARS MCP live registry (seeded from the tracked template on first start)
+src/mcp_servers.json

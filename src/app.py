@@ -305,6 +305,13 @@ if __name__ == "__main__":
     except Exception as e:
         queue_message(f"WARNING: Agent skills seeding failed: {e}")
 
+    # === MCP: seed the live server registry from the tracked template ===
+    try:
+        from modules.module_mcp import get_mcp_manager
+        get_mcp_manager().seed_if_absent()
+    except Exception as e:
+        queue_message(f"WARNING: MCP registry seeding failed: {e}")
+
     # === Agent Skills pool: register descriptors (meta-tools + parameterized skills, S-M5-07) ===
     try:
         from modules.module_toolregistry import get_registry

@@ -365,3 +365,15 @@ enabled = true
 body_char_limit = 4000
 # Char budget for the agent-skills prompt block (overflow drops entries)
 prompt_budget_chars = 3000
+
+[MCP]
+# Master switch for the MCP client (Model Context Protocol servers)
+enabled = true
+# Char budget for the MCP tools prompt block (overflow drops entries)
+prompt_budget_chars = 4000
+# Per-JSON-RPC-request timeout in seconds for MCP transports
+request_timeout = 30
+# Health ping interval in seconds (0 = no periodic ping)
+health_interval_s = 60
+# Consecutive restart failures before a server is marked degraded
+restart_max_attempts = 3
