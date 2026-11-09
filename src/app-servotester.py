@@ -27,7 +27,7 @@ import os
 from modules.module_config import load_config
 import modules.module_config as module_config
 import modules.module_servoctl as servoctl
-from modules.module_servoctl import *
+from modules.module_servoctl import move_arm, reset_positions
 from modules.module_movement_registry import get_names, get_names_by_type, LEGS_ONLY, HAS_ARMS
 
 pygame.init()
