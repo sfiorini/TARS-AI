@@ -15,7 +15,10 @@ import time
 import numpy as np
 import pytest
 
+import modules.module_atomik as atomik
+import modules.module_mic as module_mic
 from modules.module_atomik import WakeWordSystem
+from modules.module_mic import AudioStallError
 
 
 def _template_detector():
@@ -173,3 +176,114 @@ def test_detect_works_with_chunk_buffer(monkeypatch):
     assert det._check_count == before + 1
     assert det._last_exit == "below-threshold"
     assert detected is False
+
+
+# ---------------------------------------------------------------------------
+# S-M1-10 — bounded listenForWakeWord (check-advance deadline + L1 + raise)
+# ---------------------------------------------------------------------------
+
+class _FakeStream:
+    """Context-manager stand-in for the shared callback stream. `on_enter`
+    runs inside __enter__ (used to simulate a revived hub delivering a
+    chunk through the captured callback)."""
+
+    def __init__(self, state, on_enter=None):
+        self._state = state
+        self._on_enter = on_enter
+
+    def __enter__(self):
+        self._state["enters"] += 1
+        if self._on_enter is not None:
+            self._on_enter(self._state)
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+def _fake_open_factory(state, on_enter=None):
+    def fake_open_native_stream(**kwargs):
+        state["callback"] = kwargs.get("callback")
+        return _FakeStream(state, on_enter)
+    return fake_open_native_stream
+
+
+def _patch_hub(monkeypatch, stats_fn, invalidated):
+    monkeypatch.setattr(module_mic, "audio_hub_stats", stats_fn)
+    monkeypatch.setattr(module_mic, "invalidate_audio_hub", lambda: invalidated.append(1))
+
+
+def test_listen_raises_after_stalls(monkeypatch):
+    """No chunks ever arrive -> each registration stalls -> L1 loop
+    re-registers max_recoveries times, then raises AudioStallError."""
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    invalidated = []
+    _patch_hub(monkeypatch, lambda: {"chunk_count": 0}, invalidated)
+
+    with pytest.raises(AudioStallError):
+        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=3)
+
+    assert state["enters"] == 3          # 3 L1 re-registers
+    assert len(invalidated) == 3          # hub invalidated before each retry
+
+
+def test_listen_stalls_when_chunks_advance_but_detect_frozen(monkeypatch):
+    """Mode-(c) discriminator: hub chunk_count advances every poll while
+    detect() never runs (_check_count frozen) — chunk-advance alone must
+    NOT reset the stall deadline; the listener must escalate."""
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    counter = {"chunk_count": 0}
+
+    def fake_stats():
+        counter["chunk_count"] += 1     # chunks keep advancing...
+        return counter
+
+    invalidated = []
+    _patch_hub(monkeypatch, fake_stats, invalidated)
+    frozen_check = det._check_count      # ...but detect() never runs
+
+    with pytest.raises(AudioStallError):
+        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=1)
+
+    assert det._check_count == frozen_check
+    assert state["enters"] == 1
+
+
+def test_listen_recovers_when_hub_revives(monkeypatch):
+    """The hub starts delivering after the first re-register: the captured
+    callback is invoked with a chunk, detect() advances _check_count and
+    returns True -> listenForWakeWord returns True with exactly 2
+    registrations."""
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+
+    def revive(state_):
+        if state_["enters"] >= 2 and state_["callback"] is not None:
+            state_["callback"](np.zeros(512, dtype=np.float32), 512, None, None)
+
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state, revive))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    counter = {"chunk_count": 0}
+
+    def fake_stats():
+        counter["chunk_count"] += 1
+        return counter
+
+    invalidated = []
+    _patch_hub(monkeypatch, fake_stats, invalidated)
+
+    def fake_detect():
+        det._check_count += 1             # advances the check counter...
+        return True, 0.9                  # ...and detects
+
+    det.detect = fake_detect
+
+    assert det.listenForWakeWord(stall_timeout=0.2, max_recoveries=3) is True
+    assert state["enters"] == 2
+    assert len(invalidated) == 1

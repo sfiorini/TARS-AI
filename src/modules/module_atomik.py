@@ -26,6 +26,7 @@ import json
 from scipy.fftpack import dct
 
 from modules.module_mic import open_native_stream, make_resampling_callback
+from modules.module_messageQue import queue_message
 
 # ---------------------------------------------------------------------------
 # Audio helpers
@@ -762,23 +763,56 @@ class WakeWordSystem:
 
     # --- Detection ---
 
-    def listenForWakeWord(self):
-        detected_flag = False
+    def listenForWakeWord(self, stall_timeout=10.0, max_recoveries=3):
+        """Bounded wake-word listen. Raises module_mic.AudioStallError after
+        max_recoveries failed L1 recoveries. The stall deadline resets ONLY
+        when this detector's _check_count advances (check-advance implies
+        chunk-advance, since detect() runs only from the RT callback — this
+        is 'both advanced' per the design). Chunk-advance alone does NOT
+        reset the deadline: that is failure mode (c), swallowed consumer
+        exception / dispatch-blocked, and MUST escalate to AudioStallError."""
+        from modules.module_mic import AudioStallError, audio_hub_stats
+        recoveries = 0
+        while True:
+            detected_flag = False
 
-        def audio_callback(audio_np, frames, time_info, status):
-            nonlocal detected_flag
-            self.buffer.append(np.asarray(audio_np, dtype=np.float32))
-            self._buffered_samples += len(audio_np)
+            def audio_callback(audio_np, frames, time_info, status):
+                nonlocal detected_flag
+                self.buffer.append(np.asarray(audio_np, dtype=np.float32))
+                self._buffered_samples += len(audio_np)
 
-            detected, confidence = self.detect()
-            if detected:
-                detected_flag = True
+                detected, confidence = self.detect()
+                if detected:
+                    detected_flag = True
 
-        with open_native_stream(callback=make_resampling_callback(audio_callback),
-                                blocksize=512, name="atomik"):
-            while not detected_flag:
-                time.sleep(0.05)
-        return True
+            deadline = time.monotonic() + stall_timeout
+            last_chunk = None
+            last_check = None
+            with open_native_stream(callback=make_resampling_callback(audio_callback),
+                                    blocksize=512, name="atomik"):
+                while not detected_flag:
+                    time.sleep(0.05)
+                    s = audio_hub_stats()
+                    if self._check_count != last_check:
+                        # check-advance implies chunk-advance (detect() runs only
+                        # from the RT callback) — equivalent to 'both advanced'.
+                        # chunk-advance WITHOUT check-advance (mode c) must NOT
+                        # reset: the deadline then expires -> L1 -> AudioStallError.
+                        last_chunk, last_check = s["chunk_count"], self._check_count
+                        deadline = time.monotonic() + stall_timeout
+                    elif time.monotonic() > deadline:
+                        break          # stall -> exit `with` (unregister) -> L1 below
+            if detected_flag:
+                return True
+            recoveries += 1
+            queue_message(f"WARNING: WAKE stall (hub_chunk={last_chunk} check={last_check} "
+                          f"exit={self._last_exit} rms={self._last_window_rms:.4f}) — L1 recovery {recoveries}/{max_recoveries}")
+            from modules import module_mic
+            module_mic.invalidate_audio_hub()
+            if recoveries >= max_recoveries:
+                raise AudioStallError(
+                    f"wake stalled after {recoveries} L1 recoveries "
+                    f"(hub_chunk={last_chunk} check={last_check} exit={self._last_exit})")
 
     def detect(self):
         # Template mode uses simpler detection path
