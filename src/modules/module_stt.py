@@ -2014,6 +2014,13 @@ class STTManager:
         (write BEFORE set); False = veto — the utterance is discarded and
         the gate backs off.  On a veto TTS stays stopped (accepted
         trade-off: a sentence truncates on a false positive).
+
+        EVERY exit path signals monitor completion by setting
+        ``_bargein_captured_ready`` — ACCEPT with the utterance, veto /
+        exception with ``_bargein_captured`` left None (review F1) — so
+        ``take_bargein_utterance`` can distinguish "monitor finished,
+        nothing captured" from "still recording" and never blocks the
+        main loop for the full timeout.
         """
         from modules.module_tts import stop_tts_playback, is_tts_playing
         from modules.module_toolloop import cancel_pending_turns
@@ -2087,9 +2094,18 @@ class STTManager:
                             # Veto: discard, raise the bar for 60 s.
                             # TTS stays stopped (accepted trade-off).
                             gate.backoff()
+                            # Signal completion with a None capture so
+                            # take_bargein_utterance returns promptly
+                            # instead of blocking the full timeout (F1).
+                            self._bargein_captured = None
+                            self._bargein_captured_ready.set()
                         return
         except Exception as e:
             queue_message(f"WARN: Barge-in monitor error: {e}")
+            # A crashing monitor must still signal completion — the main
+            # loop's take_bargein_utterance must not hang for 8 s (F1).
+            self._bargein_captured = None
+            self._bargein_captured_ready.set()
 
     def _start_bargein_fuzzy(self, tts_text):
         """Fuzzy word-matching barge-in monitor (thin wrapper: builds the
@@ -2288,8 +2304,11 @@ class STTManager:
         """Wait for the barge-in monitor's captured utterance (S-M3-07).
 
         Returns and clears the captured int16 audio, or None on timeout /
-        veto. The monitor writes ``_bargein_captured`` BEFORE setting the
-        ready Event, so once the wait returns the audio is complete.
+        veto / monitor error. The monitor writes ``_bargein_captured``
+        BEFORE setting the ready Event, so once the wait returns the audio
+        is complete; a veto or crashed monitor sets the Event with the
+        capture left None, so the wait returns promptly with None
+        (review F1) instead of blocking the full timeout.
         """
         if not self._bargein_captured_ready.wait(timeout=timeout):
             return None

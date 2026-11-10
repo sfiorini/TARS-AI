@@ -11,10 +11,16 @@ Invariants under test:
 - The captured utterance is onset-trimmed (<= 4 pre-roll frames before the
   first above-gate frame of the streak).
 - A veto discards the utterance and arms the gate's backoff; the ready
-  Event is never set.
+  Event is STILL set (with a None capture) so `take_bargein_utterance`
+  returns promptly instead of blocking the main loop for the full
+  timeout (review F1) — veto completion must be distinguishable from
+  "still recording".
+- EVERY monitor exit path signals completion — including the exception
+  path, so a crashing monitor cannot hang the main loop for 8 s.
 """
 import sys
 import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -182,19 +188,72 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
         self.assertEqual(13 * 2000, flat.size)
 
     def test_veto_discards_and_backs_off(self):
-        """A veto discards the utterance, arms the gate's backoff, and the
-        ready Event is never set. TTS stays stopped (accepted trade-off)."""
+        """A veto discards the utterance (capture stays None) and arms the
+        gate's backoff, but STILL signals monitor completion — the ready
+        Event is set with a None capture so the take path returns promptly
+        (review F1). TTS stays stopped (accepted trade-off)."""
         self.mic_frames = (
             [frame(3000), frame(3001)]
             + [frame(21)] * 8)
         self.run_loop(veto_fn=lambda u: False)
-        self.assertFalse(self.mgr._bargein_captured_ready.is_set())
+        self.assertTrue(self.mgr._bargein_captured_ready.is_set())
         self.assertIsNone(self.mgr._bargein_captured)
         self.assertIsNotNone(self.mgr._bargein_gate)
         self.assertTrue(self.mgr._bargein_gate.in_backoff())
         # the cancel already fired on the energy gate — TTS stays stopped
         self.assertEqual([1], self.stop_calls)
         self.assertEqual(["barge-in"], self.cancel_calls)
+
+    def test_veto_take_returns_promptly(self):
+        """Review F1: after a veto, `take_bargein_utterance` must return
+        None PROMPTLY (monitor finished, nothing captured) — NOT block the
+        full 8 s timeout like it does when the veto path forgets to signal
+        completion."""
+        self.mic_frames = (
+            [frame(3000), frame(3001)]
+            + [frame(21)] * 8)
+        self.run_loop(veto_fn=lambda u: False)
+        t0 = time.monotonic()
+        taken = self.mgr.take_bargein_utterance(timeout=8.0)
+        elapsed = time.monotonic() - t0
+        self.assertIsNone(taken)
+        self.assertLess(elapsed, 1.0,
+                        f"take blocked {elapsed:.1f}s after a veto — the "
+                        "veto path did not signal monitor completion")
+        # the completion signal is consumed, not left set for a later round
+        self.assertFalse(self.mgr._bargein_captured_ready.is_set())
+
+    def test_monitor_exception_signals_completion(self):
+        """Review F1: a crashing monitor must still signal completion —
+        an exception inside the frame loop must not leave the main loop
+        hanging on take_bargein_utterance for the full timeout."""
+        class BombMic:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def flush(self):
+                pass
+
+            def read(self, n):
+                raise RuntimeError("mic exploded")
+
+        p = mock.patch.object(module_stt, "ResamplingInputStream",
+                              lambda **kwargs: BombMic())
+        p.start()
+        self.addCleanup(p.stop)
+        self.run_loop(veto_fn=lambda u: True)
+        self.assertTrue(self.mgr._bargein_captured_ready.is_set())
+        self.assertIsNone(self.mgr._bargein_captured)
+        t0 = time.monotonic()
+        taken = self.mgr.take_bargein_utterance(timeout=8.0)
+        elapsed = time.monotonic() - t0
+        self.assertIsNone(taken)
+        self.assertLess(elapsed, 1.0,
+                        f"take blocked {elapsed:.1f}s after a monitor "
+                        "crash — the exception path did not signal completion")
 
     def test_ten_second_cap_ends_recording(self):
         """Post-trigger recording caps at 80 frames (10 s) even without silence."""
