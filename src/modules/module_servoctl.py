@@ -77,7 +77,7 @@ _last_reg_read_log = 0.0
 _watchdog_running = False
 _i2c = None  # raw I2C handle kept for register reads (fallback if driver attrs missing)
 _watchdog_thread = None
-_watchdog_interval = 15
+_watchdog_interval = 2
 _unhealthy_chip_reads = 0  # consecutive unhealthy MODE1/MODE2 reads (repair needs 2)
 
 # One lock around PCA handle swaps and MOVING transitions so the watchdog,
@@ -451,7 +451,7 @@ def set_servo_pwm(channel, pwm_value):
     
     return False
 
-def _is_moving_stuck(moving, last_pwm_time, now, timeout=180):
+def _is_moving_stuck(moving, last_pwm_time, now, timeout=30):
     """Pure helper: MOVING with no PWM activity for more than `timeout`
     seconds is stuck (an exception left the flag set)."""
     if not moving:
@@ -565,15 +565,15 @@ def _watchdog_tick():
         else:
             # Never touch the chip mid-movement: a re-init clears the PWM
             # output registers and can abort a walk. Only health-check when
-            # idle (not MOVING, no PWM activity in the last 5s).
-            pwm_recent = _last_pwm_time and (now - _last_pwm_time) < 5.0
+            # idle (not MOVING, no PWM activity in the last 2s).
+            pwm_recent = _last_pwm_time and (now - _last_pwm_time) < 2.0
             if not MOVING and not pwm_recent:
                 _repair_chip_state_if_needed()
         
         # Unconditional: a stuck MOVING flag (an exception left it set)
         # blocks ALL future movement until reboot — always check it.
         if _is_moving_stuck(MOVING, _last_pwm_time, now):
-            queue_message("ERROR: servo watchdog - MOVING stuck for more than 180s, resetting movement state")
+            queue_message("ERROR: servo watchdog - MOVING stuck for more than 30s, resetting movement state")
             MOVING = False
 
 def _watchdog_loop():
@@ -584,7 +584,7 @@ def _watchdog_loop():
         except Exception as e:
             queue_message(f"ERROR: servo watchdog tick failed: {e}")
 
-def start_servo_watchdog(interval=15):
+def start_servo_watchdog(interval=2):
     """Start the servo self-healing watchdog (daemon thread)."""
     global _watchdog_running, _watchdog_thread, _watchdog_interval
     
