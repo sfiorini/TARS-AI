@@ -161,3 +161,28 @@ class TestAtomikStallEscalatesToL2:
             mgr._last_l2_mono = clock["now"] - 61.0
             assert mgr._detect_wake_word_atomik() is False
             assert restart.call_count == 2
+
+    def test_stall_skips_l2_when_recovery_in_progress(self, monkeypatch):
+        """F1: the STT catch consults audio_hub_stats()['recovery_in_progress']
+        before calling restart_sound_server — if a recovery is already in
+        flight (hub watchdog L2 / TTS), it must not even attempt."""
+        mgr = _minimal_manager()
+        self._patch_clock(monkeypatch)
+        monkeypatch.setattr(module_stt, "WakeWordSystem", _StallDetector)
+        monkeypatch.setattr(module_stt, "is_tts_playing", lambda: False)
+        import modules.module_mic as mic
+        monkeypatch.setattr(mic, "audio_hub_stats",
+                            lambda: {"recovery_in_progress": True})
+        import modules.module_audio_recovery as recovery
+        with mock.patch.object(recovery, "restart_sound_server") as restart, \
+             mock.patch.object(module_stt, "queue_message") as qmsg:
+            result = mgr._detect_wake_word_atomik()
+
+        assert result is False
+        restart.assert_not_called()          # not even attempted
+        skipped = [c.args[0] for c in qmsg.call_args_list
+                   if c.args and "already in progress" in str(c.args[0])]
+        assert skipped, "the skipped L2 must be logged"
+        # The 60 s rate-limit anchor is NOT stamped when skipping — the next
+        # stall re-checks instead of waiting a full 60 s for nothing.
+        assert mgr._last_l2_mono == 0.0

@@ -198,7 +198,7 @@ class _AudioHub:
         self._last_nonzero_mono = 0.0  # RT: = now if chunk.any()
         self._consumer_exc_count = 0   # RT: += 1 in the except branch
         self._consecutive_read_stalls = 0   # read() path (not RT)
-        self._recovery_in_progress = False  # written under _lock, read atomically
+        self._recovery_in_progress = False  # written under _lock by module_audio_recovery.restart_sound_server (reentrancy-guarded there); read atomically via stats()
         self._last_l1_mono = None  # L1 rate-limit anchor (None = never issued)
         self._callback_names = {}      # rid -> diagnostic name (S-M1-02)
 
