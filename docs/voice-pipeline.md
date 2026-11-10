@@ -194,7 +194,19 @@ From the `[STT]` template comments (mix wake-word and STT engines freely — the
 
 **Cancel path.** TTS playback writes in ≤100 ms sub-slices and checks the cancel flag inside each slice; a cancel calls `abort()` on the registered persistent stream (thread-safe `Pa_AbortStream`, flushes the buffer) — cancel-to-silence ≤ ~200 ms. Previously a cancel could take up to ~1 s to be heard, because `sd.stop()` never touched the persistent stream.
 
-**AEC status.** PipeWire echo cancellation is installed and its `echo_cancel_source` node exists, but the default capture source is the raw USB mic — audio is not echo-cancelled unless the capture path is pointed at the AEC source. The gate does not depend on AEC: the bleed-floor EMA is the primary defence and adapts to either capture path.
+**AEC status — and a hard hardware limit.** PipeWire echo cancellation is installed and its `echo_cancel_source` node exists, but **PortAudio on the robot exposes only ALSA and OSS host APIs** (`sounddevice.query_hostapis()` → `['ALSA', 'OSS']`), so `echo_cancel_source` is not reachable from the capture path: the app opens `hw:2,0` directly and audio is not echo-cancelled. This is not cosmetic. Measured on the robot, TARS's own playback drives the mic to **~63 % of full scale** (bleed floor ≈ 283 000 against a calibrated silence bar of ≈ 8 640), which means the robot literally hears itself far louder than it hears the user: a user talking over TARS adds only ~25 % on top of a nearly-saturated signal, which no energy gate can separate from ordinary syllable variation. Consequences, stated plainly:
+
+- **Mid-playback interruption is not achievable by energy alone on this hardware.** The playback bar sits at `bleed_floor × bargein_bleed_factor` above a saturated floor. Lowering `bargein_bleed_factor` does not fix it — at 1.0 TARS cancels itself constantly.
+- **Gap interruption works and is the supported path.** The streaming pipeline leaves brief windows where `is_tts_playing()` is clear (between synthesis chunks). In those windows the bar drops to the calibrated silence threshold (`EchoGate.silence_bar`), and the user's voice clears it easily (measured: 74 001 vs 8 640). The bleed floor is a playback-only concept and is deliberately ignored outside playback — carrying it into the gaps was a bug that rejected an 8.5×-over-bar interruption.
+- **The real fix is AEC**, which requires moving capture off PortAudio/ALSA onto the PipeWire source (`echo_cancel_source`) — a capture-path change (`pw-record`/`parec` subprocess feeding the audio hub), not a tuning change. Until then, `bargein_bleed_factor` and `bargein_min_candidates` only affect the gap path.
+
+The `BARGEIN:` diagnostic line (1/s while a monitor runs) makes this measurable rather than speculative:
+
+```
+BARGEIN: rms=<frame> pk=<peak since last line> floor=<bleed floor> bar=<bar used> playing=<0|1> -> <verdict>
+```
+
+`pk` vs `bar` on a failed attempt says whether the gate was too strict (tune) or the mic was saturated by TARS itself (hardware).
 
 **Config keys** (`[STT]`): `enable_bargein = True`, `bargein_mode = fuzzy | voiceprint`, `bargein_sensitivity = 5` (1–10; scales the RMS gate and the voiceprint bar), `bargein_bleed_factor = 2.5` (how much louder than TARS's own speaker bleed a sound must be to count as an interruption), `bargein_min_candidates = 2` (consecutive 125 ms frames above the gate needed to trigger), `bargein_listen_after_interrupt = True` (stop-and-listen; the rollback switch).
 

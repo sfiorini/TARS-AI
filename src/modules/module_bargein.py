@@ -42,6 +42,20 @@ class EchoGate:
         return max(self.silence_threshold * self.rms_scale,
                    self.bleed_floor * self.bleed_factor)
 
+    @property
+    def silence_bar(self) -> float:
+        """The bar used when TARS is NOT playing.
+
+        The bleed floor is a PLAYBACK concept: it measures how loud TARS's own
+        speaker is at the mic.  Carrying it into the gaps made interruption
+        impossible — measured on the robot, TARS's bleed is so loud that the
+        floor reached 283187 while the user's voice in a gap was 74001: 8.5x
+        the silence bar, but rejected because the stale playback floor raised
+        the bar to 707968.  Outside playback the only thing that matters is
+        whether the sound clears the calibrated speech threshold.
+        """
+        return self.silence_threshold * self.rms_scale
+
     def on_frame(self, rms, tts_playing) -> str:
         """Returns 'candidate' | 'bleed' | 'quiet' | 'grace'.
 
@@ -78,7 +92,7 @@ class EchoGate:
             self._grace_remaining -= 1
             self._streak = 0
             return "grace"
-        return self._judge(rms, self.threshold)
+        return self._judge(rms, self.silence_bar)
 
     def _judge(self, rms, threshold) -> str:
         """Streak logic shared by the playing and non-playing paths."""

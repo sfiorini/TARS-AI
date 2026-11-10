@@ -2091,19 +2091,23 @@ class STTManager:
                     # ~90% of an utterance and only the gaps between sentences
                     # could ever trigger.  The gate rejects TARS's own voice
                     # with its bleed floor instead of by discarding frames.
-                    kind = gate.on_frame(rms, tts_playing=is_tts_playing())
+                    playing_now = is_tts_playing()
+                    kind = gate.on_frame(rms, tts_playing=playing_now)
 
                     # 1 Hz diagnostic line (bounded: monitors only run while
                     # TARS speaks). peak-so-far is the number that matters when
                     # an interruption fails — it shows how far the user's voice
-                    # was from the gate.
+                    # was from the gate. `bar` is the threshold actually used
+                    # for this frame: the playback bar while TTS plays, the
+                    # silence bar in the gaps.
                     dbg_frames += 1
                     dbg_peak = max(dbg_peak, rms)
                     if dbg_frames >= 8:
+                        bar = gate.threshold if playing_now else gate.silence_bar
                         queue_message(
                             f"BARGEIN: rms={rms:.0f} pk={dbg_peak:.0f} "
-                            f"floor={gate.bleed_floor:.0f} thr={gate.threshold:.0f} "
-                            f"playing={int(is_tts_playing())} -> {kind}"
+                            f"floor={gate.bleed_floor:.0f} bar={bar:.0f} "
+                            f"playing={int(playing_now)} -> {kind}"
                         )
                         dbg_frames = 0
                         dbg_peak = 0.0

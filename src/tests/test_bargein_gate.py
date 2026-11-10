@@ -58,6 +58,37 @@ class TestEchoGate(unittest.TestCase):
         gate = make_gate()
         self.assertEqual(gate.on_frame(0.0, tts_playing=False), "quiet")
 
+    def test_not_playing_ignores_the_playback_floor(self):
+        """In a gap, the bar is the silence threshold — NOT the playback floor.
+
+        Measured on the robot: TARS's own playback drove the bleed floor to
+        283187 (mic at ~63% of full scale).  In a gap the user's voice reached
+        74001 — 8.5x the calibrated silence bar (8640) — but was rejected
+        because the stale playback floor raised the bar to 707968.  The floor
+        must stop mattering the moment playback stops (after the echo grace).
+        """
+        gate = EchoGate(silence_threshold=1000.0, rms_scale=1.0,
+                        bleed_factor=2.5, min_candidates=1)
+        for _ in range(20):
+            gate.on_frame(30000.0, tts_playing=True)        # loud bleed
+        self.assertGreater(gate.threshold, 30000.0)        # playing bar: unreachable
+        # playback stops: two grace frames cover the echo tail
+        self.assertEqual(gate.on_frame(30000.0, tts_playing=False), "grace")
+        self.assertEqual(gate.on_frame(30000.0, tts_playing=False), "grace")
+        # now the silence bar governs: 5000 > 1000 -> candidate
+        self.assertEqual(gate.on_frame(5000.0, tts_playing=False), "candidate")
+
+    def test_not_playing_still_quiet_below_silence_bar(self):
+        """Dropping the floor must not let room noise trigger: below the
+        silence bar stays quiet."""
+        gate = EchoGate(silence_threshold=1000.0, rms_scale=1.0,
+                        bleed_factor=2.5, min_candidates=1)
+        for _ in range(20):
+            gate.on_frame(30000.0, tts_playing=True)
+        gate.on_frame(0.0, tts_playing=False)   # grace x2
+        gate.on_frame(0.0, tts_playing=False)
+        self.assertEqual(gate.on_frame(500.0, tts_playing=False), "quiet")
+
     def test_playing_bleed_level_never_triggers(self):
         """TARS's OWN voice must never trigger barge-in.
 
