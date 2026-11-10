@@ -1009,6 +1009,28 @@ class TestIna260BootSampler(ServoctlSelfHealingTestCase):
     servos are deliberately de-energized and draw ~0 either way); it gates
     nothing and must never break the boot path."""
 
+    def test_hard_reset_starts_no_sampler(self):
+        # F3: the sampler is BOOT-ONLY — the hard reset_positions path
+        # (web /reset_positions, servo-tester) must not spawn a logging
+        # daemon thread.
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {}
+        with mock.patch.object(servoctl, "move_legs"), \
+             mock.patch.object(servoctl, "move_arm"), \
+             mock.patch.object(servoctl, "_start_boot_current_sampler") as sampler:
+            servoctl.reset_positions()  # hard path (soft=False default)
+        sampler.assert_not_called()
+
+    def test_soft_reset_starts_sampler(self):
+        # the boot path (soft=True) is the one that samples boot current
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {}
+        with mock.patch.object(servoctl, "move_legs"), \
+             mock.patch.object(servoctl, "move_arm"), \
+             mock.patch.object(servoctl, "_start_boot_current_sampler") as sampler:
+            servoctl.reset_positions(soft=True)
+        sampler.assert_called_once()
+
     def test_sampler_logs_current_and_stops(self):
         stub = mock.MagicMock()
         stub.current = 1.23

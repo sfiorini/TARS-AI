@@ -737,7 +737,10 @@ def reset_positions(soft=False):
     for every non-boot caller."""
     global servo_positions
 
-    stop_sampler = _start_boot_current_sampler()
+    # BOOT-ONLY instrumentation: sample INA260 current during the soft
+    # (boot) movement. The hard path is byte-identical to pre-M2 for
+    # non-boot callers — no sampler thread, no log lines.
+    stop_sampler = _start_boot_current_sampler() if soft else None
     try:
         move_legs(20, 20, None, None, 0.6)
 
