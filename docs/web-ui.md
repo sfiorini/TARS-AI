@@ -80,12 +80,15 @@ curl -b /tmp/tars.cookie http://<pi-ip>/servo_status
 # {"pca_alive": true, "moving": false, "last_pwm_age_s": 12.3,
 #  "i2c_error_count": 0, "watchdog_running": true, "mode1": 161, "mode2": 4}
 
-# POST /servo_reinit — no-reboot recovery: clears a stuck MOVING flag,
-# re-creates the I2C/PCA9685 device, re-applies saved positions, returns new status
+# POST /servo_reinit — no-reboot recovery: re-creates the I2C/PCA9685 device,
+# re-applies the saved positions of ENGAGED channels only (idle repair writes
+# zero PWM registers), returns new status.
+# While the robot is moving: HTTP 409 + status with "rejected": "moving" —
+# the movement is left untouched and completes unharmed; retry once idle.
 curl -b /tmp/tars.cookie -X POST http://<pi-ip>/servo_reinit
 ```
 
-Healthy: `pca_alive: true`, `watchdog_running: true`, `mode1` has bit `0x20` set, `mode2` == `4` (OUTNE bits `0x0C` == `0x04` — the only drive state that moves servos on this board).
+Healthy: `pca_alive: true`, `watchdog_running: true`, `mode1` has bit `0x20` set, `mode2` == `4` (exactly `0x04` — the only drive state that moves servos on this board; hi-Z glitch modes `0x06`/`0x07`/`0x16`/`0x17` are unhealthy).
 
 ## Config editor from the shell
 
