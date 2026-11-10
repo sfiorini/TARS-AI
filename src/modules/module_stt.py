@@ -2283,3 +2283,28 @@ class STTManager:
             if self._bargein_thread.is_alive():
                 queue_message("WARN: Barge-in monitor thread did not exit cleanly")
             self._bargein_thread = None
+
+    def take_bargein_utterance(self, timeout=8.0) -> Optional[np.ndarray]:
+        """Wait for the barge-in monitor's captured utterance (S-M3-07).
+
+        Returns and clears the captured int16 audio, or None on timeout /
+        veto. The monitor writes ``_bargein_captured`` BEFORE setting the
+        ready Event, so once the wait returns the audio is complete.
+        """
+        if not self._bargein_captured_ready.wait(timeout=timeout):
+            return None
+        self._bargein_captured_ready.clear()
+        audio = self._bargein_captured
+        self._bargein_captured = None
+        return audio
+
+    def transcribe_bargein_audio(self, audio_int16) -> Optional[dict]:
+        """Transcribe a captured barge-in utterance via the existing
+        quick-transcribe path (sherpa/fastrtc). Returns {"text": ...} or
+        None on empty input / empty transcript."""
+        if audio_int16 is None or len(audio_int16) == 0:
+            return None
+        transcript = self._bargein_transcribe([audio_int16])
+        if not transcript:
+            return None
+        return {"text": transcript}

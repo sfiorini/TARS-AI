@@ -207,5 +207,41 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
         self.assertEqual(80 * 2000, self.mgr._bargein_captured.size)
 
 
+class TestTakeBargeinUtterance(unittest.TestCase):
+    """S-M3-07: the monitor-thread -> main-loop handoff API."""
+
+    def setUp(self):
+        self.mgr = make_manager()
+
+    def test_take_returns_audio_once_then_none(self):
+        audio = np.zeros(2000, dtype=np.int16)
+        self.mgr._bargein_captured = audio
+        self.mgr._bargein_captured_ready.set()
+        taken = self.mgr.take_bargein_utterance(timeout=0.1)
+        self.assertIsNotNone(taken)
+        np.testing.assert_array_equal(audio, taken)
+        self.assertIsNone(self.mgr._bargein_captured)
+        # second take: nothing left -> None (cleared)
+        self.assertIsNone(self.mgr.take_bargein_utterance(timeout=0.1))
+
+    def test_take_timeout_returns_none(self):
+        self.assertIsNone(self.mgr.take_bargein_utterance(timeout=0.05))
+
+    def test_transcribe_bargein_audio_returns_dict(self):
+        self.mgr._bargein_transcribe = lambda buf: "hello there"
+        audio = np.zeros(2000, dtype=np.int16)
+        self.assertEqual({"text": "hello there"},
+                         self.mgr.transcribe_bargein_audio(audio))
+
+    def test_transcribe_bargein_audio_none_and_empty(self):
+        self.assertIsNone(self.mgr.transcribe_bargein_audio(None))
+        self.assertIsNone(self.mgr.transcribe_bargein_audio(
+            np.zeros(0, dtype=np.int16)))
+        # empty transcript -> None too
+        self.mgr._bargein_transcribe = lambda buf: ""
+        self.assertIsNone(self.mgr.transcribe_bargein_audio(
+            np.zeros(2000, dtype=np.int16)))
+
+
 if __name__ == "__main__":
     unittest.main()
