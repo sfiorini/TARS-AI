@@ -36,7 +36,7 @@ curl -b /tmp/tars.cookie http://<pi-ip>/servo_status     # mode2 must be 4; mode
 curl -b /tmp/tars.cookie -X POST http://<pi-ip>/servo_reinit
 ```
 
-The 15 s watchdog usually repairs this by itself (re-init + re-apply saved positions from `~/.servo_positions.json`). If the app is stopped: `sudo i2cset -y 1 0x40 0x01 0x04` and `sudo i2cset -y 1 0x40 0x00 0xA0`. See [Servo Watchdog & Recovery](servo-watchdog.md). If `i2c_error_count` in `/servo_status` keeps rising, suspect wiring or servo-rail power (buck converter + 1000 µF cap across V+/GND — see [hardware.md](hardware.md), including the green-V+ batch defect).
+The 2 s watchdog usually repairs this by itself (re-init + re-apply of the **engaged** channels' saved positions from `~/.servo_positions.json`; idle repair writes zero PWM registers, so the robot doesn't jump). If the app is stopped: `sudo i2cset -y 1 0x40 0x01 0x04` and `sudo i2cset -y 1 0x40 0x00 0xA0`. See [Servo Watchdog & Recovery](servo-watchdog.md). If `i2c_error_count` in `/servo_status` keeps rising, suspect wiring or servo-rail power (buck converter + 1000 µF cap across V+/GND — see [hardware.md](hardware.md), including the green-V+ batch defect).
 
 ## Wake word doesn't trigger
 

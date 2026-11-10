@@ -9,7 +9,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 
 | Delta | Where |
 |---|---|
-| Self-healing servo watchdog: 15 s tick, MODE1 bit `0x20` + MODE2 `0x04` health checks, lazy PCA9685 re-init, stuck-MOVING reset (>180 s), position re-apply after repair | `src/modules/module_servoctl.py`, [servo-watchdog.md](servo-watchdog.md) |
+| Self-healing servo watchdog: 2 s tick, MODE1 bit `0x20` + exact MODE2 `0x04` health checks, lazy PCA9685 re-init, stuck-MOVING reset (>30 s), engaged-only position re-apply after repair (idle repair writes zero PWM registers), 409 on `/servo_reinit` while moving, boot soft-start | `src/modules/module_servoctl.py`, [servo-watchdog.md](servo-watchdog.md) |
 | Forced `MODE2 = 0x04` at every PCA9685 init — the only output-drive state that moves servos on this board | `initialize_pca9685()` |
 | Fork web endpoints `GET /servo_status` and `POST /servo_reinit` (no-reboot recovery) | `src/modules/module_chatui.py`, [web-ui.md](web-ui.md) |
 | Movement store: 33 shipped movements in a tracked `movements_defaults.json`, a gitignored live `movements.json`, full CRUD via UI/CLI (`app-movements.py`), reset/prune from defaults | `src/modules/module_movementstore.py`, [movements.md](movements.md) |
@@ -78,7 +78,7 @@ Two machines, one robot:
 
 ## How a conversation flows
 
-Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (configurable chain, e.g. Fish.audio → Speechify → ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 15 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
+Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (configurable chain, e.g. Fish.audio → Speechify → ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 2 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
 
 ## Hardware at a glance
 

@@ -47,7 +47,7 @@ Per-servo calibration lives in `[SERVO]` in `src/config.ini` (`leftUpHeight`, `l
 - I2C: SDA/SCL to the Pi GPIO header, shared bus with the INA260; GND common.
 
 !!! warning "MODE2 must be 0x04 on this board"
-    The PCA9685's MODE2 register default (`0x01`, open-drain outputs) leaves the servos **completely silent** on this board even though the chip still ACKs on I2C. The driver forces **MODE2 = 0x04** at every init (`initialize_pca9685()` in `module_servoctl.py`) and the watchdog re-asserts it every 15 s. Do not "restore" 0x01 — see [Servo Watchdog & Recovery](servo-watchdog.md).
+    The PCA9685's MODE2 register default (`0x01`, open-drain outputs) leaves the servos **completely silent** on this board even though the chip still ACKs on I2C. The driver forces **MODE2 = 0x04** at every init (`initialize_pca9685()` in `module_servoctl.py`) and the watchdog re-asserts it every 2 s. Do not "restore" 0x01 — see [Servo Watchdog & Recovery](servo-watchdog.md).
 
 ## Battery monitoring: INA260 at I2C 0x41
 
