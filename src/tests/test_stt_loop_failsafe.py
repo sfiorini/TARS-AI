@@ -186,3 +186,36 @@ class TestAtomikStallEscalatesToL2:
         # The 60 s rate-limit anchor is NOT stamped when skipping — the next
         # stall re-checks instead of waiting a full 60 s for nothing.
         assert mgr._last_l2_mono == 0.0
+
+
+# ---------------------------------------------------------------------------
+# F4 — backoff must reset after ANY exception-free iteration
+# ---------------------------------------------------------------------------
+
+class TestBackoffResetsOnCleanIteration:
+
+    def test_backoff_resets_after_clean_no_detection_iteration(self, monkeypatch):
+        """F4: a clean iteration that detects nothing must also reset the
+        backoff, otherwise idle listening (nothing detected) keeps the
+        backoff ratcheted at the 5 s cap after one transient error.
+        raise -> clean False -> raise: the second sleep must be 0.5, not 1.0."""
+        mgr = _minimal_manager()
+        calls = {"n": 0}
+        sleeps = []
+
+        def fake_detect():
+            calls["n"] += 1
+            if calls["n"] in (1, 3):
+                raise RuntimeError("boom")
+            if calls["n"] >= 4:
+                mgr.running = False
+            return False        # clean iteration, no wake word detected
+
+        monkeypatch.setattr(mgr, "_detect_wake_word", fake_detect)
+        monkeypatch.setattr(module_stt.time, "sleep", lambda s: sleeps.append(s))
+        with mock.patch.object(module_stt, "queue_message"):
+            mgr._stt_processing_loop()      # run inline; loop must terminate
+
+        assert sleeps == [0.5, 0.5], (
+            "backoff must reset after the clean iteration (second sleep 0.5, "
+            "not 1.0), got %s" % sleeps)
