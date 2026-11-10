@@ -165,6 +165,20 @@ class TestPersistentWriteFailureRecovery(PlayTestCase):
         self.assertTrue(sd_play.called)        # audio still played via sd.play
         self.assertFalse(result)              # not interrupted
 
+    def test_write_failure_closes_aborted_stream(self):
+        """F8: on the non-cancel write-error fallback the stream is aborted
+        and immediately None'd, so the trailing stop()/close() block never
+        runs — the aborted stream must be closed right there or a
+        PortAudio stream object leaks per failure (cumulative on a
+        wedging card)."""
+        fake = _FakeOutputStream()
+        fake.write_error = tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")
+        with self._play_ctx([_wav_chunk(0.05)],
+                            stream_factory=mock.Mock(return_value=fake)):
+            asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertTrue(fake.aborted)
+        self.assertTrue(fake.closed)         # closed, not just aborted
+
     def test_write_failure_runs_full_recovery_ladder(self):
         fake = _FakeOutputStream()
         fake.write_error = tts.sd.PortAudioError("Device unavailable [PaErrorCode -9985]")

@@ -977,6 +977,14 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                                 out_stream.abort()
                             except Exception:
                                 pass
+                            # F8: out_stream is None'd below, so the trailing
+                            # stop()/close() block never sees this stream —
+                            # close it here or the aborted PortAudio stream
+                            # object leaks per failure.
+                            try:
+                                out_stream.close()
+                            except Exception:
+                                pass
                             out_stream = None
                         else:
                             if not first_audio_logged:
