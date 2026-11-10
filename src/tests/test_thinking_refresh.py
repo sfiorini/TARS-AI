@@ -9,12 +9,31 @@ Covers:
 The LLM HTTP layer is always stubbed — no network, no hardware.
 """
 import json
+import sys
 import threading
+import types
 import unittest
+from contextlib import ExitStack
 from unittest import mock
 
 from modules import module_llm  # noqa: E402
 from modules import module_thinking  # noqa: E402
+
+# Fake Pi-only hardware so module_main (via module_servoctl) imports on any
+# dev machine — same pattern as test_audio_recovery.py. setdefault keeps
+# this idempotent even when another test module imported the stubs first.
+_board = types.ModuleType("board")
+_board.SCL = "SCL"
+_board.SDA = "SDA"
+_busio = types.ModuleType("busio")
+_busio.I2C = mock.MagicMock()
+_pca9685 = types.ModuleType("adafruit_pca9685")
+_pca9685.PCA9685 = mock.MagicMock()
+for _name, _mod in (("board", _board), ("busio", _busio),
+                    ("adafruit_pca9685", _pca9685)):
+    sys.modules.setdefault(_name, _mod)
+
+import modules.module_main as module_main  # noqa: E402
 from modules.module_llm import raw_complete_llm  # noqa: E402
 
 
@@ -389,6 +408,63 @@ class TestLlmFillerWiring(_ThinkingStateTestCase):
         self.assertTrue(result)
         self.assertIn(messages[0], {"cfg one", "cfg two"})
         self.assertEqual(len(targets), 1)
+
+
+class TestBootWiring(unittest.TestCase):
+    """S-M4-05: startup_initialization() starts the refresh daemon after
+    the thermal block, guarded by try/except and the
+    thinking_refresh_enabled key — a missing LLM key or import failure
+    never blocks boot."""
+
+    def _patches(self):
+        return [
+            mock.patch.object(module_main, "initialize_servos"),
+            mock.patch("modules.module_servoctl.start_servo_watchdog"),
+            mock.patch("modules.module_audio_recovery.reprobe_audio"),
+            mock.patch("modules.module_mic.start_hub_watchdog"),
+            mock.patch("modules.module_cputemp.CPUTempModule"),
+            mock.patch("modules.module_cputemp.set_cpu_temp_instance"),
+            mock.patch("modules.module_cputemp.set_ventilate_callback"),
+            mock.patch("modules.module_cputemp.start_thermal_monitoring"),
+            mock.patch("modules.module_movements.ventilate_on"),
+            mock.patch.object(module_main, "queue_message"),
+        ]
+
+    def test_startup_starts_refresh_when_enabled(self):
+        with ExitStack() as stack:
+            for p in self._patches():
+                stack.enter_context(p)
+            refresh = stack.enter_context(mock.patch(
+                "modules.module_thinking.start_thinking_refresh"))
+            stack.enter_context(mock.patch.dict(
+                module_main.CONFIG["CHAR"],
+                {"thinking_refresh_enabled": True}))
+            module_main.startup_initialization()
+        refresh.assert_called_once()
+
+    def test_startup_skips_refresh_when_disabled(self):
+        with ExitStack() as stack:
+            for p in self._patches():
+                stack.enter_context(p)
+            refresh = stack.enter_context(mock.patch(
+                "modules.module_thinking.start_thinking_refresh"))
+            stack.enter_context(mock.patch.dict(
+                module_main.CONFIG["CHAR"],
+                {"thinking_refresh_enabled": False}))
+            module_main.startup_initialization()
+        refresh.assert_not_called()
+
+    def test_refresh_failure_never_blocks_boot(self):
+        with ExitStack() as stack:
+            for p in self._patches():
+                stack.enter_context(p)
+            stack.enter_context(mock.patch.dict(
+                module_main.CONFIG["CHAR"],
+                {"thinking_refresh_enabled": True}))
+            stack.enter_context(mock.patch(
+                "modules.module_thinking.start_thinking_refresh",
+                side_effect=RuntimeError("no llm key")))
+            module_main.startup_initialization()   # must not raise
 
 
 class TestDaemonLifecycle(_ThinkingStateTestCase):

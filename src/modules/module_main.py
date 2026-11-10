@@ -672,5 +672,13 @@ def startup_initialization():
             start_thermal_monitoring()
         except Exception as e:
             print(f"WARNING: Thermal monitoring not available: {e}")
+        # S-M4-05: thinking-phrase refresh daemon — a missing LLM key or
+        # an import failure must never block boot (mirrors the blocks above).
+        try:
+            if CONFIG["CHAR"].get("thinking_refresh_enabled", True):
+                from modules.module_thinking import start_thinking_refresh
+                start_thinking_refresh()
+        except Exception as e:
+            queue_message(f"WARNING: thinking refresh not started: {e}")
     except Exception as e:
         queue_message(f"ERROR: Servo initialization failed - {e}")
