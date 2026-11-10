@@ -310,3 +310,40 @@ def test_listen_publishes_detector_to_watchdog(monkeypatch):
     assert published[0] is det            # published at listen entry
     assert published[-1] is None          # cleared on the raise path
     assert module_mic._active_listener is None
+
+
+def test_stall_log_reports_current_chunk_count(monkeypatch):
+    """F3: in mode (c) (chunks advance, _check_count frozen) the WAKE stall
+    line must report the CURRENT hub chunk count at the moment of the stall
+    decision — not the stale value captured when the check counter last
+    advanced. Otherwise mode (c) is indistinguishable from mode (a) in the
+    log."""
+    from unittest import mock
+
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    counter = {"chunk_count": 0}
+
+    def fake_stats():
+        counter["chunk_count"] += 1     # chunks keep advancing (mode c)...
+        return counter
+
+    invalidated = []
+    _patch_hub(monkeypatch, fake_stats, invalidated)
+    frozen_check = det._check_count      # ...but detect() never runs
+
+    with mock.patch.object(atomik, "queue_message") as qmsg:
+        with pytest.raises(AudioStallError):
+            det.listenForWakeWord(stall_timeout=0.2, max_recoveries=1)
+
+    assert det._check_count == frozen_check
+    stalls = [c.args[0] for c in qmsg.call_args_list
+              if c.args and str(c.args[0]).startswith("WARNING: WAKE stall")]
+    assert len(stalls) == 1, stalls
+    current = counter["chunk_count"]
+    assert f"hub_chunk={current}" in stalls[0], (
+        f"stall line must report the current chunk count ({current}), got: {stalls[0]}")
+    # And it must not be the stale first-poll value (mode c keeps advancing).
+    assert "hub_chunk=1}" not in stalls[0]
