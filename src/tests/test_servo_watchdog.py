@@ -294,9 +294,13 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         self.assertIsInstance(status["watchdog_running"], bool)
 
     def test_force_servo_recovery_reapplies_saved_positions(self):
+        # S-M2-04 engaged-only contract: recovery re-applies ONLY the engaged
+        # channels (not every saved position — that would re-energize servos
+        # deliberately disabled after a movement).
         servoctl.MOVING = True
         servoctl.pca = None
-        servoctl.servo_positions = {0: 350, 3: 300}
+        servoctl.servo_positions = {0: 350, 3: 300, 12: 400}
+        servoctl._engaged_channels = {0, 3}
 
         def fake_init():
             servoctl.pca = mock.MagicMock()
@@ -310,6 +314,59 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         self.assertTrue(status["pca_alive"])
         ssp.assert_any_call(0, 350)
         ssp.assert_any_call(3, 300)
+        for call in ssp.call_args_list:
+            self.assertIn(call.args[0], {0, 3},
+                          "recovery must not re-apply non-engaged channels")
+
+
+class TestReapplyEngagedPositions(ServoctlSelfHealingTestCase):
+    """S-M2-04: repair/recovery re-applies ONLY engaged channels from
+    servo_positions, legs (0-3) first. An empty engaged set (the common path:
+    disable_all_servos runs after every movement via the movement-store and
+    playback paths, so idle means deliberately de-energized) must write ZERO
+    PWM registers — that is the jump fix."""
+
+    def test_reapply_engaged_only_legs_first(self):
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 100, 4: 300, 8: 310}
+        servoctl._engaged_channels = {8, 4, 0}
+
+        with mock.patch("time.sleep"):
+            servoctl._reapply_engaged_positions()
+
+        written = [channel for channel, _value in servoctl.pca.writes]
+        self.assertEqual(written, [0, 4, 8])  # legs first, then others sorted
+        expected = [
+            (0, servoctl.pulse_to_duty_cycle(100)),
+            (4, servoctl.pulse_to_duty_cycle(300)),
+            (8, servoctl.pulse_to_duty_cycle(310)),
+        ]
+        self.assertEqual(servoctl.pca.writes, expected)
+
+    def test_idle_reapply_zero_writes(self):
+        # THE jump fix: idle (engaged set empty after disable_all_servos)
+        # repair must touch ZERO PWM registers — deliberately de-energized
+        # servos stay de-energized even though servo_positions is non-empty.
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 350, 3: 300, 12: 400}
+        servoctl._engaged_channels = set()
+
+        servoctl._reapply_engaged_positions()
+
+        self.assertEqual(servoctl.pca.writes, [])
+
+    def test_engaged_channel_missing_position_skipped(self):
+        # never write an unknown value: an engaged channel with no saved
+        # position is skipped, not defaulted.
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 350}
+        servoctl._engaged_channels = {0, 5}
+
+        with mock.patch("time.sleep"):
+            servoctl._reapply_engaged_positions()
+
+        written = [channel for channel, _value in servoctl.pca.writes]
+        self.assertEqual(written, [0])
 
 
 class TestMode1Health(ServoctlSelfHealingTestCase):

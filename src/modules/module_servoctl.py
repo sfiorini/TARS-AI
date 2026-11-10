@@ -543,10 +543,10 @@ def _repair_chip_state_if_needed():
         m1, m2 = _read_mode1(), _read_mode2()
         if _chip_state_healthy(m1, m2):
             queue_message("SERVO: PCA9685 state repair complete")
-            # re-init cleared the PWM output registers — re-apply saved positions
-            # so servos hold instead of going limp until the next command
-            for channel, value in servo_positions.items():
-                set_servo_pwm(int(channel), value)
+            # re-init cleared the PWM output registers — restore the commanded
+            # pose of ENGAGED channels only; deliberately de-energized channels
+            # (idle after a movement's disable_all_servos) stay untouched.
+            _reapply_engaged_positions()
         else:
             queue_message(f"WARNING: servo watchdog - MODE1/MODE2 still unhealthy after re-init (MODE1={m1}, MODE2={m2})")
     else:
@@ -628,10 +628,9 @@ def force_servo_recovery():
             mode1, mode2 = _read_mode1(), _read_mode2()
             if not _chip_state_healthy(mode1, mode2):
                 queue_message(f"WARNING: servo recovery - MODE1/MODE2 still unhealthy after re-init (MODE1={mode1}, MODE2={mode2})")
-            if servo_positions:
-                for channel, value in servo_positions.items():
-                    set_servo_pwm(int(channel), value)
-                    time.sleep(0.02)
+            # Restore the commanded pose of engaged channels only (legs first,
+            # 20 ms apart); idle channels stay de-energized — no neutral jerk.
+            _reapply_engaged_positions()
     
     return servo_status()
 
@@ -674,6 +673,28 @@ def disable_all_servos():
         _engaged_channels.clear()
 
     time.sleep(0.05)
+
+def _reapply_engaged_positions():
+    """Re-apply ONLY engaged channels from servo_positions, legs (0-3) first,
+    0.02 s inter-write sleeps. An empty engaged set writes ZERO PWM registers.
+
+    Rationale: engaged-only re-apply restores the commanded pose of
+    genuinely-engaged channels (hold, ventilate); idle-after-disable — the
+    common path, since the movement-store and playback paths run
+    disable_all_servos() after every movement (move_legs/move_arm themselves
+    do NOT disable) — means deliberately de-energized servos, and idle repair
+    writing zero PWM registers is exactly why the idle-repair jump disappears.
+    No ramp through neutral: there is no position feedback and servo_positions
+    IS the commanded pose."""
+    with _state_lock:
+        engaged = sorted(_engaged_channels)
+    legs = [c for c in engaged if c <= 3]
+    others = [c for c in engaged if c > 3]
+    for channel in legs + others:
+        value = servo_positions.get(channel)
+        if value is not None:
+            set_servo_pwm(int(channel), value)
+            time.sleep(0.02)
 
 def reset_positions():
     global servo_positions
