@@ -84,5 +84,19 @@ class TestSessionConfigIsolation(unittest.TestCase):
         self.assertEqual(cfg["TTS"].tts_fallback_list, _TEMPLATE_FALLBACK)
 
 
+class TestBargeinKeyDefaults(unittest.TestCase):
+    """S-M3-01: the three new [STT] barge-in keys resolve from the template."""
+
+    def test_bargein_key_defaults(self):
+        old_cache = module_config._config_cache
+        module_config._config_cache = None
+        self.addCleanup(setattr, module_config, "_config_cache", old_cache)
+        cfg = module_config.load_config()
+        stt = cfg["STT"]
+        self.assertEqual(stt["bargein_bleed_factor"], 2.5)
+        self.assertEqual(stt["bargein_min_candidates"], 2)
+        self.assertIs(stt["bargein_listen_after_interrupt"], True)
+
+
 if __name__ == "__main__":
     unittest.main()

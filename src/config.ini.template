@@ -112,6 +112,12 @@ enable_bargein = True
 bargein_mode = voiceprint
 # Barge-in sensitivity 1–10 (1 = hard to interrupt, 10 = very sensitive)
 bargein_sensitivity = 5
+# How much louder than TARS's own speaker bleed a sound must be to count as an interruption (2.5 = default)
+bargein_bleed_factor = 2.5
+# Consecutive 125 ms frames above the gate needed to trigger an interrupt (2 = 250 ms)
+bargein_min_candidates = 2
+# When ON, an interruption carries your words straight into the pipeline (no wake word needed)
+bargein_listen_after_interrupt = True
 # Silence before processing in tenths of a second (20 = 2s)
 speechdelay = 15
 # Speaker identification — passively identify who is speaking (Pi5/Pi4 only)

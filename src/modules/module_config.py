@@ -510,6 +510,9 @@ def load_config():
             "enable_bargein": config.getboolean('STT', 'enable_bargein', fallback=True),
             "bargein_mode": config.get('STT', 'bargein_mode', fallback='fuzzy'),
             "bargein_sensitivity": config.getint('STT', 'bargein_sensitivity', fallback=5),
+            "bargein_bleed_factor": config.getfloat('STT', 'bargein_bleed_factor', fallback=2.5),
+            "bargein_min_candidates": config.getint('STT', 'bargein_min_candidates', fallback=2),
+            "bargein_listen_after_interrupt": config.getboolean('STT', 'bargein_listen_after_interrupt', fallback=True),
             "vad_method": config['STT']['vad_method'],
             "speechdelay": int(config['STT']['speechdelay']),
             "speaker_id_enabled": config.get('STT', 'speaker_id_enabled', fallback='False'),
@@ -1021,6 +1024,32 @@ CONFIG_METADATA = {
             'step': 1,
             'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
             'description': 'How easy it is to interrupt TARS. 1 = very hard to interrupt. 10 = interrupts at the slightest sound. Start at 5. Lower if TARS gets falsely interrupted by background noise or its own speaker.'
+        },
+        'bargein_bleed_factor': {
+            'group': 'bargein',
+            'label': 'Barge-In Bleed Factor',
+            'type': 'slider',
+            'min': 1.0,
+            'max': 5.0,
+            'step': 0.1,
+            'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
+            'description': 'How much louder than TARS\'s own speaker bleed a sound must be to count as an interruption. 2.5 is a good default. Raise if TARS interrupts itself; lower if your interrupts are ignored.'
+        },
+        'bargein_min_candidates': {
+            'group': 'bargein',
+            'label': 'Barge-In Candidate Frames',
+            'type': 'slider',
+            'min': 1,
+            'max': 4,
+            'step': 1,
+            'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
+            'description': 'Consecutive 125 ms frames above the gate needed to trigger an interrupt (2 = 250 ms). Raise to 3 to reject coughs and bangs.'
+        },
+        'bargein_listen_after_interrupt': {
+            'group': 'bargein',
+            'label': 'Listen After Interrupt',
+            'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
+            'description': 'When ON, an interruption carries your words straight into the pipeline (no wake word needed). Turn OFF as the rollback switch if interrupts misbehave.'
         },
 
         # ── End-of-Speech Detection ───────────────────────────────────────────
