@@ -561,7 +561,12 @@ def _hub_watchdog_tick():
     age = s["last_chunk_age_s"]
     stale = age is None or age > 5.0
     nz = s["last_nonzero_age_s"]
-    digital_silence = (nz is not None and nz > 60.0)
+    # Sustained digital silence: either ≥ 60 s since the last non-zero
+    # chunk, or chunks arriving that have NEVER been non-zero (all-zeros
+    # from the very first chunk — _last_nonzero_mono stays 0 -> nz None).
+    # nz None with zero chunks is "no data yet", not silence.
+    digital_silence = ((nz is not None and nz > 60.0)
+                       or (nz is None and s["chunk_count"] > 0))
     if not stale and not digital_silence:
         # Healthy: reset the ladder so every stale episode starts at a fresh
         # cheap L1 — never an immediate ~22 s L2 after a long healthy gap.
