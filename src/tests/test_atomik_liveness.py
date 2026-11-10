@@ -210,6 +210,34 @@ def test_listen_escalates_when_detect_raises_every_chunk(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Audit F9 — model mode must stamp _last_window_rms
+# ---------------------------------------------------------------------------
+
+class _StubModel:
+    """Stand-in ONNX model: predict() always returns a below-threshold score."""
+
+    def predict(self, feat):
+        return 0.0
+
+
+def test_detect_model_stamps_window_rms(monkeypatch):
+    """F9: the model-mode detect path computes the window rms but never
+    stored it, so the hub watchdog's rms= field and the WAKE stall log
+    always read 0.0 in model mode — misleading the digital-silence vs
+    detect-stalled discrimination. After a model-mode detect() pass on
+    non-zero audio, _last_window_rms must be > 0."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = _StubModel()
+    _append_chunk(det, _loud_slice(16000))
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+
+    detected, score = det.detect()
+
+    assert detected is False
+    assert det._last_window_rms > 0.0
+
+
+# ---------------------------------------------------------------------------
 # S-M1-09 — chunk-deque buffer + _window()/last_window() accessors
 # ---------------------------------------------------------------------------
 

@@ -870,6 +870,11 @@ class WakeWordSystem:
 
         # --- Gate 1: Energy gate ---
         rms = np.sqrt(np.mean(audio_window ** 2))
+        # F9: stamp the window rms in model mode too (template mode already
+        # does) — the hub watchdog's rms= field and the WAKE stall log must
+        # not read 0.0 while the mic delivers speech. Stamped before the
+        # gate so it reflects the judged audio even when gated.
+        self._last_window_rms = float(rms)
         if rms < self.vad.energy_threshold:
             # Update noise floor from quiet frames
             self._noise_floor = (1 - self._noise_alpha) * self._noise_floor + self._noise_alpha * rms
