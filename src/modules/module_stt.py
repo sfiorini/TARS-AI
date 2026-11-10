@@ -730,21 +730,28 @@ class STTManager:
 
     def _stt_processing_loop(self):
         queue_message("INFO: Starting STT processing loop...")
+        backoff = 0.5
         while self.running and not self.shutdown_event.is_set():
-            # Skip processing if paused (e.g., during video playback)
-            if self.is_paused():
-                time.sleep(0.1)
-                continue
-            if self._detect_wake_word():
-                if self.DEBUG:
-                    queue_message("DEBUG: Wake word detected, starting transcription")
-                STTManager._last_status_was_sleeping = False
-                # Reset sherpa VAD state to prevent heap corruption from stale native buffers
-                if self.sherpa_vad is not None:
-                    self.sherpa_vad.reset()
-                # Check again if paused before transcribing
-                if not self.is_paused():
-                    self._transcribe_utterance()
+            try:
+                # Skip processing if paused (e.g., during video playback)
+                if self.is_paused():
+                    time.sleep(0.1)
+                    continue
+                if self._detect_wake_word():
+                    backoff = 0.5                      # reset on success
+                    if self.DEBUG:
+                        queue_message("DEBUG: Wake word detected, starting transcription")
+                    STTManager._last_status_was_sleeping = False
+                    # Reset sherpa VAD state to prevent heap corruption from stale native buffers
+                    if self.sherpa_vad is not None:
+                        self.sherpa_vad.reset()
+                    # Check again if paused before transcribing
+                    if not self.is_paused():
+                        self._transcribe_utterance()
+            except Exception as e:
+                queue_message(f"ERROR: STT loop iteration failed ({e}) — retrying in {backoff:.1f}s")
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 5.0)
         queue_message("INFO: STT Manager stopped.")
 
     # === Transcription Dispatch ===
