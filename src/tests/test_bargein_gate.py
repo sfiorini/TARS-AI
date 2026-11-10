@@ -85,6 +85,42 @@ class TestEchoGate(unittest.TestCase):
         time.sleep(0.1)
         self.assertFalse(gate.in_backoff())
 
+    def test_backoff_does_not_compound_across_vetoes(self):
+        """Repeated vetoes inside the SAME window must NOT compound
+        bleed_factor (review F5): the raised bar is a FIXED base x1.5,
+        not repeatedly multiplied — otherwise a persistently noisy
+        environment drives it 2.5 -> 3.75 -> 5.6 -> ... and silently
+        kills barge-in. min_candidates stays stable at 3; the raised
+        bar still expires after the window."""
+        gate = make_gate(min_candidates=2, bleed_factor=2.5)
+        gate.backoff(seconds=0.05)
+        raised = gate.bleed_factor
+        self.assertAlmostEqual(raised, 2.5 * 1.5)
+        self.assertEqual(gate.min_candidates, 3)
+        # second veto while the window is still open: must not raise further
+        gate.backoff(seconds=0.05)
+        self.assertEqual(gate.bleed_factor, raised,
+                         "bleed_factor compounded across vetoes — the "
+                         "raised bar must be fixed, not repeatedly x1.5")
+        self.assertEqual(gate.min_candidates, 3)
+        # the raised bar still expires after the window
+        time.sleep(0.1)
+        self.assertFalse(gate.in_backoff())
+
+    def test_backoff_does_not_compound_across_runs(self):
+        """A persisted backoff restored onto a fresh gate (review F3)
+        plus a NEW veto must not compound either (review F5): the fresh
+        gate computes its raised bar against its configured base, not
+        against the restored value."""
+        gate1 = make_gate(min_candidates=2, bleed_factor=2.5)
+        gate1.backoff()
+        state = gate1.backoff_state()
+        gate2 = make_gate(min_candidates=2, bleed_factor=2.5)
+        gate2.restore_backoff(state)
+        gate2.backoff()
+        self.assertAlmostEqual(gate2.bleed_factor, gate1.bleed_factor)
+        self.assertEqual(gate2.min_candidates, 3)
+
     def test_backoff_default_60s(self):
         gate = make_gate()
         gate.backoff()

@@ -17,6 +17,7 @@ class EchoGate:
         self.silence_threshold = float(silence_threshold)
         self.rms_scale = float(rms_scale)
         self.bleed_factor = float(bleed_factor)
+        self._base_bleed_factor = float(bleed_factor)  # configured value — backoff() raises against this, not the current one, so repeated vetoes cannot compound (review F5)
         self.min_candidates = int(min_candidates)
         self.ema_alpha = float(ema_alpha)
         self.bleed_floor = 0.0
@@ -54,7 +55,12 @@ class EchoGate:
         """After a voiceprint veto: raise the bar for `seconds`."""
         self._backoff_until = time.monotonic() + seconds
         self.min_candidates = max(self.min_candidates, 3)
-        self.bleed_factor *= 1.5
+        # Idempotent (review F5): raise to a FIXED bar computed from the
+        # configured base — `max` (not `*=`) so repeated vetoes inside the
+        # window, or a restored persisted state plus a new veto, cannot
+        # compound 2.5 -> 3.75 -> 5.6 -> ... and silently kill barge-in.
+        self.bleed_factor = max(self.bleed_factor,
+                                self._base_bleed_factor * 1.5)
 
     def in_backoff(self) -> bool:
         return time.monotonic() < self._backoff_until
