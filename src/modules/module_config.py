@@ -805,7 +805,8 @@ CONFIG_METADATA = {
             'description': 'When ON, TARS periodically asks the AI for a fresh set of thinking filler phrases (in addition to the list above). When OFF, only the configured phrases are used.'
         },
         'thinking_refresh_minutes': {
-            'description': 'How often (in minutes) TARS asks the AI for new thinking phrases. 30 is a good default.'
+            'min': 1,
+            'description': 'How often (in minutes) TARS asks the AI for new thinking phrases. 30 is a good default. Values below 1 are clamped to 1.'
         },
         'responses': {
             'description': 'When you say the wake word (like "Hey TARS"), TARS will immediately say one of these short phrases to let you know it heard you. This happens BEFORE it actually processes what you say next. Think of it like saying "Yeah?" when someone calls your name. You can change these to whatever you want, add new ones, or remove ones you do not like. The format is a list in square brackets with each phrase in quotes separated by commas. Set to [] (empty brackets) if you do not want any response.'

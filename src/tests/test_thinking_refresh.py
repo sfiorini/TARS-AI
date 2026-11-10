@@ -369,6 +369,22 @@ class TestRefreshLoop(_ThinkingStateTestCase):
             module_thinking._refresh_loop(event)
         self.assertEqual(event.waits, [5 * 60])
 
+    def test_loop_clamps_non_positive_minutes(self):
+        """F5: thinking_refresh_minutes = -5 must not become
+        Event.wait(-300) — a negative wait returns immediately, producing a
+        tight _refresh_once() -> wait() loop hammering the LLM endpoint.
+        Clamp to a positive floor (>= 1 minute)."""
+        with mock.patch.object(module_thinking, "_refresh_once",
+                               return_value=True), \
+             mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_refresh_minutes": -5}):
+            event = _FakeEvent()
+            event.is_set = lambda: len(event.waits) >= 1
+            module_thinking._refresh_loop(event)
+        self.assertEqual(len(event.waits), 1)
+        self.assertGreaterEqual(event.waits[0], 60,
+                                "wait delay must be >= 60 s, not immediate")
+
 
 class TestLlmFillerWiring(_ThinkingStateTestCase):
     """S-M4-04: _maybe_play_thinking_response consumes get_filler_phrase

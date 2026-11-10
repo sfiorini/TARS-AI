@@ -136,6 +136,10 @@ def _refresh_loop(stop_event):
         minutes = int(CONFIG["CHAR"].get("thinking_refresh_minutes", 30) or 30)
     except (TypeError, ValueError):
         minutes = 30
+    # F5: clamp to a positive floor — a negative/zero value makes
+    # Event.wait() return immediately (tight _refresh_once loop hammering
+    # the LLM endpoint and spamming logs every iteration).
+    minutes = max(1, minutes)
     while not stop_event.is_set():
         try:
             _refresh_once()
