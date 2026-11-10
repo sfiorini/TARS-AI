@@ -959,6 +959,14 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                             if audio_queue.empty() and synthesis_done.is_set():
                                 _tts_playing.clear()
                         if write_error is not None:
+                            if _tts_cancel_event.is_set():
+                                # M3: a cancel-induced write error (the abort
+                                # racing the in-flight sub-slice write) is a
+                                # CLEAN cancel — never enter the sd.play
+                                # recovery ladder, which would keep playing
+                                # after the cancel.
+                                was_interrupted = True
+                                break
                             # The persistent stream is dead (e.g. wedged USB
                             # card) — abort it and fall through to the sd.play
                             # recovery ladder below (-9985 recovery, sound-server

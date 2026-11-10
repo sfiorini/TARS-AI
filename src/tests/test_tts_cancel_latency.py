@@ -137,5 +137,36 @@ class TestStopTtsAbortsActiveStream(CancelLatencyTestCase):
                         "the cancel generation bump must still happen")
 
 
+class TestCancelVsErrorDiscrimination(CancelLatencyTestCase):
+    """S-M3-04: a cancel-induced write error is a clean cancel — never the
+    sd.play recovery ladder (which would keep playing after the cancel).
+    The contrast case (a genuine write failure WITHOUT a cancel still takes
+    the ladder) is pinned by test_tts_playback_recovery.py
+    TestPersistentWriteFailureRecovery."""
+
+    def test_cancel_induced_error_no_recovery_ladder(self):
+        fake = _FakeOutputStream()
+        err = tts.sd.PortAudioError("Stream aborted [PaErrorCode -9985]")
+
+        def on_write(stream):
+            # The abort racing the in-flight write: the cancel lands and the
+            # device write then fails because the stream is being torn down.
+            tts._tts_cancel_event.set()
+            raise err
+
+        fake.on_write = on_write
+        sd_play = mock.Mock()
+        with mock.patch.object(tts, "queue_message") as qm:
+            with self._play_ctx([_wav_chunk(0.05)],
+                                stream_factory=mock.Mock(return_value=fake),
+                                sd_play=sd_play):
+                result = asyncio.run(tts.play_audio_chunks("hello", {}))
+        self.assertTrue(result, "a cancel-induced error must read as interrupted")
+        sd_play.assert_not_called()
+        logged = " ".join(str(call) for call in qm.call_args_list)
+        self.assertNotIn("falling back to sd.play recovery", logged,
+                         "a cancel entered the sd.play recovery ladder")
+
+
 if __name__ == "__main__":
     unittest.main()
