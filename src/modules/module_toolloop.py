@@ -104,6 +104,18 @@ def bump_epoch(source):
         return _epochs[source]
 
 
+def cancel_pending_turns(reason):
+    """Bump epochs for ALL registered sources — kills deferred follow-ups
+    and filler follow-ups on a barge-in. A stale-epoch turn thread already
+    self-cancels (`_epoch_ok`). Lock-guarded: safe to call from the barge-in
+    monitor thread.
+    """
+    with _epoch_lock:
+        for source in list(_epochs.keys()):
+            _epochs[source] = _epochs.get(source, 0) + 1
+    queue_message(f"TOOLLOOP: pending turns cancelled ({reason})")
+
+
 def _current_epoch(source):
     with _epoch_lock:
         return _epochs.get(source, 0)

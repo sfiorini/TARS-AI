@@ -942,5 +942,69 @@ class TestFireAndForgetReplies(unittest.TestCase):
         self.assertTrue(parsed.get("_skill_replied"))
 
 
+class TestCancelPendingTurns(unittest.TestCase):
+    """S-M3-05: cancel_pending_turns bumps every registered source's epoch
+    under the lock — a barge-in kills deferred/filler follow-ups (a
+    stale-epoch turn thread already self-cancels via _epoch_ok)."""
+
+    def setUp(self):
+        import modules.module_toolloop as toolloop
+        self.toolloop = toolloop
+        with toolloop._epoch_lock:
+            toolloop._epochs.clear()
+        self.addCleanup(self._restore_epochs)
+        with toolloop._epoch_lock:
+            self._saved_epochs = dict(toolloop._epochs)
+        # queue_message is side-effect-free here (patched per test)
+
+    def _restore_epochs(self):
+        with self.toolloop._epoch_lock:
+            self.toolloop._epochs.clear()
+            self.toolloop._epochs.update(self._saved_epochs)
+
+    def test_bumps_all_registered_sources(self):
+        from modules.module_toolloop import (
+            bump_epoch, _current_epoch, cancel_pending_turns)
+        bump_epoch("voice")
+        bump_epoch("chat")
+        before = {s: _current_epoch(s) for s in ("voice", "chat")}
+        with mock.patch.object(self.toolloop, "queue_message"):
+            cancel_pending_turns("bargein")
+        self.assertEqual(_current_epoch("voice"), before["voice"] + 1)
+        self.assertEqual(_current_epoch("chat"), before["chat"] + 1)
+
+    def test_empty_registry_is_noop(self):
+        from modules.module_toolloop import cancel_pending_turns
+        with mock.patch.object(self.toolloop, "queue_message") as qm:
+            cancel_pending_turns("bargein")   # must not raise
+        self.assertEqual(self.toolloop._epochs, {})
+        qm.assert_called_once()               # reason still logged
+        self.assertIn("bargein", str(qm.call_args))
+
+    def test_thread_safe_no_lost_bumps(self):
+        from modules.module_toolloop import (
+            bump_epoch, _current_epoch, cancel_pending_turns)
+        bump_epoch("voice")
+        bump_epoch("chat")
+        before = {s: _current_epoch(s) for s in ("voice", "chat")}
+        barrier = threading.Barrier(4)
+
+        def worker():
+            barrier.wait()
+            for _ in range(25):
+                cancel_pending_turns("bargein")
+
+        with mock.patch.object(self.toolloop, "queue_message"):
+            threads = [threading.Thread(target=worker) for _ in range(4)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10)
+                self.assertFalse(t.is_alive())
+        # 4 threads x 25 bumps: the lock must not lose any update
+        self.assertEqual(_current_epoch("voice"), before["voice"] + 100)
+        self.assertEqual(_current_epoch("chat"), before["chat"] + 100)
+
+
 if __name__ == "__main__":
     unittest.main()
