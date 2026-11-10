@@ -665,6 +665,12 @@ def initialize_servos():
     print("All servos initialized")
 
 def disable_all_servos():
+    # The caller's intent is ALWAYS "de-energize everything" — clear the
+    # engaged set first, even when the PCA handle is dead: otherwise stale
+    # channels get re-energized by the next repair/recovery.
+    with _state_lock:
+        _engaged_channels.clear()
+
     if pca is None:
         return
     
@@ -673,9 +679,6 @@ def disable_all_servos():
             pca.channels[channel].duty_cycle = 0
     except Exception as e:
         queue_message(f"Error disabling servos: {e}")
-
-    with _state_lock:
-        _engaged_channels.clear()
 
     time.sleep(0.05)
 

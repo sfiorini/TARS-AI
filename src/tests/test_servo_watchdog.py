@@ -529,6 +529,16 @@ class TestEngagedChannels(ServoctlSelfHealingTestCase):
         servoctl.disable_all_servos()
         self.assertEqual(servoctl._engaged_channels, set())
 
+    def test_disable_clears_engaged_set_when_pca_none(self):
+        # F1: the caller's intent is always "de-energize everything" — the
+        # engaged set must clear even when the PCA handle was invalidated,
+        # or the next repair/recovery re-energizes channels that the caller
+        # just tried to disable (phantom-engaged-channel jump).
+        servoctl.pca = None
+        servoctl._engaged_channels = {0, 4, 9}
+        servoctl.disable_all_servos()
+        self.assertEqual(servoctl._engaged_channels, set())
+
     def test_failed_write_not_engaged(self):
         servoctl.pca = _RecordingPca(fail_channels={4})
         servoctl._engaged_channels = set()
