@@ -394,6 +394,7 @@ class _AudioHub:
             "chunk_count": self._chunk_count,
             "last_chunk_age_s": (now - self._last_chunk_mono) if self._last_chunk_mono else None,
             "last_nonzero_age_s": (now - self._last_nonzero_mono) if self._last_nonzero_mono else None,
+            "stream_opened_age_s": (now - self._stream_opened_mono) if self._stream_opened_mono else None,
             "consumer_exc_count": self._consumer_exc_count,
             "consecutive_read_stalls": self._consecutive_read_stalls,
             "stream_open": stream is not None,
@@ -586,7 +587,18 @@ def _hub_watchdog_tick():
             _wd_state["invalidate"] = now                 # throttle anchor advances
         return
     age = s["last_chunk_age_s"]
-    stale = age is None or age > 5.0
+    if s["chunk_count"] == 0:
+        # F1 boot grace: "never delivered a chunk" is not "stopped
+        # delivering" — a freshly opened stream is legitimately silent
+        # until its first PortAudio callback fires (the same grace
+        # _is_chunk_stream_healthy grants; a 2 s tick in that window must
+        # not fire a spurious L1 at boot). Past the grace window a stream
+        # that NEVER delivered is a real failure -> still stale, so there
+        # is no permanent blindness at boot.
+        opened_age = s["stream_opened_age_s"]
+        stale = opened_age is None or opened_age > _AudioHub._STALE_CHUNK_PERIOD
+    else:
+        stale = age is None or age > 5.0
     nz = s["last_nonzero_age_s"]
     digital_silence = (nz is not None and nz > 60.0)
     if not stale and not digital_silence:

@@ -57,6 +57,7 @@ class TestOnAudioCounters:
 
 _STAT_KEYS = {
     "chunk_count", "last_chunk_age_s", "last_nonzero_age_s",
+    "stream_opened_age_s",
     "consumer_exc_count", "consecutive_read_stalls",
     "stream_open", "stream_active", "consumers",
     "callback_names", "recovery_in_progress",
@@ -432,9 +433,32 @@ def _wd_hub(clock, stale=True, digital_silence=False):
     hub._ensure_stream = lambda: None          # never open a real stream
     hub.register_callback(lambda chunk: None, name="test")
     hub._stream = mock.MagicMock(active=True)  # stream_open/stream_active True
+    hub._chunk_count = 1   # real invariant: _last_chunk_mono > 0 implies a
+                           # chunk was delivered (_on_audio stamps both)
     hub._last_chunk_mono = clock.now - (10.0 if stale else 0.0)
     hub._last_nonzero_mono = clock.now - (61.0 if digital_silence
                                           else (10.0 if stale else 0.0))
+    return hub
+
+
+def _wd_boot_hub(clock, opened_age_s, chunk_age=None):
+    """F1 boot-window hub: stream opened (stamped _stream_opened_mono) but
+    the first PortAudio callback has not fired yet (_last_chunk_mono 0.0,
+    chunk_count 0). With chunk_age given, simulates a stream WITH chunk
+    history (the pre-F1 stale contract must be preserved for it)."""
+    hub = _AudioHub()
+    hub._ensure_stream = lambda: None          # never open a real stream
+    hub.register_callback(lambda chunk: None, name="test")
+    hub._stream = mock.MagicMock(active=True)  # stream_open/stream_active True
+    hub._stream_opened_mono = clock.now - opened_age_s
+    if chunk_age is None:
+        hub._chunk_count = 0
+        hub._last_chunk_mono = 0.0     # no callback has fired yet
+        hub._last_nonzero_mono = 0.0
+    else:
+        hub._chunk_count = 5
+        hub._last_chunk_mono = clock.now - chunk_age
+        hub._last_nonzero_mono = clock.now - chunk_age
     return hub
 
 
@@ -583,6 +607,71 @@ class TestHubWatchdogLadder:
             clock.advance(2)
             module_mic._hub_watchdog_tick()
         l1_req.assert_not_called()
+        l2.assert_not_called()
+
+
+class TestWatchdogBootGrace:
+    """F1: "never delivered a chunk" is not "stopped delivering". A freshly
+    opened stream gets the same grace _is_chunk_stream_healthy grants (no
+    spurious L1 at boot), but past the grace window a stream that NEVER
+    delivered is a real failure and must still be recovered — no permanent
+    boot blindness. The _chunk_count > 0 contract is unchanged."""
+
+    def test_boot_within_grace_no_l1(self):
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=1.0)   # opened 1 s ago
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+        assert module_mic._wd_state["l1"] is None   # healthy tick reset ladder
+
+    def test_boot_never_delivered_past_grace_fires_l1(self):
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=11.0)  # > _STALE_CHUNK_PERIOD
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_called_once()
+        l2.assert_not_called()
+
+    def test_delivered_recent_chunk_no_l1(self):
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=60.0, chunk_age=1.0)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
+    def test_delivered_stale_30s_fires_l1(self):
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=60.0, chunk_age=30.0)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_called_once()
         l2.assert_not_called()
 
 
