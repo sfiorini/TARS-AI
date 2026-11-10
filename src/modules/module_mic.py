@@ -223,21 +223,47 @@ class _AudioHub:
             evt.set()
 
     def _ensure_stream(self):
-        """Start the shared stream if not already running. Called under lock."""
-        # Cancel any pending grace-period shutdown
-        if self._grace_timer is not None:
-            self._grace_timer.cancel()
-            self._grace_timer = None
-
-        if self._stream is not None:
-            return
-        idx, rate = get_device_info()
-        self._native_rate = rate
-        kwargs = dict(samplerate=rate, channels=1, callback=self._on_audio)
-        if idx is not None and idx >= 0:
-            kwargs["device"] = idx
-        self._stream = sd.InputStream(**kwargs)
-        self._stream.start()
+        """Health check + bounded create. Callers must NOT hold _lock:
+        this method acquires it per attempt and sleeps between attempts
+        OUTSIDE the lock (failure-path backoff must not starve other threads)."""
+        with self._lock:
+            # Cancel any pending grace-period shutdown
+            if self._grace_timer is not None:
+                self._grace_timer.cancel()
+                self._grace_timer = None
+            if self._stream is not None:
+                if (getattr(self._stream, "active", True)
+                        and not getattr(self._stream, "stopped", False)):
+                    return                      # genuinely healthy — keep
+                try:                            # dead/stopped stream object — recreate
+                    self._stream.stop()
+                    self._stream.close()
+                except Exception:
+                    pass
+                self._stream = None
+        last_err = None
+        for attempt in range(3):            # bounded retry, re-resolve device each attempt
+            try:
+                idx, rate = get_device_info()   # device may have re-enumerated
+                kwargs = dict(samplerate=rate, channels=1, callback=self._on_audio)
+                if idx is not None and idx >= 0:
+                    kwargs["device"] = idx
+                stream = sd.InputStream(**kwargs)
+                stream.start()
+                with self._lock:
+                    if self._stream is None:
+                        self._stream = stream
+                        self._native_rate = rate
+                    else:                       # another thread won the race
+                        try:
+                            stream.stop(); stream.close()
+                        except Exception:
+                            pass
+                return
+            except Exception as e:
+                last_err = e
+            time.sleep(0.5 * (attempt + 1))     # OUTSIDE the lock
+        raise last_err  # register_* rolls back (existing contract)
 
     def invalidate(self):
         """Stop and close the stream immediately; re-created lazily on next use.
@@ -329,14 +355,15 @@ class _AudioHub:
             self._callbacks[rid] = callback
             self._callback_names[rid] = name or f"cb-{rid}"
             self._rebuild_snapshots()
-            try:
-                self._ensure_stream()
-            except Exception:
+        try:
+            self._ensure_stream()          # OUTSIDE the lock — may sleep up to ~3 s
+        except Exception:
+            with self._lock:
                 self._callbacks.pop(rid, None)
                 self._callback_names.pop(rid, None)
                 self._rebuild_snapshots()
-                raise
-            return rid
+            raise
+        return rid
 
     def unregister_callback(self, rid):
         """Remove a callback consumer by ID."""
@@ -355,13 +382,14 @@ class _AudioHub:
             self._next_id += 1
             self._readers[rid] = (collections.deque(maxlen=500), threading.Event(), dtype)
             self._rebuild_snapshots()
-            try:
-                self._ensure_stream()
-            except Exception:
+        try:
+            self._ensure_stream()          # OUTSIDE the lock — may sleep up to ~3 s
+        except Exception:
+            with self._lock:
                 self._readers.pop(rid, None)
                 self._rebuild_snapshots()
-                raise
-            return rid
+            raise
+        return rid
 
     def unregister_reader(self, rid):
         """Remove a read-based consumer by ID."""
