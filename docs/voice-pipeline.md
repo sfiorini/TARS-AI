@@ -13,6 +13,49 @@ The full loop from wake word to spoken reply — **wake word → STT → LLM (wi
 
 Threshold curves in `module_stt._detect_wake_word_atomik`: template mode 0.70 at sens 1 → 0.40 at sens 10; model mode 0.80 → 0.40. **Raise the number if TARS stops hearing you; lower it if it activates randomly.** Also tune `mic_amp_gain` (template default 13.0) and `silence_margin` (default 3.0, lower = more sensitive). Wake gates: `vad_transcript_verify`, `vad_speaker_verify`, `vad_presence_gate`.
 
+## Audio input supervision
+
+The mic capture path is supervised by **two independent layers**, because either can fail alone:
+
+1. **Hub watchdog daemon** — `module_mic.start_hub_watchdog()`, started at boot by `module_main.startup_initialization()` (a watchdog failure logs a WARNING and never blocks boot). A 2 s tick inspects the shared audio hub **even when no listener is active**: the stream-gone-with-consumers hole and TTS-recovery deafness both happen with the wake listener closed, which the listener-side layer cannot see.
+2. **The `listenForWakeWord` deadline** (`module_atomik`) — while a listener is active, a 10 s dual-signal deadline. It resets **only** when the detector's check counter advances (check-advance implies chunk-advance, since detection runs from the RT callback). Chunks advancing while detection stays frozen is the swallowed-exception mode and must **not** reset the deadline. After 3 failed L1 recoveries the listener raises `AudioStallError`, which the STT loop escalates to L2.
+
+Both are needed: the watchdog covers the no-listener case, the listener deadline covers in-listen wedges with per-detector diagnostics (`exit` reason, window RMS, check counter).
+
+### The L1/L2 escalation ladder
+
+| Rung | Trigger | Action |
+|---|---|---|
+| L1 | chunk age ≥ **5 s** with consumers registered (or the listener's 10 s dual-counter stall) | invalidate + reopen the stream — rate-limited to **1 per 10 s** |
+| L2 | still stale **10 s** after a fresh L1 | `restart_sound_server()` (~22 s PipeWire restart) |
+| CRITICAL | still stale **≥ 60 s** after L2 | repeat L2 at ≥ 60 s cadence with a CRITICAL log — never silent |
+
+Digital silence has its own guard: fresh chunks but **≥ 60 s** of all-zero audio enters the same ladder independently of the chunk-age signal (a wedged stream often delivers silence, not nothing). A single healthy tick resets the whole ladder; zero consumers never alarms (a grace close is legitimate); `recovery_in_progress` suppresses alarms during the ~22 s L2.
+
+### AUDIO-HUB log lines
+
+A healthy heartbeat logs every 30 s while consumers exist, and every stale transition logs an immediate WARNING discriminator:
+
+```
+AUDIO-HUB: cb=2(atomik,spectrum) rd=1 stream=open/active rate=63.2/s last_chunk=0.01s last_nonzero=0.4s exc=0 stalls=0 state=HEALTHY
+AUDIO-HUB: STALE mode=callbacks-stopped|detect-stalled|digital-silence chunk_age=7.2s check_rate=0.0/s rms=0.013 exc=3 cb=[atomik,spectrum] -> L1-reopen
+```
+
+### The four failure modes
+
+The instrumentation distinguishes exactly these:
+
+| Mode | Signature |
+|---|---|
+| (a) callbacks stopped | chunk age grows, no detection progress |
+| (b) silence delivered | chunks fresh, but non-zero-audio age grows and window RMS ≈ 0 |
+| (c) swallowed exception | chunks advance but the detector check counter is frozen; consumer exception count grows |
+| (d) clock latch | a backward wall-clock step made cooldowns permanent — eliminated by the monotonic-clock fix (every deadline uses `time.monotonic()`, which has no NTP step) |
+
+### BLAS thread pools
+
+`App-Start.py` sets `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1` (via `os.environ.setdefault`, so a user-set value always wins) **before the venv Python starts** — numpy reads these at import, so setting them inside `app.py` would be too late. BLAS/OpenMP thread pools spin-wait and burn a core on the Pi even when idle. If you launch `app.py` directly, bypassing `App-Start.py`, export both variables first.
+
 ## 2. Speech-to-text
 
 `stt_processor`: `sherpa-onnx | fastrtc | silero | openai | external | elevenlabs`.

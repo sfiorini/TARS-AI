@@ -107,6 +107,9 @@ cd src && source .venv/bin/activate && python app.py show_ui=true
 
 On a desktop Pi a terminal window shows the boot log; on the robot the on-device display shows the UI. Over SSH, detach: `ssh -f pi 'nohup ~/TARS-AI/tars-launcher.sh >/dev/null 2>&1 &'`. Enable boot autostart with `./toggle-autostart.sh` (XDG entry — see [Running TARS](running.md)).
 
+!!! note "BLAS threads — set before Python starts"
+    `App-Start.py` sets `OPENBLAS_NUM_THREADS=1` and `OMP_NUM_THREADS=1` in its own environment **before** spawning the venv Python: numpy reads both at import (setting them inside `app.py` is too late), and BLAS/OpenMP thread pools otherwise spin-wait and burn a core on the Pi. If you ever launch `app.py` directly, export both variables first. See [Audio input supervision](voice-pipeline.md#audio-input-supervision).
+
 ## 6. Verify hardware on the Pi
 
 ```bash
