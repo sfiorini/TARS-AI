@@ -883,5 +883,169 @@ class TestServoReinitRouteMapping(unittest.TestCase):
         )
 
 
+_ARM_PARAMS = ("left_main", "left_forearm", "left_hand",
+               "right_main", "right_forearm", "right_hand")
+
+
+class TestBootSoftStart(ServoctlSelfHealingTestCase):
+    """S-M2-06: boot soft-start. reset_positions(soft=True) — the boot
+    path — energizes one servo group at a time (leg pairs, then LEFT arm
+    only, then RIGHT arm only) with >= 0.3 s settles between phases,
+    halving peak simultaneous inrush vs the 6-servo move_arm(1,1,1,1,1,1).
+    The hard path (default) must stay unchanged for every non-boot caller."""
+
+    def _record(self):
+        calls = {"legs": [], "arms": []}
+
+        def fake_move_legs(*args, **kwargs):
+            calls["legs"].append((time.monotonic(), args, kwargs))
+
+        def fake_move_arm(*args, **kwargs):
+            calls["arms"].append((time.monotonic(), args, kwargs))
+
+        return calls, fake_move_legs, fake_move_arm
+
+    @staticmethod
+    def _arm_call(entry):
+        """Normalize a recorded move_arm call to a name->value dict."""
+        _t, args, kwargs = entry
+        named = {name: None for name in _ARM_PARAMS + ("speed_factor",)}
+        named.update(dict(zip(_ARM_PARAMS + ("speed_factor",), args)))
+        named.update(kwargs)
+        return named
+
+    def test_boot_soft_start_ordering(self):
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {}
+        calls, fake_legs, fake_arms = self._record()
+
+        with mock.patch.object(servoctl, "move_legs", fake_legs), \
+             mock.patch.object(servoctl, "move_arm", fake_arms):
+            servoctl.reset_positions(soft=True)
+
+        # leg sequence unchanged in shape: initial 20% lift + two leg pairs
+        self.assertEqual(len(calls["legs"]), 3,
+                         "soft start must call move_legs 3 times "
+                         "(initial lift + the two leg pairs)")
+        # arms: exactly two calls — left arm only, then right arm only
+        self.assertEqual(len(calls["arms"]), 2,
+                         "soft start must split the single 6-servo "
+                         "move_arm into two 3-servo calls")
+        first_t = calls["arms"][0][0]
+        second_t = calls["arms"][1][0]
+        self.assertEqual(self._arm_call(calls["arms"][0]), {
+            "left_main": 1, "left_forearm": 1, "left_hand": 1,
+            "right_main": None, "right_forearm": None,
+            "right_hand": None, "speed_factor": 0.3,
+        }, "first arm call must move the LEFT arm only")
+        self.assertEqual(self._arm_call(calls["arms"][1]), {
+            "left_main": None, "left_forearm": None, "left_hand": None,
+            "right_main": 1, "right_forearm": 1, "right_hand": 1,
+            "speed_factor": 0.3,
+        }, "second arm call must move the RIGHT arm only")
+        # settle gaps between phases (>= 0.25 s of the 0.3 s settles)
+        self.assertGreaterEqual(
+            calls["legs"][2][0] - calls["legs"][1][0], 0.25,
+            "soft start must settle between the two leg pairs")
+        self.assertGreaterEqual(
+            first_t - calls["legs"][2][0], 0.25,
+            "soft start must settle between the leg pairs and the "
+            "left-arm phase")
+        self.assertGreaterEqual(
+            second_t - first_t, 0.25,
+            "soft start must settle between the left- and right-arm "
+            "phases")
+
+    def test_reset_positions_hard_default(self):
+        # the hard path (no args) must stay byte-identical for non-boot
+        # callers: ONE move_arm with all six servo args = 1, speed 0.3
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {}
+        calls, fake_legs, fake_arms = self._record()
+
+        with mock.patch.object(servoctl, "move_legs", fake_legs), \
+             mock.patch.object(servoctl, "move_arm", fake_arms):
+            servoctl.reset_positions()
+
+        self.assertEqual(len(calls["arms"]), 1,
+                         "hard reset must keep the single 6-servo move_arm")
+        _t, args, kwargs = calls["arms"][0]
+        self.assertEqual(args, (1, 1, 1, 1, 1, 1, 0.3),
+                         "hard reset move_arm call must be unchanged "
+                         "(all six servos, speed 0.3)")
+        self.assertEqual(kwargs, {})
+        self.assertEqual(len(calls["legs"]), 3)
+
+    def test_initialize_servos_uses_soft_start(self):
+        # the boot path must pass soft=True and settle 0.1 s per channel in
+        # the re-engage loop (was 0.02 s)
+        servoctl.pca = mock.MagicMock()
+        servoctl.servo_positions = {0: 350, 3: 300}
+        sleeps = []
+        with mock.patch.object(servoctl, "reset_positions") as rp, \
+             mock.patch.object(servoctl, "set_servo_pwm"), \
+             mock.patch("time.sleep", side_effect=sleeps.append):
+            servoctl.initialize_servos()
+        rp.assert_called_once_with(soft=True)
+        # 0.1 post-zero settle + 0.1 per re-engaged channel + 0.3 pre-reset
+        self.assertEqual(sleeps, [0.1, 0.1, 0.1, 0.3],
+                         "re-engage loop must settle 0.1 s per channel")
+
+
+class TestIna260BootSampler(ServoctlSelfHealingTestCase):
+    """S-M2-06 optional instrumentation: during reset_positions, when a
+    battery module is present a daemon thread logs INA260 current at 0.5 s
+    cadence. Informational ONLY — INA260 is NOT a health signal (idle
+    servos are deliberately de-energized and draw ~0 either way); it gates
+    nothing and must never break the boot path."""
+
+    def test_sampler_logs_current_and_stops(self):
+        stub = mock.MagicMock()
+        stub.current = 1.23
+        servoctl.set_battery_module(stub)
+        logged = []
+        with mock.patch.object(servoctl, "queue_message",
+                               side_effect=logged.append):
+            stop = servoctl._start_boot_current_sampler()
+            self.assertIsNotNone(stop)
+            try:
+                deadline = time.monotonic() + 3.0
+                while time.monotonic() < deadline:
+                    if any("boot current" in str(m) for m in logged):
+                        break
+                    time.sleep(0.05)
+                self.assertTrue(
+                    any("boot current=1.23A" in str(m) for m in logged),
+                    "sampler must log informational boot-current lines")
+                # stopping the sampler halts the logging
+                count = len(logged)
+                stop.set()
+                time.sleep(0.8)
+                self.assertEqual(len(logged), count,
+                                 "sampler must stop logging after stop.set()")
+            finally:
+                stop.set()
+
+    def test_no_sampler_without_battery_module(self):
+        servoctl.battery_module = None
+        self.assertIsNone(servoctl._start_boot_current_sampler())
+
+    def test_raising_battery_module_does_not_break_soft_reset(self):
+        # gates nothing: even a broken INA260 read must never break the
+        # boot movement sequence
+        bad = mock.MagicMock()
+        type(bad).current = mock.PropertyMock(
+            side_effect=RuntimeError("ina260 unreadable"))
+        servoctl.set_battery_module(bad)
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {}
+        with mock.patch.object(servoctl, "queue_message"), \
+             mock.patch.object(servoctl, "move_legs") as legs, \
+             mock.patch.object(servoctl, "move_arm") as arms:
+            servoctl.reset_positions(soft=True)  # must complete
+        self.assertEqual(legs.call_count, 3)
+        self.assertEqual(arms.call_count, 2)
+
+
 if __name__ == "__main__":
     unittest.main()
