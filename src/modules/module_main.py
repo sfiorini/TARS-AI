@@ -438,13 +438,9 @@ def utterance_callback(message):
                 speed.start('tts')
                 was_interrupted = asyncio.run(play_audio_chunks(reply_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
                 pipeline._duration = speed.stop('tts')
-                if stt_manager:
-                    stt_manager.stop_bargein_monitor()
             else:
                 # Wait for the sentence-pipeline TTS to finish
                 pipeline.join(timeout=120)
-                if stt_manager:
-                    stt_manager.stop_bargein_monitor()
                 was_interrupted = pipeline.interrupted
 
         finally:
@@ -457,10 +453,33 @@ def utterance_callback(message):
         # loop's turn thread (D1) — no inline follow-up speaking here
         followup_tts_dur = 0
 
-        # After response finishes, return to LISTENING (waiting for next utterance in session)
+        # ── Stop-and-listen (M3) ──────────────────────────────────────────
+        # An interrupted reply may have captured the interrupting speech.
+        # take_bargein_utterance() runs BEFORE stop_bargein_monitor() so the
+        # monitor's captured audio is drained first; the stop's Event + 3 s
+        # join then release the mic reader before the re-entered round opens
+        # its own. Kill switch: bargein_listen_after_interrupt = False
+        # restores the old behavior (LISTENING, wake word required).
+        _bargein_text = None
+        if was_interrupted and stt_manager and CONFIG['STT'].get('bargein_listen_after_interrupt', True):
+            audio = stt_manager.take_bargein_utterance(timeout=8.0)
+            if audio is not None:
+                result = stt_manager.transcribe_bargein_audio(audio)
+                if result and result.get("text"):
+                    _bargein_text = result["text"].strip()
+        if stt_manager:
+            stt_manager.stop_bargein_monitor()
+        if _bargein_text:
+            # The interrupting speech becomes the next conversational turn:
+            # the SAME round entry point the normal STT path uses, with a
+            # pure {"text": ...} payload — no wake word, no beep-on. The
+            # re-entered round owns the LISTENING transition.
+            utterance_callback(json.dumps({"text": _bargein_text}))
+            return
+
+        # No captured utterance (veto / empty transcript / kill-switch off)
+        # → existing behavior: return to LISTENING, wake word required.
         # Bot only goes to STANDBY after timeout in STT manager
-        if was_interrupted:
-            time.sleep(0.3)
         set_tars_state(TarsState.LISTENING)
 
         # Push final reply to web UI (only if user is on webui)
