@@ -393,7 +393,15 @@ class TestPiperPipelineAppliesFx(unittest.TestCase):
         self.assertTrue(popen.return_value.communicate.call_args.kwargs["input"].startswith(b"RIFF"))
 
     def test_no_voice_yields_nothing(self):
+        # Patch the AVAILABILITY seam, not just the `voice` global: with
+        # voice=None the function self-heals by calling _ensure_voice_loaded(),
+        # which on a machine with real piper + a real model (the robot) loads a
+        # voice and synthesizes real audio. That made this test pass on a
+        # laptop and fail on the robot — the suite must be environment
+        # independent, so express "no voice available" directly.
         with mock.patch.object(module_piper, "voice", None), \
+             mock.patch.object(module_piper, "_ensure_voice_loaded",
+                               return_value=False), \
              mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
              mock.patch.object(module_piper, "queue_message") as qmsg:
             chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
