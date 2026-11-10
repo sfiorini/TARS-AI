@@ -2248,62 +2248,87 @@ class STTManager:
         anyway; the CANCEL itself fires on the energy gate at 250-375 ms
         as specified.
         """
+        self._bargein_thread = threading.Thread(
+            target=self._bargein_frame_loop, args=(run_id, self._voiceprint_veto),
+            daemon=True)
+        self._bargein_thread.start()
+
+    def _bargein_min_speech_samples(self):
+        """Minimum capture length (samples @16 kHz) the voiceprint gate evaluates.
+
+        Configurable via ``[STT] bargein_min_speech_ms`` (default 500).  A
+        hard-coded 8 frames (~1 s) rejected short interruptions *before* the
+        embedding was computed: TARS stopped talking and then had to be woken
+        again.  Invalid or non-positive values fall back to the default.
+        """
+        default_ms = 500
+        try:
+            ms = int((self.config.get("STT") or {}).get("bargein_min_speech_ms", default_ms))
+        except (TypeError, ValueError):
+            ms = default_ms
+        if ms <= 0:
+            ms = default_ms
+        return int(ms * self.MODEL_RATE / 1000)
+
+    def _voiceprint_veto(self, utterance):
+        """Accept/reject a captured interruption by speaker identity.
+
+        True = known, clearly matched speaker: the utterance is kept and fed
+        into the next turn.  False = reject: discarded, TTS stays stopped and
+        the caller falls back to wake-word listening.
+
+        This used to be a closure inside ``_start_bargein_voiceprint``, which
+        made the acceptance rules untestable — and those rules are where the
+        bugs live.
+        """
         from modules.module_speaker_id import get_speaker_id_manager
 
-        MIN_SPEECH = 8  # need >= 8 frames (~1 s) for a usable embedding
+        if len(utterance) < self._bargein_min_speech_samples():
+            return False
 
-        def _veto(utterance):
-            if len(utterance) < MIN_SPEECH * 2000:
-                return False
-            audio_int16 = utterance
-            audio_float32 = audio_int16.astype(np.float32).flatten() / 32768.0
+        audio_float32 = utterance.astype(np.float32).flatten() / 32768.0
 
-            sid = get_speaker_id_manager()
-            if sid is None:
-                return False
+        sid = get_speaker_id_manager()
+        if sid is None:
+            return False
 
-            embedding = sid.extract_embedding(audio_float32, 16000)
-            if embedding is None:
-                return False
+        embedding = sid.extract_embedding(audio_float32, 16000)
+        if embedding is None:
+            return False
 
-            # Identify speaker (skip normal margin check — we do our own below)
-            name, confidence = sid.identify_speaker(embedding, skip_margin=True)
+        # Identify speaker (skip normal margin check — we do our own below)
+        name, confidence = sid.identify_speaker(embedding, skip_margin=True)
 
-            # Ignore Unknown_* profiles — they may be TARS bleed
-            # that got auto-enrolled. Only named speakers matter.
-            if name and name.startswith("Unknown_"):
-                name = ""
-                confidence = 0.0
+        # Ignore Unknown_* profiles — they may be TARS bleed that got
+        # auto-enrolled. Only named speakers matter.
+        if name and name.startswith("Unknown_"):
+            name = ""
+            confidence = 0.0
 
-            # Bleed filter: TTS audio bleeds into mic and can weakly
-            # match enrolled speakers. Real speech has a clear margin
-            # over runner-up; bleed does not.
-            margin = 1.0  # default if only one speaker enrolled
-            if name and confidence > 0:
-                enrolled = sid.get_enrolled_speakers()
-                if len(enrolled) > 1:
-                    runner_up = 0.0
-                    for spk in enrolled:
-                        if spk != name:
-                            s = sid._compute_best_score(embedding, spk)
-                            if s > runner_up:
-                                runner_up = s
-                    margin = confidence - runner_up
+        # Bleed filter: TTS audio bleeds into the mic and can weakly match
+        # enrolled speakers. Real speech has a clear margin over runner-up.
+        margin = 1.0  # default if only one speaker enrolled
+        if name and confidence > 0:
+            enrolled = sid.get_enrolled_speakers()
+            if len(enrolled) > 1:
+                runner_up = 0.0
+                for spk in enrolled:
+                    if spk != name:
+                        s = sid._compute_best_score(embedding, spk)
+                        if s > runner_up:
+                            runner_up = s
+                margin = confidence - runner_up
 
-            if self.DEBUG and name and confidence > 0.01:
-                queue_message(f"DEBUG: Barge-in voiceprint: speaker='{name}' confidence={confidence:.2f} threshold={self._bargein_voiceprint_threshold:.2f} margin={margin:.3f}")
+        if self.DEBUG and name and confidence > 0.01:
+            queue_message(f"DEBUG: Barge-in voiceprint: speaker='{name}' confidence={confidence:.2f} threshold={self._bargein_voiceprint_threshold:.2f} margin={margin:.3f}")
 
-            # Match requires: above threshold AND margin > 0.05
-            # (bleed typically has margin < 0.04, real speech > 0.10)
-            matched = bool(name and confidence >= self._bargein_voiceprint_threshold and margin > 0.05)
+        # Match requires: above threshold AND margin > 0.05
+        # (bleed typically has margin < 0.04, real speech > 0.10)
+        matched = bool(name and confidence >= self._bargein_voiceprint_threshold and margin > 0.05)
 
-            if matched and self.DEBUG:
-                queue_message(f"DEBUG: Barge-in detected! Voice matched '{name}' (confidence: {confidence:.2f}, margin: {margin:.3f})")
-            return matched
-
-        self._bargein_thread = threading.Thread(
-            target=self._bargein_frame_loop, args=(run_id, _veto), daemon=True)
-        self._bargein_thread.start()
+        if matched and self.DEBUG:
+            queue_message(f"DEBUG: Barge-in detected! Voice matched '{name}' (confidence: {confidence:.2f}, margin: {margin:.3f})")
+        return matched
 
     def _transcribe_captured_audio(self, audio_int16):
         """Transcribe a captured barge-in utterance with the CONFIGURED STT

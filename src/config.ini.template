@@ -122,6 +122,9 @@ bargein_bleed_factor = 2.5
 bargein_min_candidates = 2
 # When ON, an interruption carries your words straight into the pipeline (no wake word needed)
 bargein_listen_after_interrupt = True
+# Shortest interruption (ms) the voiceprint check will accept. Shorter captures are
+# discarded before the speaker match runs — lower it to allow brief interruptions (500 = default)
+bargein_min_speech_ms = 500
 # Silence before processing in tenths of a second (20 = 2s)
 speechdelay = 15
 # Speaker identification — passively identify who is speaking (Pi5/Pi4 only)

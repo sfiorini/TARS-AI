@@ -210,7 +210,7 @@ BARGEIN: rms=<frame> pk=<peak since last line> floor=<bleed floor> bar=<bar used
 
 `pk` vs `bar` on a failed attempt says whether the gate was too strict (tune) or the mic was saturated by TARS itself (hardware).
 
-**Config keys** (`[STT]`): `enable_bargein = True`, `bargein_mode = fuzzy | voiceprint`, `bargein_sensitivity = 5` (1–10; scales the RMS gate and the voiceprint bar), `bargein_bleed_factor = 2.5` (how much louder than TARS's own speaker bleed a sound must be to count as an interruption), `bargein_min_candidates = 2` (consecutive 125 ms frames above the gate needed to trigger), `bargein_listen_after_interrupt = True` (stop-and-listen; the rollback switch).
+**Config keys** (`[STT]`): `enable_bargein = True`, `bargein_mode = fuzzy | voiceprint`, `bargein_sensitivity = 5` (1–10; scales the RMS gate and the voiceprint bar), `bargein_bleed_factor = 2.5` (how much louder than TARS's own speaker bleed a sound must be to count as an interruption), `bargein_min_candidates = 2` (consecutive 125 ms frames above the gate needed to trigger), `bargein_listen_after_interrupt = True` (stop-and-listen; the rollback switch), `bargein_min_speech_ms = 500` (shortest interruption the voiceprint check will accept — a capture shorter than this is discarded *before* the speaker match, so a half-second "stop!" still needs the wake word; raise it if TARS reacts to its own bleed, lower it for very short interruptions).
 
 - `speaker_id_enabled = True` passively tags who spoke (`speaker_id_threshold = 0.75`); the name goes into the LLM context.
 - `use_indicators = True` plays a beep when listening starts/stops.

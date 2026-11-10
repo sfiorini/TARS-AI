@@ -517,6 +517,7 @@ def load_config():
             "bargein_bleed_factor": max(1.0, config.getfloat('STT', 'bargein_bleed_factor', fallback=2.5)),
             "bargein_min_candidates": max(1, config.getint('STT', 'bargein_min_candidates', fallback=2)),
             "bargein_listen_after_interrupt": config.getboolean('STT', 'bargein_listen_after_interrupt', fallback=True),
+            "bargein_min_speech_ms": max(100, config.getint('STT', 'bargein_min_speech_ms', fallback=500)),
             "vad_method": config['STT']['vad_method'],
             "speechdelay": int(config['STT']['speechdelay']),
             "speaker_id_enabled": config.get('STT', 'speaker_id_enabled', fallback='False'),
@@ -1057,6 +1058,16 @@ CONFIG_METADATA = {
             'step': 1,
             'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
             'description': 'Consecutive 125 ms frames above the gate needed to trigger an interrupt (2 = 250 ms). Raise to 3 to reject coughs and bangs.'
+        },
+        'bargein_min_speech_ms': {
+            'group': 'bargein',
+            'label': 'Barge-In Minimum Speech (ms)',
+            'type': 'slider',
+            'min': 200,
+            'max': 1500,
+            'step': 50,
+            'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
+            'description': 'Shortest interruption the voiceprint check accepts. Captures shorter than this are discarded before the speaker match runs, so a brief "stop!" needs the wake word again. 500 ms is a good default; lower it to allow very short interruptions, raise it if TARS reacts to itself.'
         },
         'bargein_listen_after_interrupt': {
             'group': 'bargein',
