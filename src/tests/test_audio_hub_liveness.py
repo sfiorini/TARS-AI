@@ -85,3 +85,43 @@ class TestStatsSnapshot:
         hub.unregister_callback(rid)
         assert hub.stats()["callback_names"] == []
         assert 0 not in hub._callback_names
+
+
+class TestCallbackNameThreading:
+    """S-M1-02b: name= threaded through open_native_stream/_SharedCallbackStream."""
+
+    def test_callback_names_threaded(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        with mock.patch.object(module_mic, "_hub", hub):
+            s1 = module_mic._SharedCallbackStream(lambda chunk: None, name="atomik")
+            s2 = module_mic._SharedCallbackStream(lambda chunk: None, name="spectrum")
+            s1.start()
+            s2.start()
+            names = hub.stats()["callback_names"]
+        assert names == ["atomik", "spectrum"]
+
+    def test_unnamed_falls_back(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        with mock.patch.object(module_mic, "_hub", hub):
+            s3 = module_mic._SharedCallbackStream(lambda chunk: None)   # no name
+            s3.start()
+            names = hub.stats()["callback_names"]
+        assert len(names) == 1
+        assert names[0].startswith("cb-")
+
+    def test_open_native_stream_forwards_name(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        with mock.patch.object(module_mic, "_hub", hub):
+            stream = module_mic.open_native_stream(callback=lambda chunk: None,
+                                                    blocksize=512, name="atomik")
+            with stream:
+                pass
+        assert hub.stats()["callback_names"] == []   # closed again
+        # re-open and inspect while live
+        with mock.patch.object(module_mic, "_hub", hub):
+            with module_mic.open_native_stream(callback=lambda chunk: None,
+                                                blocksize=512, name="atomik"):
+                assert hub.stats()["callback_names"] == ["atomik"]
