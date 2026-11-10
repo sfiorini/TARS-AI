@@ -335,3 +335,204 @@ class TestRequestL1Recovery:
              mock.patch.object(module_mic, "queue_message") as qm:
             assert hub.request_l1_recovery() is False
             assert qm.called                      # failure logged, not raised
+
+
+class _FakeClock:
+    """Controllable monotonic clock injected into module_mic.time."""
+
+    def __init__(self, start=1000.0):
+        self.now = start
+
+    def advance(self, seconds):
+        self.now += seconds
+
+    def monotonic(self):
+        return self.now
+
+
+def _wd_reset(clock):
+    """Fresh watchdog state (None sentinels — never backdate l1/l2 in tests)."""
+    module_mic._wd_state = {"heartbeat": 0.0, "l1": None, "l2": None,
+                            "invalidate": clock.monotonic()}
+
+
+def _wd_hub(clock, stale=True, digital_silence=False):
+    """Stubbed hub swapped in as module_mic._hub for watchdog tests."""
+    hub = _AudioHub()
+    hub._ensure_stream = lambda: None          # never open a real stream
+    hub.register_callback(lambda chunk: None, name="test")
+    hub._stream = mock.MagicMock(active=True)  # stream_open/stream_active True
+    hub._last_chunk_mono = clock.now - (10.0 if stale else 0.0)
+    hub._last_nonzero_mono = clock.now - (61.0 if digital_silence
+                                          else (10.0 if stale else 0.0))
+    return hub
+
+
+class TestHubWatchdogLadder:
+    """S-M1-07: escalation ladder L1 -> (10 s) -> L2 -> (60 s) -> L2 repeat."""
+
+    def test_watchdog_first_stale_is_l1_not_l2(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_called_once()
+        l2.assert_not_called()
+        assert module_mic._wd_state["l1"] == clock.now
+        assert module_mic._wd_state["l2"] is None   # None-sentinel contract
+
+    def test_watchdog_ladder_reaches_l2(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        _wd_reset(clock)
+        fired_at = []
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server",
+                        side_effect=lambda: fired_at.append(clock.now)) as l2:
+            for _ in range(6):                     # t=1002..1012, 2 s ticks
+                clock.advance(2)
+                module_mic._hub_watchdog_tick()
+        assert l1_req.call_count == 1              # L1 fired at t=1002 only
+        assert l2.call_count == 1                  # L2 reached — not stuck at L1
+        assert fired_at == [1012.0]                 # exactly 10 s after the L1 stamp
+        assert module_mic._wd_state["l2"] == 1012.0
+
+    def test_watchdog_ladder_resets_after_recovery(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()         # stale -> L1
+            assert l1_req.call_count == 1
+            # Recover: fresh chunks -> healthy tick clears the ladder
+            hub._last_chunk_mono = clock.now
+            hub._last_nonzero_mono = clock.now
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+            assert module_mic._wd_state["l1"] is None
+            assert module_mic._wd_state["l2"] is None
+            # Long healthy gap, then a NEW stale episode: must get a fresh
+            # cheap L1 — never an immediate L2 off a backdated l1 stamp.
+            clock.advance(30)
+            hub._last_chunk_mono = clock.now - 10
+            hub._last_nonzero_mono = clock.now - 10
+            module_mic._hub_watchdog_tick()
+            assert l1_req.call_count == 2          # FRESH L1
+            l2.assert_not_called()
+        assert module_mic._wd_state["l2"] is None
+
+    def test_watchdog_l2_repeat_60s_cadence(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            for _ in range(6):                     # drive to L2 (t=1012)
+                clock.advance(2)
+                module_mic._hub_watchdog_tick()
+            assert l2.call_count == 1
+            clock.advance(58)                       # 58 s after L2 — too early
+            module_mic._hub_watchdog_tick()
+            assert l2.call_count == 1               # no early repeat
+            clock.advance(2)                        # exactly 60 s after L2
+            module_mic._hub_watchdog_tick()
+            assert l2.call_count == 2               # 60 s cadence honoured
+            assert module_mic._wd_state["l2"] == clock.now
+
+    def test_watchdog_digital_silence_escalates_l2(self):
+        clock = _FakeClock()
+        # Fresh chunks but 61 s of digital silence — the silence signal must
+        # enter the ladder on its own, independent of the chunk-age signal.
+        hub = _wd_hub(clock, stale=False, digital_silence=True)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            for _ in range(6):                     # L1 at t=1002, L2 at t=1012
+                clock.advance(2)
+                module_mic._hub_watchdog_tick()
+        assert l1_req.call_count == 1              # L1 DESPITE fresh chunk age
+        assert l2.call_count == 1                  # silence alone reached L2
+
+    def test_watchdog_no_consumers_noop(self):
+        clock = _FakeClock()
+        hub = _AudioHub()                          # zero consumers — no register
+        hub._stream = mock.MagicMock(active=True)
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
+    def test_watchdog_stream_none_with_consumers_reopens(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        hub._ensure_stream = mock.MagicMock()
+        hub._stream = None                         # the invalidate() hole
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(3)                       # > 2 s since invalidate anchor
+            module_mic._hub_watchdog_tick()
+            assert hub._ensure_stream.call_count == 1
+            assert module_mic._wd_state["invalidate"] == clock.now  # throttle advances
+            module_mic._hub_watchdog_tick()         # immediate re-tick: throttled
+            assert hub._ensure_stream.call_count == 1
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
+    def test_watchdog_recovery_in_progress_noop(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock)
+        hub._recovery_in_progress = True            # ~22 s L2 in flight
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
+
+class TestHubWatchdogStartStop:
+    """S-M1-07: start/stop lifecycle (idempotent start, clean stop)."""
+
+    def test_start_idempotent_and_stop_joins(self):
+        module_mic._hub_watchdog_stop.set()         # any prior state cleared
+        module_mic._hub_watchdog_thread = None
+
+        def fake_sleep(s):
+            module_mic._hub_watchdog_stop.wait(0.5)
+
+        with mock.patch.object(module_mic.time, "sleep", fake_sleep), \
+             mock.patch.object(module_mic, "_hub_watchdog_tick") as tick:
+            module_mic.start_hub_watchdog(interval=2.0)
+            t1 = module_mic._hub_watchdog_thread
+            assert t1 is not None and t1.is_alive()
+            module_mic.start_hub_watchdog(interval=2.0)   # second start: no-op
+            assert module_mic._hub_watchdog_thread is t1
+            module_mic.stop_hub_watchdog()
+            t1.join(5.0)
+            assert not t1.is_alive()
