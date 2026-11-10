@@ -1043,14 +1043,20 @@ class WakeWordSystem:
         """Template-mode detect body (F2 split out of _detect_template())."""
         if not self.templates:
             return False, 0.0
-        audio_window = self._window(1.0)
-        if audio_window is None:
-            return False, 0.0
+        # B7: cheap cooldown/interval gates FIRST, mirroring the model
+        # path (F10) — neither gate needs the window, and building the 1 s
+        # window (~16k float32 concat) on every RT callback while the
+        # gates hold is a steady allocation stream on the real-time
+        # thread. This is the live path on the robot (atomik_mode =
+        # template). Same gating semantics, cheaper order.
         if time.monotonic() - self.last_detection_time < self.cooldown:
             self._last_exit = "cooldown"
             return False, 0.0
         if time.monotonic() - self.last_check_time < self.check_interval:
             self._last_exit = "interval"
+            return False, 0.0
+        audio_window = self._window(1.0)
+        if audio_window is None:
             return False, 0.0
         self.last_check_time = time.monotonic()
 
