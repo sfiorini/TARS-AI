@@ -238,6 +238,65 @@ def test_detect_model_stamps_window_rms(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Audit F10 — cooldown/interval gates must run before the _window() build
+# ---------------------------------------------------------------------------
+
+def test_detect_model_cooldown_gate_skips_window(monkeypatch):
+    """F10: in model mode the 1 s _window() build (~16k float32 concat)
+    ran on EVERY RT callback before the cheap cooldown/interval early
+    returns — a steady allocation stream on the real-time thread. With the
+    cooldown active, detect() must exit at the cooldown gate WITHOUT
+    calling _window (spy counter), and still advance _check_count (a
+    normal False pass)."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = _StubModel()
+    _append_chunk(det, _loud_slice(16000))
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    det.last_detection_time = 99.5      # 0.5 s ago — cooldown (1.5 s) active
+
+    window_calls = []
+    real_window = det._window
+
+    def spy_window(seconds=1.0):
+        window_calls.append(seconds)
+        return real_window(seconds)
+
+    det._window = spy_window
+
+    before = det._check_count
+    detected, score = det.detect()
+
+    assert window_calls == []           # cooldown held -> no window build
+    assert det._last_exit == "cooldown"
+    assert detected is False
+    assert det._check_count == before + 1  # normal False pass still advances
+
+
+def test_detect_model_interval_gate_skips_window(monkeypatch):
+    """F10 counterpart: the interval gate must also short-circuit before
+    the _window() build."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = _StubModel()
+    _append_chunk(det, _loud_slice(16000))
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    det.last_check_time = 99.95         # 0.05 s ago — interval (0.1 s) active
+
+    window_calls = []
+    real_window = det._window
+
+    def spy_window(seconds=1.0):
+        window_calls.append(seconds)
+        return real_window(seconds)
+
+    det._window = spy_window
+
+    det.detect()
+
+    assert window_calls == []
+    assert det._last_exit == "interval"
+
+
+# ---------------------------------------------------------------------------
 # S-M1-09 — chunk-deque buffer + _window()/last_window() accessors
 # ---------------------------------------------------------------------------
 
