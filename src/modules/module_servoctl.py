@@ -693,7 +693,16 @@ def _reapply_engaged_positions():
     do NOT disable) — means deliberately de-energized servos, and idle repair
     writing zero PWM registers is exactly why the idle-repair jump disappears.
     No ramp through neutral: there is no position feedback and servo_positions
-    IS the commanded pose."""
+    IS the commanded pose.
+
+    Locking note (deliberate trade-off): both callers — the watchdog tick's
+    repair path and force_servo_recovery — hold _state_lock across this
+    call, so the 0.02 s inter-write sleeps run UNDER the lock. That is
+    intentional: repair must stay serialized against movement threads and
+    PCA handle swaps (no mid-repair race), the RLock makes same-thread
+    re-entrance safe, and repair is idle-gated. The cost is that a movement
+    thread's lock acquire blocks for the repair duration (~0.2 s for 10
+    engaged channels)."""
     with _state_lock:
         engaged = sorted(_engaged_channels)
     legs = [c for c in engaged if c <= 3]
