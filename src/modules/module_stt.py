@@ -215,6 +215,9 @@ class STTManager:
         self._bargein_active = False
         self._bargein_thread = None
         self._bargein_tts_data = {'word_list': [], 'words_all': set()}  # shared with monitor thread
+        self._bargein_gate = None            # EchoGate owned by the monitor thread
+        self._bargein_captured = None        # accepted interrupt utterance (int16)
+        self._bargein_captured_ready = threading.Event()  # set AFTER _bargein_captured is written
         self._bargein_enabled = CONFIG['STT'].get('enable_bargein', True)
         if isinstance(self._bargein_enabled, str):
             self._bargein_enabled = self._bargein_enabled.lower() in ('true', '1', 'yes')
@@ -1989,9 +1992,108 @@ class STTManager:
         else:
             self._start_bargein_fuzzy(tts_text)
 
-    def _start_bargein_fuzzy(self, tts_text):
-        """Fuzzy word-matching barge-in monitor."""
+    def _bargein_frame_loop(self, veto_fn):
+        """Shared per-125ms frame loop for both barge-in modes (S-M3-06).
+
+        The EchoGate is the SOLE owner of the candidate streak: a
+        ``"candidate"`` return IS the trigger (the gate's internal streak
+        reached ``min_candidates`` on that frame).  This loop keeps NO
+        streak counter of its own and resets NOTHING on ``"bleed"`` —
+        a caller-side counter was a P0 in plan review (double-counting
+        made the trigger unreachable).
+
+        Unlike the pre-M3 monitors, frames are NEVER discarded while TTS
+        plays: the mic stays a registered hub reader through playback and
+        every frame feeds the gate's bleed-floor EMA (so the gate learns
+        what TARS's own voice looks like on this mic) and the pre-roll
+        ring (so the interrupting utterance keeps its onset).
+
+        veto_fn(utterance_int16) -> bool: True = ACCEPT (known speaker /
+        novel words) — the utterance is published on
+        ``_bargein_captured`` and ``_bargein_captured_ready`` is set
+        (write BEFORE set); False = veto — the utterance is discarded and
+        the gate backs off.  On a veto TTS stays stopped (accepted
+        trade-off: a sentence truncates on a false positive).
+        """
         from modules.module_tts import stop_tts_playback, is_tts_playing
+        from modules.module_toolloop import cancel_pending_turns
+        from modules.module_bargein import EchoGate
+
+        gate = EchoGate(self.silence_threshold, self._bargein_rms_scale,
+                        bleed_factor=float(CONFIG['STT'].get('bargein_bleed_factor', 2.5)),
+                        min_candidates=int(CONFIG['STT'].get('bargein_min_candidates', 2)))
+        self._bargein_gate = gate
+        pre_roll = deque(maxlen=12)   # last 12 frames (~1.5 s)
+        speech_buf = []
+        triggered = False
+        silent_frames = 0
+
+        try:
+            with ResamplingInputStream(dtype="int16") as mic:
+                # Flush stale audio from OS buffer (discard first ~0.5s)
+                mic.flush()
+
+                while self._bargein_active:
+                    data, _ = mic.read(2000)  # ~125ms frame
+                    rms = self._compute_rms_fast(data)
+                    rms = rms if rms is not None else 0.0
+
+                    if is_tts_playing():
+                        # Never a candidate while playing: the gate only
+                        # tracks the bleed-floor EMA and arms echo grace.
+                        gate.on_frame(rms, tts_playing=True)
+                        pre_roll.append(data)
+                        continue
+
+                    kind = gate.on_frame(rms, tts_playing=False)
+                    if kind == "candidate":
+                        # "candidate" is returned ONLY on the triggering
+                        # frame — it IS the trigger.  No loop-level streak,
+                        # no extra counting.
+                        speech_buf.append(data)
+                        silent_frames = 0
+                        if not triggered:
+                            triggered = True
+                            stop_tts_playback()
+                            cancel_pending_turns("barge-in")
+                            # onset-trimmed pre-roll: <= 4 frames before the
+                            # first above-gate frame of the streak
+                            speech_buf = list(pre_roll)[-4:] + speech_buf
+                    elif triggered:
+                        # post-trigger recording: every frame is kept
+                        speech_buf.append(data)
+                        if rms < self.silence_threshold:
+                            silent_frames += 1
+                        else:
+                            silent_frames = 0
+                    else:
+                        # "bleed" (above gate, streak incomplete), "grace",
+                        # "quiet": the gate owns the streak — record
+                        # pre-roll only, reset nothing.
+                        pre_roll.append(data)
+                        continue
+
+                    if triggered and (silent_frames >= 8 or len(speech_buf) >= 80):
+                        # end of speech: ~1 s of silence (8 frames) or the
+                        # 10 s cap (80 frames) — runs on EVERY appended
+                        # frame, candidate frames included
+                        utterance = np.concatenate(speech_buf)
+                        if veto_fn(utterance):
+                            # write BEFORE set — the waiter may run as
+                            # soon as the Event is set
+                            self._bargein_captured = utterance
+                            self._bargein_captured_ready.set()
+                        else:
+                            # Veto: discard, raise the bar for 60 s.
+                            # TTS stays stopped (accepted trade-off).
+                            gate.backoff()
+                        return
+        except Exception as e:
+            queue_message(f"WARN: Barge-in monitor error: {e}")
+
+    def _start_bargein_fuzzy(self, tts_text):
+        """Fuzzy word-matching barge-in monitor (thin wrapper: builds the
+        novel-word veto_fn and runs the shared frame loop)."""
 
         # Build initial word list from whatever text we have; during streaming
         # this may be empty and will be updated via update_bargein_tts_text().
@@ -2006,181 +2108,87 @@ class STTManager:
 
         tts_data = self._bargein_tts_data  # local ref for monitor thread
 
-        def _monitor():
-            bargein_threshold = self.silence_threshold * self._bargein_rms_scale
-            audio_buf = []
-            TRANSCRIBE_EVERY = 8  # Transcribe every ~1s (8 x 125ms frames)
-            frame_count = 0
-            start_time = time.time()
-            WORDS_PER_SEC = 3.0  # Estimated TTS speaking rate
-            WINDOW_PAD = 4       # Extra words before/after estimated position
-            accumulated_novel = []  # Novel words across consecutive frames
-            no_novel_streak = 0     # Reset accumulator after 2 empty frames
-            ECHO_GRACE_FRAMES = 2   # Skip ~250ms after TTS stops to let echo die
-            grace_remaining = 0     # Countdown frames after TTS stops playing
+        def _veto(utterance):
+            transcript = self._bargein_transcribe([utterance])
+            if not transcript:
+                return False
+            novel = self._find_novel_words(transcript, tts_data['words_all'])
+            if self.DEBUG:
+                queue_message(f"DEBUG: Barge-in fuzzy veto: '{transcript}' novel={novel}")
+            return bool(novel)
 
-            try:
-                with ResamplingInputStream(dtype="int16") as mic:
-                    # Flush stale audio from OS buffer (discard first ~0.5s)
-                    mic.flush()
-
-                    while self._bargein_active:
-                        data, _ = mic.read(2000)  # ~125ms frame
-                        frame_count += 1
-
-                        # Skip audio collection while TTS is playing to avoid
-                        # picking up the robot's own voice through the mic.
-                        if is_tts_playing():
-                            grace_remaining = ECHO_GRACE_FRAMES
-                            continue
-                        # After TTS stops, skip a few frames for residual echo
-                        if grace_remaining > 0:
-                            grace_remaining -= 1
-                            continue
-
-                        # Collect audio with speech energy (only when TTS is silent)
-                        rms = self._compute_rms_fast(data)
-                        if rms and rms > bargein_threshold:
-                            audio_buf.append(data)
-
-                        # Periodically transcribe what we've collected
-                        if frame_count % TRANSCRIBE_EVERY == 0:
-                            if len(audio_buf) < 2:
-                                if self.DEBUG:
-                                    queue_message(f"DEBUG: Barge-in: no speech frames ({len(audio_buf)}/8 above threshold)")
-                        if frame_count % TRANSCRIBE_EVERY == 0 and len(audio_buf) >= 2:
-                            transcript = self._bargein_transcribe(audio_buf)
-                            buf_len = len(audio_buf)
-                            audio_buf.clear()
-                            if transcript:
-                                # Read current TTS words (may be updated by streaming thread)
-                                tts_word_list = tts_data['word_list']
-                                tts_words_all = tts_data['words_all']
-
-                                # Build sliding window of TTS words near current playback position
-                                elapsed = time.time() - start_time
-                                pos = int(elapsed * WORDS_PER_SEC)
-                                win_start = max(0, pos - WINDOW_PAD)
-                                win_end = min(len(tts_word_list), pos + WINDOW_PAD + 1)
-                                window_words = set(tts_word_list[win_start:win_end])
-
-                                novel = self._find_novel_words(transcript, tts_words_all, window_words)
-                                if novel:
-                                    accumulated_novel.extend(novel)
-                                    no_novel_streak = 0
-                                else:
-                                    no_novel_streak += 1
-                                    if no_novel_streak >= 2:
-                                        accumulated_novel.clear()
-
-                                if self.DEBUG:
-                                    queue_message(f"DEBUG: Barge-in: '{transcript}' window={window_words} novel={novel} accumulated={accumulated_novel} (frames={buf_len})")
-                                if len(accumulated_novel) >= self._bargein_min_novel:
-                                    if self.DEBUG:
-                                        queue_message(f"DEBUG: Barge-in detected! Heard: '{transcript}' (novel: {accumulated_novel})")
-                                    stop_tts_playback()
-                                    break
-            except Exception as e:
-                queue_message(f"WARN: Barge-in monitor error: {e}")
-
-        self._bargein_thread = threading.Thread(target=_monitor, daemon=True)
+        self._bargein_thread = threading.Thread(
+            target=self._bargein_frame_loop, args=(_veto,), daemon=True)
         self._bargein_thread.start()
 
     def _start_bargein_voiceprint(self):
-        """Voiceprint-based barge-in monitor. Checks if detected speech matches a known speaker."""
-        from modules.module_tts import stop_tts_playback, is_tts_playing
+        """Voiceprint barge-in monitor (thin wrapper: builds the
+        speaker-embedding veto_fn and runs the shared frame loop).
+
+        HONEST DEVIATION from the 250 ms veto figure: the voiceprint veto
+        lands ~0.6 s AFTER the cancel, not 250 ms — the embedding needs
+        ~1 s of speech (MIN_SPEECH=8 frames below) and the veto only runs
+        once end-of-speech is detected.  This is harmless by design: the
+        veto protects the *listen handoff* (don't transcribe TARS's own
+        echo or a stranger), which naturally waits for end-of-speech
+        anyway; the CANCEL itself fires on the energy gate at 250-375 ms
+        as specified.
+        """
         from modules.module_speaker_id import get_speaker_id_manager
 
-        def _monitor():
-            bargein_threshold = self.silence_threshold * self._bargein_rms_scale
-            speech_buf = []       # Rolling buffer of speech frames (kept across checks)
-            MAX_BUF = 16          # Keep last ~2s of speech frames (16 x 125ms)
-            CHECK_EVERY = 4       # Check every ~0.5s (4 x 125ms)
-            MIN_SPEECH = 8        # Need >=8 speech frames (~1s) for usable embedding
-            frame_count = 0
-            ECHO_GRACE_FRAMES = 2   # Skip ~250ms after TTS stops to let echo die
-            grace_remaining = 0     # Countdown frames after TTS stops playing
+        MIN_SPEECH = 8  # need >= 8 frames (~1 s) for a usable embedding
 
-            try:
-                with ResamplingInputStream(dtype="int16") as mic:
-                    # Flush stale audio from OS buffer (discard first ~0.5s)
-                    mic.flush()
+        def _veto(utterance):
+            if len(utterance) < MIN_SPEECH * 2000:
+                return False
+            audio_int16 = utterance
+            audio_float32 = audio_int16.astype(np.float32).flatten() / 32768.0
 
-                    while self._bargein_active:
-                        data, _ = mic.read(2000)  # ~125ms frame
-                        frame_count += 1
+            sid = get_speaker_id_manager()
+            if sid is None:
+                return False
 
-                        # Skip audio while TTS is playing to avoid self-hearing
-                        if is_tts_playing():
-                            grace_remaining = ECHO_GRACE_FRAMES
-                            continue
-                        if grace_remaining > 0:
-                            grace_remaining -= 1
-                            continue
+            embedding = sid.extract_embedding(audio_float32, 16000)
+            if embedding is None:
+                return False
 
-                        # Collect frames with speech energy into rolling buffer
-                        rms = self._compute_rms_fast(data)
-                        if rms and rms > bargein_threshold:
-                            speech_buf.append(data)
-                            if len(speech_buf) > MAX_BUF:
-                                speech_buf = speech_buf[-MAX_BUF:]
+            # Identify speaker (skip normal margin check — we do our own below)
+            name, confidence = sid.identify_speaker(embedding, skip_margin=True)
 
-                        if frame_count % CHECK_EVERY == 0:
-                            if len(speech_buf) < MIN_SPEECH:
-                                continue
+            # Ignore Unknown_* profiles — they may be TARS bleed
+            # that got auto-enrolled. Only named speakers matter.
+            if name and name.startswith("Unknown_"):
+                name = ""
+                confidence = 0.0
 
-                            # Use last MIN_SPEECH..MAX_BUF speech frames for embedding
-                            audio_int16 = np.concatenate(speech_buf[-MAX_BUF:])
-                            audio_float32 = audio_int16.astype(np.float32).flatten() / 32768.0
+            # Bleed filter: TTS audio bleeds into mic and can weakly
+            # match enrolled speakers. Real speech has a clear margin
+            # over runner-up; bleed does not.
+            margin = 1.0  # default if only one speaker enrolled
+            if name and confidence > 0:
+                enrolled = sid.get_enrolled_speakers()
+                if len(enrolled) > 1:
+                    runner_up = 0.0
+                    for spk in enrolled:
+                        if spk != name:
+                            s = sid._compute_best_score(embedding, spk)
+                            if s > runner_up:
+                                runner_up = s
+                    margin = confidence - runner_up
 
-                            sid = get_speaker_id_manager()
-                            if sid is None:
-                                continue
+            if self.DEBUG and name and confidence > 0.01:
+                queue_message(f"DEBUG: Barge-in voiceprint: speaker='{name}' confidence={confidence:.2f} threshold={self._bargein_voiceprint_threshold:.2f} margin={margin:.3f}")
 
-                            embedding = sid.extract_embedding(audio_float32, 16000)
-                            if embedding is None:
-                                continue
+            # Match requires: above threshold AND margin > 0.05
+            # (bleed typically has margin < 0.04, real speech > 0.10)
+            matched = bool(name and confidence >= self._bargein_voiceprint_threshold and margin > 0.05)
 
-                            # Identify speaker (skip normal margin check — we do our own below)
-                            name, confidence = sid.identify_speaker(embedding, skip_margin=True)
+            if matched and self.DEBUG:
+                queue_message(f"DEBUG: Barge-in detected! Voice matched '{name}' (confidence: {confidence:.2f}, margin: {margin:.3f})")
+            return matched
 
-                            # Ignore Unknown_* profiles — they may be TARS bleed
-                            # that got auto-enrolled. Only named speakers matter.
-                            if name and name.startswith("Unknown_"):
-                                name = ""
-                                confidence = 0.0
-
-                            # Bleed filter: TTS audio bleeds into mic and can weakly
-                            # match enrolled speakers. Real speech has a clear margin
-                            # over runner-up; bleed does not.
-                            margin = 1.0  # default if only one speaker enrolled
-                            if name and confidence > 0:
-                                enrolled = sid.get_enrolled_speakers()
-                                if len(enrolled) > 1:
-                                    runner_up = 0.0
-                                    for spk in enrolled:
-                                        if spk != name:
-                                            s = sid._compute_best_score(embedding, spk)
-                                            if s > runner_up:
-                                                runner_up = s
-                                    margin = confidence - runner_up
-
-                            if self.DEBUG and name and confidence > 0.01:
-                                queue_message(f"DEBUG: Barge-in voiceprint: speaker='{name}' confidence={confidence:.2f} threshold={self._bargein_voiceprint_threshold:.2f} margin={margin:.3f}")
-
-                            # Match requires: above threshold AND margin > 0.05
-                            # (bleed typically has margin < 0.04, real speech > 0.10)
-                            matched = bool(name and confidence >= self._bargein_voiceprint_threshold and margin > 0.05)
-
-                            if matched:
-                                if self.DEBUG:
-                                    queue_message(f"DEBUG: Barge-in detected! Voice matched '{name}' (confidence: {confidence:.2f}, margin: {margin:.3f})")
-                                stop_tts_playback()
-                                break
-            except Exception as e:
-                queue_message(f"WARN: Barge-in voiceprint monitor error: {e}")
-
-        self._bargein_thread = threading.Thread(target=_monitor, daemon=True)
+        self._bargein_thread = threading.Thread(
+            target=self._bargein_frame_loop, args=(_veto,), daemon=True)
         self._bargein_thread.start()
 
     def _bargein_transcribe(self, audio_buffer):
