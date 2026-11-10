@@ -604,8 +604,15 @@ def _hub_watchdog_tick():
     if not stale and not digital_silence:
         # Healthy: reset the ladder so every stale episode starts at a fresh
         # cheap L1 — never an immediate ~22 s L2 after a long healthy gap.
-        _wd_state["l1"] = None
-        _wd_state["l2"] = None
+        # BUT only when audio is genuinely flowing. A stream that reopened
+        # successfully yet has still delivered nothing (chunk_count == 0) is
+        # NOT recovered: `_ensure_stream` resets `_stream_opened_mono` on every
+        # reopen, so clearing here would reset the escalation clock each time
+        # and make the L2 rung unreachable for a wedged device that opens but
+        # never delivers — the exact case L2 exists to fix.
+        if s["chunk_count"] > 0:
+            _wd_state["l1"] = None
+            _wd_state["l2"] = None
         if now - _wd_state["heartbeat"] >= 30.0:
             _wd_state["heartbeat"] = now
             queue_message(f"AUDIO-HUB: cb={s['consumers']}({','.join(s['callback_names'])}) "

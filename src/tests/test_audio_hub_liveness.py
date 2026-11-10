@@ -646,6 +646,73 @@ class TestWatchdogBootGrace:
         l1_req.assert_called_once()
         l2.assert_not_called()
 
+    def test_never_delivered_escalates_to_l2_not_l1_loop(self):
+        """Regression: the boot grace must not make L2 unreachable.
+
+        A device that opens but NEVER delivers is not recovered by reopening
+        it. The escalation clock must survive the reopen (which resets the
+        grace anchor) so L2 -- restart_sound_server, the rung that actually
+        fixes a wedged device -- stays reachable instead of looping L1
+        reopens forever."""
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=11.0)   # past grace -> stale
+        _wd_reset(clock)
+
+        def _reopen_resets_anchor():
+            # _ensure_stream() stamps _stream_opened_mono = now on every reopen
+            hub._stream_opened_mono = clock.monotonic()
+
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery",
+                               side_effect=_reopen_resets_anchor) as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            for _ in range(8):          # 8 x 2 s = 16 s > the 10 s L1->L2 window
+                module_mic._hub_watchdog_tick()
+                clock.advance(2)
+
+        assert l1_req.call_count == 1, "L1 must not storm while escalating"
+        l2.assert_called_once()
+
+    def test_within_grace_does_not_clear_stamped_ladder(self):
+        """A tick that is merely within the boot grace (no chunks yet) is NOT
+        evidence of recovery -- it must not wipe an in-flight escalation."""
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=1.0)    # within grace
+        _wd_reset(clock)
+        module_mic._wd_state["l1"] = clock.now - 5.0   # mid-escalation
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        assert module_mic._wd_state["l1"] is not None
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
+    def test_delivered_healthy_clears_ladder(self):
+        """Genuine delivery DOES clear the ladder -- a healthy stream must
+        never be re-escalated from stale state."""
+        clock = _FakeClock()
+        hub = _wd_boot_hub(clock, opened_age_s=60.0, chunk_age=1.0)
+        _wd_reset(clock)
+        module_mic._wd_state["l1"] = clock.now - 3.0
+        module_mic._wd_state["l2"] = clock.now - 3.0
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        assert module_mic._wd_state["l1"] is None
+        assert module_mic._wd_state["l2"] is None
+        l1_req.assert_not_called()
+        l2.assert_not_called()
+
     def test_delivered_recent_chunk_no_l1(self):
         clock = _FakeClock()
         hub = _wd_boot_hub(clock, opened_age_s=60.0, chunk_age=1.0)
