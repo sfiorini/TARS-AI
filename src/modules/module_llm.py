@@ -170,9 +170,20 @@ def _maybe_play_thinking_response():
         return False
 
 
-def _delta_text(content):
-    """Normalize a streamed delta/content value to plain text.
-    Handles GLM-style list-of-blocks: [{"type":"thinking",...},{"type":"text","text":...}]."""
+def content_text(content):
+    """Normalize an LLM `content` value to plain text.
+
+    THE rule for reading model output: GLM-family models return
+    ``content`` as a list of blocks —
+    ``[{"type": "thinking", ...}, {"type": "text", "text": ...}]`` —
+    not a string.  Calling ``.strip()`` on the raw value raises
+    ``AttributeError: 'list' object has no attribute 'strip'``, which in the
+    web-search summarizer surfaced as "Search summarization failed" and made
+    every weather answer silently empty.
+
+    Every consumer of a non-streaming response must call this (streaming uses
+    it per delta).  Unknown/None values normalize to "".
+    """
     if isinstance(content, str):
         return content
     if isinstance(content, list):
@@ -186,6 +197,10 @@ def _delta_text(content):
                 parts.append(block)
         return "".join(parts)
     return ""
+
+
+# Backwards-compatible private name (module_vision and the delta tests import it).
+_delta_text = content_text
 
 
 def get_completion(user_prompt, istext=True, image_b64=None, source="voice"):

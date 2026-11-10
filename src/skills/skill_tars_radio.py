@@ -617,14 +617,15 @@ def _generate_dj_intro(track_name: str) -> str:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "max_tokens": 150,
+            "max_tokens": 600,
             "temperature": 0.9,
         }
 
         resp = req.post(url, headers=headers, json=data, timeout=15)
         if resp.ok:
             result = resp.json()
-            text = result["choices"][0]["message"]["content"].strip()
+            from modules.module_llm import content_text
+            text = content_text(result["choices"][0]["message"]["content"]).strip()
             if text:
                 # Strip any accidental JSON wrapping
                 if text.startswith('"') and text.endswith('"'):
