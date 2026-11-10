@@ -89,3 +89,75 @@ class TestSttLoopFailSafe:
             mgr._stt_processing_loop()          # run inline; loop must terminate
 
         assert sleeps == [0.5, 1.0, 2.0, 4.0, 5.0, 5.0], sleeps
+
+
+# ---------------------------------------------------------------------------
+# S-M1-12 — atomik stall -> L2 escalation (rate-limited 60 s, instance-scoped)
+# ---------------------------------------------------------------------------
+
+class _StallDetector:
+    """Fake WakeWordSystem whose listener always stalls (S-M1-10 contract)."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def createModel(self):
+        pass
+
+    def listenForWakeWord(self):
+        raise AudioStallError("dual-signal stall: no chunk/check advance")
+
+    def last_window(self, seconds=2.0):
+        return np.zeros(16000, dtype=np.float32)
+
+
+class TestAtomikStallEscalatesToL2:
+
+    @staticmethod
+    def _patch_clock(monkeypatch, start=1000.0):
+        """Controlled monotonic clock. The rate limit compares against uptime
+        (time.monotonic), which on the robot is >> 60 s by the time a stall
+        happens — but near 0 in a fresh test process, which would make the
+        FIRST L2 look rate-limited. Start the fake clock past the limit."""
+        clock = {"now": start}
+        monkeypatch.setattr(module_stt.time, "monotonic", lambda: clock["now"])
+        return clock
+
+    def test_atomik_stall_escalates_to_l2(self, monkeypatch):
+        """AudioStallError from the bounded listener -> restart_sound_server
+        called once, returns False (processing loop retries with backoff)."""
+        mgr = _minimal_manager()
+        self._patch_clock(monkeypatch)
+        monkeypatch.setattr(module_stt, "WakeWordSystem", _StallDetector)
+        monkeypatch.setattr(module_stt, "is_tts_playing", lambda: False)
+        import modules.module_audio_recovery as recovery
+        with mock.patch.object(recovery, "restart_sound_server") as restart, \
+             mock.patch.object(module_stt, "queue_message"):
+            result = mgr._detect_wake_word_atomik()
+
+        assert result is False
+        assert restart.call_count == 1
+
+    def test_l2_rate_limited_across_calls(self, monkeypatch):
+        """Two stalls within 60 s -> exactly ONE restart (instance-scoped
+        `_last_l2_mono`); after 60 s the limit re-arms -> second restart."""
+        mgr = _minimal_manager()
+        clock = self._patch_clock(monkeypatch)
+        monkeypatch.setattr(module_stt, "WakeWordSystem", _StallDetector)
+        monkeypatch.setattr(module_stt, "is_tts_playing", lambda: False)
+        import modules.module_audio_recovery as recovery
+        with mock.patch.object(recovery, "restart_sound_server") as restart, \
+             mock.patch.object(module_stt, "queue_message") as qmsg:
+            assert mgr._detect_wake_word_atomik() is False      # fresh L2
+            assert restart.call_count == 1
+            clock["now"] += 5.0                                 # still within 60 s
+            assert mgr._detect_wake_word_atomik() is False
+            assert restart.call_count == 1, "L2 must be rate-limited to 1/60s"
+            skipped = [c.args[0] for c in qmsg.call_args_list
+                       if c.args and "rate-limited" in str(c.args[0])]
+            assert skipped, "the skipped restart must be logged"
+
+            # Re-arm: pretend the last L2 was 61 s ago.
+            mgr._last_l2_mono = clock["now"] - 61.0
+            assert mgr._detect_wake_word_atomik() is False
+            assert restart.call_count == 2
