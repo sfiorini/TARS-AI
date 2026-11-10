@@ -30,7 +30,7 @@ Both are needed: the watchdog covers the no-listener case, the listener deadline
 | L2 | still stale **10 s** after a fresh L1 | `restart_sound_server()` (~22 s PipeWire restart) |
 | CRITICAL | still stale **≥ 60 s** after L2 | repeat L2 at ≥ 60 s cadence with a CRITICAL log — never silent |
 
-Digital silence has its own guard: fresh chunks but **≥ 60 s** of all-zero audio enters the same ladder independently of the chunk-age signal (a wedged stream often delivers silence, not nothing). A single healthy tick resets the whole ladder; zero consumers never alarms (a grace close is legitimate); `recovery_in_progress` suppresses alarms during the ~22 s L2.
+Digital silence has its own guard: fresh chunks but **> 60 s** of all-zero audio enters the same ladder independently of the chunk-age signal (a wedged stream often delivers silence, not nothing). A single healthy tick resets the whole ladder; zero consumers never alarms (a grace close is legitimate); `recovery_in_progress` suppresses alarms during the ~22 s L2.
 
 ### AUDIO-HUB log lines
 

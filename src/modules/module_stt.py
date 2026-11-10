@@ -739,6 +739,10 @@ class STTManager:
             try:
                 # Skip processing if paused (e.g., during video playback)
                 if self.is_paused():
+                    # A paused iteration is a clean iteration: reset the
+                    # backoff here too, so pausing cannot leave a transient
+                    # error's backoff ratcheted for the first post-pause error.
+                    backoff = 0.5
                     time.sleep(0.1)
                     continue
                 if self._detect_wake_word():

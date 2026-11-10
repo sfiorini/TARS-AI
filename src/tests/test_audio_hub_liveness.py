@@ -1075,6 +1075,14 @@ class TestDocsQuoteEmittedShapes:
         assert doc_lines[3] == ("CRITICAL: AUDIO-HUB still stale "
                                "mode=callbacks-stopped 60s after L2 "
                                "\u2014 repeating L2 restart_sound_server"), doc_lines[3]
+        # Guard the literals above against drift: both escalation lines must
+        # still exist as format strings in the emitter, so this test fails if
+        # the code's wording changes without the docs following.
+        src = (Path(__file__).resolve().parents[1] / "modules" / "module_mic.py").read_text()
+        assert "still stale mode={mode} 10s after L1 " in src
+        assert "-> L2 restart_sound_server" in src
+        assert "still stale mode={mode} 60s after L2 " in src
+        assert "\u2014 repeating L2 restart_sound_server" in src
 
 
 class TestHubWatchdogStartStop:
