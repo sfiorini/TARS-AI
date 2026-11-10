@@ -236,7 +236,10 @@ class STTManager:
 
         # L2 sound-server restart rate limit (60 s) — instance-scoped so it
         # survives across _detect_wake_word_atomik() calls (S-M1-12)
-        self._last_l2_mono = 0.0
+        # None = "never issued": a 0.0 anchor would rate-limit the
+        # FIRST L2 for the first 60 s of process uptime — exactly when a
+        # boot-time device wedge happens (audit B/F2).
+        self._last_l2_mono = None
 
         # Cache progress bar, webui port, and character name so they aren't recreated per frame
         self._progress_bar_funcs = None
@@ -1561,7 +1564,8 @@ class STTManager:
         except AudioStallError as e:
             now = time.monotonic()
             queue_message(f"WARNING: wake listener stalled ({e}) — escalating to sound-server restart")
-            if now - self._last_l2_mono >= 60.0:
+            if (self._last_l2_mono is None
+                    or now - self._last_l2_mono >= 60.0):
                 from modules.module_mic import audio_hub_stats
                 if audio_hub_stats()["recovery_in_progress"]:
                     # A recovery is already in flight (hub watchdog L2 / TTS)

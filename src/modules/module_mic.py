@@ -636,39 +636,62 @@ def _hub_watchdog_tick():
         return                                            # rules 1-2
     if not s["stream_open"]:
         # rule 3: invalidate() hole — consumers alive but stream gone.
-        if now - _wd_state["invalidate"] > 2.0:           # 2 s throttle
+        if now - _wd_state["invalidate"] <= 2.0:          # 2 s throttle
+            return
+        try:
             _hub._ensure_stream()                        # lock-free call (S-M1-04)
-            _wd_state["invalidate"] = now                 # throttle anchor advances
-        return
-    age = s["last_chunk_age_s"]
-    if s["chunk_count"] == 0:
-        # F1 boot grace: "never delivered a chunk" is not "stopped
-        # delivering" — a freshly opened stream is legitimately silent
-        # until its first PortAudio callback fires (the same grace
-        # _is_chunk_stream_healthy grants; a 2 s tick in that window must
-        # not fire a spurious L1 at boot). Past the grace window a stream
-        # that NEVER delivered is a real failure -> still stale, so there
-        # is no permanent blindness at boot.
-        opened_age = s["stream_opened_age_s"]
-        stale = opened_age is None or opened_age > _AudioHub._STALE_CHUNK_PERIOD
+            reopened = True
+        except Exception:
+            reopened = False
+        _wd_state["invalidate"] = now                     # throttle anchor advances
+        if reopened:
+            _wd_state["l1"] = None
+            _wd_state["l2"] = None
+            return
+        # Reopen FAILED -> fall through to the ladder (audit A/F1). L1 cannot
+        # help a stream that will not open; L2 (sound-server restart) is the
+        # only rung that releases a wedged card. Returning here looped
+        # _ensure_stream() forever and the robot stayed permanently deaf.
+        age = None
+        nz = s["last_nonzero_age_s"]
+        first_age = s["first_chunk_age_s"]
+        stale = True
+        digital_silence = False
+        detect_stalled = False
+        mode = "stream-closed"
     else:
-        stale = age is None or age > 5.0
-    nz = s["last_nonzero_age_s"]
-    # Sustained digital silence: either ≥ 60 s since the last non-zero
-    # chunk, or ≥ 60 s of chunks that have NEVER been non-zero (all-zeros
-    # from the very first chunk — _last_nonzero_mono stays 0 -> nz None).
-    # BOTH cases obey the same ≥ 60 s threshold: a muted or echo-cancelled
-    # source legitimately yields exact-zero float32 during silence, so the
-    # first ~2 s of never-nonzero audio is not a dead digital path.
-    # nz None with zero chunks is "no data yet", not silence.
-    first_age = s["first_chunk_age_s"]
-    digital_silence = ((nz is not None and nz > 60.0)
-                       or (nz is None and first_age is not None
-                           and first_age > 60.0))
-    # Mode (c): chunks arriving but the live listener's check counter has
-    # been frozen ≥ 5 s — the detection path (swallowed consumer exception /
-    # dispatch-blocked) is stalled behind an otherwise healthy hub.
-    detect_stalled = (not stale) and frozen_for >= 5.0
+        age = s["last_chunk_age_s"]
+        if s["chunk_count"] == 0:
+            # F1 boot grace: "never delivered a chunk" is not "stopped
+            # delivering" — a freshly opened stream is legitimately silent
+            # until its first PortAudio callback fires (the same grace
+            # _is_chunk_stream_healthy grants; a 2 s tick in that window must
+            # not fire a spurious L1 at boot). Past the grace window a stream
+            # that NEVER delivered is a real failure -> still stale, so there
+            # is no permanent blindness at boot.
+            opened_age = s["stream_opened_age_s"]
+            stale = opened_age is None or opened_age > _AudioHub._STALE_CHUNK_PERIOD
+        else:
+            stale = age is None or age > 5.0
+        nz = s["last_nonzero_age_s"]
+        # Sustained digital silence: either ≥ 60 s since the last non-zero
+        # chunk, or ≥ 60 s of chunks that have NEVER been non-zero (all-zeros
+        # from the very first chunk — _last_nonzero_mono stays 0 -> nz None).
+        # BOTH cases obey the same ≥ 60 s threshold: a muted or echo-cancelled
+        # source legitimately yields exact-zero float32 during silence, so the
+        # first ~2 s of never-nonzero audio is not a dead digital path.
+        # nz None with zero chunks is "no data yet", not silence.
+        first_age = s["first_chunk_age_s"]
+        digital_silence = ((nz is not None and nz > 60.0)
+                           or (nz is None and first_age is not None
+                               and first_age > 60.0))
+        # Mode (c): chunks arriving but the live listener's check counter has
+        # been frozen ≥ 5 s — the detection path (swallowed consumer exception /
+        # dispatch-blocked) is stalled behind an otherwise healthy hub.
+        detect_stalled = (not stale) and frozen_for >= 5.0
+        mode = ("digital-silence" if digital_silence else
+                "detect-stalled" if detect_stalled else
+                "callbacks-stopped")
     if not stale and not digital_silence and not detect_stalled:
         # Healthy: reset the ladder so every stale episode starts at a fresh
         # cheap L1 — never an immediate ~22 s L2 after a long healthy gap.
@@ -681,6 +704,11 @@ def _hub_watchdog_tick():
         if s["chunk_count"] > 0:
             _wd_state["l1"] = None
             _wd_state["l2"] = None
+            # A/F2: re-arm the hub's own 10 s L1 limiter too. Clearing only
+            # the watchdog anchor left the hub rate-limited, so a re-stall
+            # within 10 s issued a phantom L1 (logged, never executed) and
+            # escalated straight to a ~22 s L2.
+            _hub._last_l1_mono = None
         if now - _wd_state["heartbeat"] >= 30.0:
             _wd_state["heartbeat"] = now
             queue_message(f"AUDIO-HUB: cb={s['consumers'] - s['readers']}"
@@ -704,13 +732,23 @@ def _hub_watchdog_tick():
     #     every stale episode starts at a fresh L1.
     #   * Once `l2` is stamped the ladder is in L2 mode: repeat L2 at >= 60 s
     #     cadence and NEVER re-issue L1 (no reopen-storm between L2s).
-    mode = ("digital-silence" if digital_silence else
-            "detect-stalled" if detect_stalled else
-            "callbacks-stopped")
     l1 = _wd_state["l1"]
     l2 = _wd_state["l2"]
     if l2 is not None:
         if now - l2 >= 60.0:                              # rule 6: repeat L2
+            if digital_silence and nz is None:
+                # B/F1: chunks ARE arriving, so the hub is healthy and a
+                # sound-server restart cannot fix a muted / DC-offset source.
+                # Repeating L2 here is a ~22 s outage every 60 s on a robot
+                # that is otherwise working. Warn instead, at most every 5 min.
+                if now - _wd_state.get("silence_warn", 0.0) >= 300.0:
+                    _wd_state["silence_warn"] = now
+                    queue_message(
+                        "WARNING: AUDIO-HUB source delivering only zeros "
+                        f"({int(first_age or 0)}s) — check mic mute / "
+                        "echo-cancel; not restarting the sound server again")
+                _wd_state["l2"] = now
+                return
             queue_message(f"CRITICAL: AUDIO-HUB still stale mode={mode} 60s after L2 "
                           "— repeating L2 restart_sound_server")
             restart_sound_server()

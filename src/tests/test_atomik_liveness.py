@@ -447,3 +447,45 @@ def test_stall_log_reports_current_chunk_count(monkeypatch):
         f"stall line must report the current chunk count ({current}), got: {stalls[0]}")
     # And it must not be the stale first-poll value (mode c keeps advancing).
     assert "hub_chunk=1}" not in stalls[0]
+
+
+def test_listen_defers_l1_while_recovery_in_progress(monkeypatch):
+    """Audit B/F3: the listener's L1 reopen must not race a sound-server
+    recovery. `restart_sound_server` runs sd._terminate()/sd._initialize(),
+    and PortAudio is not thread-safe — opening a stream mid-teardown is a
+    use-after-free class bug, not just a failed open."""
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    invalidated = []
+    _patch_hub(monkeypatch,
+               lambda: {"chunk_count": 0, "recovery_in_progress": True},
+               invalidated)
+
+    with pytest.raises(AudioStallError):
+        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=2)
+
+    assert len(invalidated) == 0, (
+        "must not reopen the hub while a recovery is in flight")
+
+
+def test_model_mode_stamps_last_window_rms(monkeypatch):
+    """Audit A/F3+B/F4: `_last_window_rms` was only stamped on the template
+    path, so every `rms=` discriminator field read 0.000 for model-mode
+    listeners — misleading an operator into thinking the input was silent."""
+    det = _template_detector()
+    det._mode = det.MODE_MODEL
+    det.model = object()                       # non-None: pass the early return
+    det._window = lambda seconds: np.full(1600, 0.25, dtype=np.float32)
+    det.last_detection_time = 0.0
+    det.last_check_time = 0.0
+    det.cooldown = 0.0
+    det.check_interval = 0.0
+    det.vad.energy_threshold = 0.0001          # let it past the energy gate
+    det._last_window_rms = 0.0
+
+    det._detect_model()
+
+    assert det._last_window_rms > 0.0, (
+        "model mode must stamp _last_window_rms for the rms= diagnostics")

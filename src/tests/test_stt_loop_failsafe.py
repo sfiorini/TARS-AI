@@ -258,3 +258,25 @@ class TestSttBackoffInterruptible:
         # RED before the fix: the loop used time.sleep(backoff), a blind wait
         # that ignores shutdown_event entirely.
         sleep_mock.assert_not_called()
+
+
+class TestL2AnchorSentinel:
+    """Audit B/F2: `_last_l2_mono = 0.0` is a false "last L2" anchor — on a
+    fresh process (uptime < 60 s) `now - 0.0 >= 60` is False, so the STT-side
+    L2 escalation is silently dead for the first minute of uptime, which is
+    exactly when a servo power-on spike wedges the USB card."""
+
+    def test_first_stall_early_in_uptime_escalates(self, monkeypatch):
+        mgr = _minimal_manager()
+        mgr._last_l2_mono = None          # None sentinel = never issued
+        clock = {"now": 30.0}             # only 30 s of uptime
+        monkeypatch.setattr(module_stt.time, "monotonic", lambda: clock["now"])
+        monkeypatch.setattr(module_stt, "WakeWordSystem", _StallDetector)
+        monkeypatch.setattr(module_stt, "is_tts_playing", lambda: False)
+        import modules.module_audio_recovery as recovery
+        with mock.patch.object(recovery, "restart_sound_server") as restart, \
+             mock.patch.object(module_stt, "queue_message"):
+            result = mgr._detect_wake_word_atomik()
+        assert result is False
+        assert restart.call_count == 1, "first stall at 30 s uptime must escalate"
+        assert mgr._last_l2_mono == 30.0

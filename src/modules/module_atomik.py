@@ -797,6 +797,7 @@ class WakeWordSystem:
                 deadline = time.monotonic() + stall_timeout
                 last_chunk = None
                 last_check = None
+                last_recovery = False
                 with open_native_stream(callback=make_resampling_callback(audio_callback),
                                         blocksize=512, name="atomik"):
                     while not detected_flag:
@@ -807,6 +808,9 @@ class WakeWordSystem:
                         # mode (c) (chunks advancing, detection frozen) a stale
                         # value would make it indistinguishable from mode (a).
                         last_chunk = s["chunk_count"]
+                        # Captured during the poll (no extra stats() call) so the
+                        # stall log still reports the chunk count at decision time.
+                        last_recovery = bool(s.get("recovery_in_progress"))
                         if self._check_count != last_check:
                             # check-advance implies chunk-advance (detect() runs only
                             # from the RT callback) — equivalent to 'both advanced'.
@@ -822,7 +826,15 @@ class WakeWordSystem:
                 queue_message(f"WARNING: WAKE stall (hub_chunk={last_chunk} check={last_check} "
                               f"exit={self._last_exit} rms={self._last_window_rms:.4f}) — L1 recovery {recoveries}/{max_recoveries}")
                 from modules import module_mic
-                module_mic.invalidate_audio_hub()
+                # B/F3: never open a PortAudio stream while a sound-server
+                # recovery is running sd._terminate()/_initialize() — PortAudio
+                # is not thread-safe, so this would race the teardown. Skip the
+                # reopen and let the ladder escalate instead.
+                if last_recovery:
+                    queue_message("WARNING: sound server recovery in progress "
+                                  "— deferring wake-listener L1 reopen")
+                else:
+                    module_mic.invalidate_audio_hub()
                 if recoveries >= max_recoveries:
                     raise AudioStallError(
                         f"wake stalled after {recoveries} L1 recoveries "
@@ -870,6 +882,11 @@ class WakeWordSystem:
 
         # --- Gate 1: Energy gate ---
         rms = np.sqrt(np.mean(audio_window ** 2))
+        # A/F3+B/F4: publish the window RMS on the model path too. It was only
+        # stamped in _detect_template_body, so every `rms=` discriminator field
+        # read 0.000 for model-mode listeners — misleading an operator into
+        # thinking the input was silent rather than detection-frozen.
+        self._last_window_rms = float(rms)
         if rms < self.vad.energy_threshold:
             # Update noise floor from quiet frames
             self._noise_floor = (1 - self._noise_alpha) * self._noise_floor + self._noise_alpha * rms

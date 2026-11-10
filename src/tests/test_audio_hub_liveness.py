@@ -1085,6 +1085,69 @@ class TestDocsQuoteEmittedShapes:
         assert "\u2014 repeating L2 restart_sound_server" in src
 
 
+class TestAuditFixes:
+    """Defects found by the dual-blind audit gate (A/F1, B/F1, A/F2)."""
+
+    def test_closed_stream_reopen_failure_escalates_to_l2(self):
+        """A/F1: rule 3 returned before the ladder, so a stream that could not
+        be reopened looped _ensure_stream() forever and never reached L2 —
+        the only rung that releases a wedged USB card. L2 must be reachable."""
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=True)
+        hub._stream = None                      # stream_open False
+        hub._ensure_stream = mock.Mock(side_effect=RuntimeError("PaErrorCode -9985"))
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            for _ in range(12):                 # 12 x 2 s = 24 s > the 10 s window
+                module_mic._hub_watchdog_tick()
+                clock.advance(2)
+        assert l2.called, "reopen failure must escalate to L2, not loop forever"
+
+    def test_never_nonzero_silence_does_not_storm_l2(self):
+        """B/F1: chunks arriving but never non-zero kept digital_silence True
+        forever, so the ladder never reset and L2 repeated every 60 s — a
+        ~22 s outage every 82 s on a robot that is actually working."""
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)
+        hub._chunk_count = 500
+        hub._first_chunk_mono = clock.now - 120.0   # past the 60 s threshold
+        hub._last_nonzero_mono = 0.0                # never non-zero -> nz None
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            for _ in range(150):                # 150 x 2 s = 300 s
+                module_mic._hub_watchdog_tick()
+                clock.advance(2)
+        assert l2.call_count <= 1, (
+            "never-nonzero silence must not restart the sound server repeatedly "
+            f"(got {l2.call_count} L2 restarts in 300 s)")
+
+    def test_healthy_tick_resets_hub_l1_rate_limit(self):
+        """A/F2: the watchdog cleared its own l1 anchor on a healthy tick but
+        the hub's 10 s limiter kept running, so a re-stall within 10 s issued a
+        phantom L1 (logged, never executed) and escalated to L2 instead."""
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)
+        hub._last_l1_mono = clock.now - 3.0         # hub still rate-limited
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"):
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        assert hub._last_l1_mono is None, (
+            "a healthy tick must re-arm the hub's L1 limiter so the next stall "
+            "gets a real L1 instead of a phantom one")
+
+
 class TestHubWatchdogStartStop:
     """S-M1-07: start/stop lifecycle (idempotent start, clean stop)."""
 
