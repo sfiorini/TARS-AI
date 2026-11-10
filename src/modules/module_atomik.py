@@ -776,6 +776,7 @@ class WakeWordSystem:
         exception / dispatch-blocked, and MUST escalate to AudioStallError."""
         from modules.module_mic import (AudioStallError, audio_hub_stats,
                                         publish_listener_diagnostics)
+        from modules import module_mic
         recoveries = 0
         # Publish ourselves to the hub watchdog for the duration of the
         # listen: it reads _check_count/_last_window_rms to discriminate
@@ -783,6 +784,15 @@ class WakeWordSystem:
         publish_listener_diagnostics(self)
         try:
             while True:
+                # B/F3: never open a PortAudio stream while a sound-server
+                # recovery is running sd._terminate()/_initialize() — PortAudio
+                # is not thread-safe, so an open here races the teardown.
+                # Wait (bounded) for the recovery to finish before reopening;
+                # the sd re-init takes ~22 s, so allow a little more than that.
+                _recovery_deadline = time.monotonic() + 30.0
+                while (getattr(module_mic._hub, "_recovery_in_progress", False)
+                       and time.monotonic() < _recovery_deadline):
+                    time.sleep(0.1)
                 detected_flag = False
 
                 def audio_callback(audio_np, frames, time_info, status):
@@ -825,7 +835,6 @@ class WakeWordSystem:
                 recoveries += 1
                 queue_message(f"WARNING: WAKE stall (hub_chunk={last_chunk} check={last_check} "
                               f"exit={self._last_exit} rms={self._last_window_rms:.4f}) — L1 recovery {recoveries}/{max_recoveries}")
-                from modules import module_mic
                 # B/F3: never open a PortAudio stream while a sound-server
                 # recovery is running sd._terminate()/_initialize() — PortAudio
                 # is not thread-safe, so this would race the teardown. Skip the

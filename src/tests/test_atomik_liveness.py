@@ -451,26 +451,57 @@ def test_stall_log_reports_current_chunk_count(monkeypatch):
 
 
 def test_listen_defers_l1_while_recovery_in_progress(monkeypatch):
-    """Audit B/F3: the listener's L1 reopen must not race a sound-server
-    recovery. `restart_sound_server` runs sd._terminate()/sd._initialize(),
-    and PortAudio is not thread-safe — opening a stream mid-teardown is a
-    use-after-free class bug, not just a failed open."""
+    """Audit B/F3: the listener must not open a PortAudio stream, nor reopen
+    the hub, while a sound-server recovery is running sd._terminate()/
+    sd._initialize() — PortAudio is not thread-safe, so an open there races
+    the teardown.
+
+    Models the real sequence: a recovery is in flight when the listener starts
+    (it must wait for it to finish), and a new one starts while it is
+    listening (the reopen must then be deferred)."""
     det = _template_detector()
     state = {"enters": 0, "callback": None}
-    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    opened_while_recovering = []
+
+    class _Hub:
+        """True for the first two reads (the in-flight recovery), then cleared
+        so the wait loop proceeds; `forced` pins it True again afterwards."""
+
+        def __init__(self):
+            self.reads = 0
+            self.forced = None
+
+        @property
+        def _recovery_in_progress(self):
+            if self.forced is not None:
+                return self.forced
+            self.reads += 1
+            return self.reads <= 2
+
+    hub = _Hub()
+
+    def fake_open(**kwargs):
+        opened_while_recovering.append(hub._recovery_in_progress)
+        state["callback"] = kwargs.get("callback")
+        hub.forced = True                   # a new recovery starts mid-listen
+        return _FakeStream(state)
+
+    monkeypatch.setattr(atomik, "open_native_stream", fake_open)
     monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
     invalidated = []
-    # The poll-loop sample says "no recovery" (stale), but the hub flag is set
-    # by the time the reopen is attempted — the fresh read must catch it.
     _patch_hub(monkeypatch,
                lambda: {"chunk_count": 0, "recovery_in_progress": False},
                invalidated)
-    monkeypatch.setattr(module_mic, "_hub",
-                        mock.MagicMock(_recovery_in_progress=True))
+    monkeypatch.setattr(module_mic, "_hub", hub)
 
+    # max_recoveries=1: raise after the first stall, so the test does not sit
+    # in the bounded recovery wait on a subsequent iteration.
     with pytest.raises(AudioStallError):
-        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=2)
+        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=1)
 
+    assert opened_while_recovering, "the listener never attempted to open"
+    assert not any(opened_while_recovering), (
+        "must not open a PortAudio stream while a recovery is in flight")
     assert len(invalidated) == 0, (
         "must not reopen the hub while a recovery is in flight")
 
