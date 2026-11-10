@@ -464,6 +464,14 @@ class WakeWordSystem:
         # Mode: auto-detect if not specified
         # "model" = CNN/ONNX, "template" = cosine similarity
         self._mode = mode  # None = auto-detect during createModel()
+        # Liveness progress counters (S-M1-08) — consumed by the bounded
+        # listenForWakeWord deadline (S-M1-10). _check_count is single-writer
+        # (RT callback thread) and advances on EVERY detect() call, before
+        # any gate, so a frozen detect() path is distinguishable from a live
+        # one even while chunks keep arriving.
+        self._check_count = 0        # += 1 at top of detect(), before any gate (RT single-writer)
+        self._last_exit = ""         # "cooldown"|"interval"|"vad"|"feature"|"below-threshold"|"detected"
+        self._last_window_rms = 0.0  # rms of the VAD slice (1024 samples, cheap)
 
     # --- Data collection helpers ---
 
@@ -737,13 +745,16 @@ class WakeWordSystem:
         if self._mode == self.MODE_TEMPLATE:
             return self._detect_template()
 
+        self._check_count += 1  # advanced before any gate (RT single-writer)
         if self.model is None or len(self.buffer) < int(self.sample_rate * 1.0):
             return False, 0.0
-        if time.time() - self.last_detection_time < self.cooldown:
+        if time.monotonic() - self.last_detection_time < self.cooldown:
+            self._last_exit = "cooldown"
             return False, 0.0
-        if time.time() - self.last_check_time < self.check_interval:
+        if time.monotonic() - self.last_check_time < self.check_interval:
+            self._last_exit = "interval"
             return False, 0.0
-        self.last_check_time = time.time()
+        self.last_check_time = time.monotonic()
 
         audio_window = np.array(list(self.buffer)[-int(self.sample_rate):], dtype=np.float32)
 
@@ -752,11 +763,13 @@ class WakeWordSystem:
         if rms < self.vad.energy_threshold:
             # Update noise floor from quiet frames
             self._noise_floor = (1 - self._noise_alpha) * self._noise_floor + self._noise_alpha * rms
+            self._last_exit = "vad"
             return False, 0.0
 
         # --- Gate 2: Adaptive SNR gate ---
         snr = rms / (self._noise_floor + 1e-8)
         if snr < self._min_snr:
+            self._last_exit = "vad"
             return False, 0.0
 
         # --- Gate 3: Crest factor — reject transient bangs/clicks ---
@@ -764,6 +777,7 @@ class WakeWordSystem:
         peak = np.max(np.abs(audio_window))
         crest = peak / (rms + 1e-8)
         if crest > 15:  # bangs/clicks typically > 15, speech < 10
+            self._last_exit = "vad"
             return False, 0.0
 
         # --- Gate 4: Spectral speech gate ---
@@ -774,17 +788,20 @@ class WakeWordSystem:
         total_band = np.sum(fft_mag) + 1e-8
         speech_ratio = speech_band / total_band
         if speech_ratio < 0.30:
+            self._last_exit = "vad"
             return False, 0.0
 
         # --- Gate 5: Sub-300Hz ratio — reject low rumbles/thuds ---
         low_band = np.sum(fft_mag[freqs < 300])
         low_ratio = low_band / total_band
         if low_ratio > 0.60:  # rumbles/thuds have >60% energy below 300Hz
+            self._last_exit = "vad"
             return False, 0.0
 
         # Extract features
         feat = self._audio_to_feature(audio_window)
         if feat is None:
+            self._last_exit = "feature"
             return False, 0.0
 
         # Neural network inference - single forward pass
@@ -821,14 +838,17 @@ class WakeWordSystem:
                 if self.debug:
                     print(f"\r  [atomik] rejected: not speech-like                                    ", flush=True)
                 self._recent_scores.clear()
+                self._last_exit = "vad"
                 return False, score
 
-            self.last_detection_time = time.time()
+            self.last_detection_time = time.monotonic()
+            self._last_exit = "detected"
             self._recent_scores.clear()
             if self.debug:
                 print(f"\r  [atomik] >>> WAKE WORD DETECTED ({score:.3f}) <<<                        ", flush=True)
             return True, score
 
+        self._last_exit = "below-threshold"
         return False, score
 
     def _is_speech_like(self, audio):
@@ -888,20 +908,29 @@ class WakeWordSystem:
 
     def _detect_template(self):
         """Original template-based detection using cosine similarity."""
+        self._check_count += 1  # advanced before any gate (RT single-writer)
         if not self.templates or len(self.buffer) < int(self.sample_rate * 1.0):
             return False, 0.0
-        if time.time() - self.last_detection_time < self.cooldown:
+        if time.monotonic() - self.last_detection_time < self.cooldown:
+            self._last_exit = "cooldown"
             return False, 0.0
-        if time.time() - self.last_check_time < self.check_interval:
+        if time.monotonic() - self.last_check_time < self.check_interval:
+            self._last_exit = "interval"
             return False, 0.0
-        self.last_check_time = time.time()
+        self.last_check_time = time.monotonic()
 
         audio_window = np.array(list(self.buffer)[-int(self.sample_rate):], dtype=np.float32)
-        if not self.vad.is_speech(audio_window[:1024]):
+        # VAD gate on the NEWEST ~64 ms (window tail) — the same audio the
+        # MFCC below will judge, not the ~1 s-old head of the window.
+        vad_slice = audio_window[-1024:]
+        self._last_window_rms = float(np.sqrt(np.mean(np.square(vad_slice))))
+        if not self.vad.is_speech(vad_slice):
+            self._last_exit = "vad"
             return False, 0.0
 
         current_mfcc = self.mfcc_extractor.extract_mfcc(audio_window)
         if current_mfcc is None:
+            self._last_exit = "feature"
             return False, 0.0
 
         max_sim = max(self.cosine_similarity(current_mfcc, t) for t in self.templates)
@@ -912,10 +941,12 @@ class WakeWordSystem:
             print(f"\r  [atomik:tmpl] {bar} {max_sim:.3f}/{self.threshold:.3f}   ", end="", flush=True)
 
         if max_sim >= self.threshold:
-            self.last_detection_time = time.time()
+            self.last_detection_time = time.monotonic()
+            self._last_exit = "detected"
             if self.debug:
                 print(f"\r  [atomik:tmpl] >>> WAKE WORD DETECTED ({max_sim:.3f}) <<<                  ", flush=True)
             return True, max_sim
+        self._last_exit = "below-threshold"
         return False, max_sim
 
     def _record_template(self):
