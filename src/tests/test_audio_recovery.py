@@ -35,7 +35,8 @@ class TestRestartSoundServer:
         fake_mic = mock.MagicMock()
         with mock.patch("sys.platform", "linux"), \
              mock.patch("shutil.which", return_value="/usr/bin/systemctl"), \
-             mock.patch("subprocess.run") as sub_run, \
+             mock.patch("subprocess.run",
+                        return_value=mock.MagicMock(returncode=0)) as sub_run, \
              mock.patch.object(module_audio_recovery.time, "sleep"), \
              mock.patch.dict(sys.modules, {"modules.module_mic": fake_mic}), \
              mock.patch.object(module_audio_recovery.sd, "_terminate"), \
@@ -66,6 +67,45 @@ class TestRestartSoundServer:
             module_audio_recovery.restart_sound_server()
         assert seen["during"] is True    # set around the whole recovery
         assert fake_mic._hub._recovery_in_progress is False  # cleared in finally
+
+    def test_restart_nonzero_returncode_returns_false(self):
+        # F3: a failed systemctl restart must NOT report success — the L2
+        # rung would believe it escalated while the robot stays deaf.
+        fake_mic = mock.MagicMock()
+        failed = mock.MagicMock(returncode=1)         # systemctl exited non-zero
+        with mock.patch("sys.platform", "linux"), \
+             mock.patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             mock.patch("subprocess.run", return_value=failed) as sub_run, \
+             mock.patch.dict(sys.modules, {"modules.module_mic": fake_mic}), \
+             mock.patch.object(module_audio_recovery.sd, "_terminate"), \
+             mock.patch.object(module_audio_recovery.sd, "_initialize"), \
+             mock.patch.object(module_audio_recovery, "queue_message") as qm:
+            result = module_audio_recovery.restart_sound_server()
+        assert result is False                       # failure is NOT success
+        sub_run.assert_called_once()
+        fake_mic.invalidate_audio_hub.assert_called_once()  # housekeeping ran
+        assert any("returncode=1" in str(c) for c in qm.call_args_list)  # logged
+
+    def test_restart_subprocess_timeout_returns_false_housekeeping_ran(self):
+        # F3: subprocess.run raising must not propagate, must return False,
+        # and the SD re-init / hub-invalidate housekeeping (docstring: runs on
+        # EVERY platform) must still happen.
+        import subprocess
+        fake_mic = mock.MagicMock()
+        with mock.patch("sys.platform", "linux"), \
+             mock.patch("shutil.which", return_value="/usr/bin/systemctl"), \
+             mock.patch("subprocess.run",
+                        side_effect=subprocess.TimeoutExpired(cmd="systemctl",
+                                                              timeout=20)), \
+             mock.patch.dict(sys.modules, {"modules.module_mic": fake_mic}), \
+             mock.patch.object(module_audio_recovery.sd, "_terminate") as term, \
+             mock.patch.object(module_audio_recovery.sd, "_initialize") as init, \
+             mock.patch.object(module_audio_recovery, "queue_message"):
+            result = module_audio_recovery.restart_sound_server()
+        assert result is False                       # no raise, no false success
+        term.assert_called_once()                   # housekeeping still ran
+        init.assert_called_once()
+        fake_mic.invalidate_audio_hub.assert_called_once()
 
     def test_recovery_flag_cleared_on_failure(self):
         fake_mic = mock.MagicMock()

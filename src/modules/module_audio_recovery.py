@@ -33,13 +33,26 @@ def restart_sound_server() -> bool:
     _hub._recovery_in_progress = True
     try:
         if sys.platform == "linux" and shutil.which("systemctl") is not None:
-            subprocess.run(
-                ["systemctl", "--user", "restart",
-                 "pipewire", "pipewire-pulse", "wireplumber"],
-                timeout=20, capture_output=True,
-            )
-            time.sleep(2)
-            restarted = True
+            # Scoped to the systemctl call ONLY: a raise or non-zero exit
+            # must be reported as failure, not crash the recovery — and must
+            # NOT skip the PortAudio/hub housekeeping below (docstring: it
+            # runs on EVERY platform, success or failure).
+            try:
+                result = subprocess.run(
+                    ["systemctl", "--user", "restart",
+                     "pipewire", "pipewire-pulse", "wireplumber"],
+                    timeout=20, capture_output=True,
+                )
+            except Exception as e:
+                queue_message(f"WARNING: systemctl --user restart failed: {e}")
+            else:
+                if result.returncode == 0:
+                    time.sleep(2)
+                    restarted = True
+                else:
+                    queue_message(
+                        f"WARNING: systemctl --user restart failed "
+                        f"(returncode={result.returncode}) — services NOT restarted")
         else:
             queue_message("WARNING: systemctl restart skipped (not Linux / systemctl missing) "
                           "— PortAudio re-init + mic hub invalidation only")
