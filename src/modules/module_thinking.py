@@ -91,21 +91,31 @@ def _refresh_once(timeout=30):
     if not reply:
         return False
     phrases = None
+    parsed_ok = False
     try:
         parsed = json.loads(reply)
+        parsed_ok = True
         if isinstance(parsed, dict):
             phrases = _validate_phrases(parsed.get("phrases"))
         elif isinstance(parsed, list):
             phrases = _validate_phrases(parsed)
     except (json.JSONDecodeError, TypeError):
         pass
-    if phrases is None:                     # tolerate markdown fences
-        m = re.search(r"\[.*\]", reply, re.S)
-        if m:
+    # Tolerate markdown fences — but ONLY when the reply is not valid
+    # JSON at all: a parsed main-reply schema ("reply": ...) must be
+    # rejected, not scavenged for an incidental embedded array.
+    if phrases is None and not parsed_ok:
+        # Non-greedy, per-candidate: a reply with several [...] blocks
+        # yields each array separately; the first that parses AND
+        # validates wins (a greedy \[.*\] would span first-[ .. last-]
+        # and fail to parse).
+        for cand in re.findall(r"\[[^\[\]]*\]", reply):
             try:
-                phrases = _validate_phrases(json.loads(m.group(0)))
+                phrases = _validate_phrases(json.loads(cand))
             except (json.JSONDecodeError, TypeError):
-                pass
+                continue
+            if phrases is not None:
+                break
     if phrases is None:
         return False
     global _generated

@@ -74,12 +74,14 @@ class TestRawCompleteTimeout(unittest.TestCase):
         self.assertEqual(session.post.call_args[1]["timeout"], 30)
 
     def test_timeout_default_uses_config(self):
-        """Omitting timeout keeps the [LLM] request_timeout default (120)."""
+        """Omitting timeout keeps the [LLM] request_timeout default."""
         session = _recording_session(_completion_json("ok"))
         with mock.patch.object(module_llm, "_http_session", session), \
              mock.patch.object(module_llm, "queue_message", _QueueCapture()):
             raw_complete_llm("x")
-        self.assertEqual(session.post.call_args[1]["timeout"], 120)
+        self.assertEqual(
+            session.post.call_args[1]["timeout"],
+            module_llm.CONFIG['LLM'].get('request_timeout', 120))
 
 
 class _ThinkingStateTestCase(unittest.TestCase):
@@ -256,6 +258,25 @@ class TestRefreshOnce(_ThinkingStateTestCase):
         self._stub_llm('```json\n["f1", "f2", "f3"]\n```')
         self.assertTrue(module_thinking._refresh_once())
         self.assertEqual(module_thinking._generated, ["f1", "f2", "f3"])
+
+    def test_fenced_two_arrays_uses_first_valid(self):
+        """A fenced reply with TWO arrays: the first valid one is used,
+        not a greedy concatenation that fails to parse."""
+        self._stub_llm('```json\n["f1", "f2", "f3"]\n```\n'
+                       'Notes: ["x", "y"]')
+        self.assertTrue(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated, ["f1", "f2", "f3"])
+
+    def test_main_reply_schema_embedded_array_not_scavenged(self):
+        """A parsed main-reply schema must be rejected, not scavenged for
+        an incidental embedded array (here a stray "examples" value)."""
+        module_thinking._generated = ["old1", "old2", "old3"]
+        self._stub_llm(json.dumps(
+            {"reply": "here you go",
+             "examples": ["alpha", "beta", "gamma"]}))
+        self.assertFalse(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated,
+                         ["old1", "old2", "old3"])
 
     def test_garbage_keeps_old_set(self):
         module_thinking._generated = ["old1", "old2", "old3"]
