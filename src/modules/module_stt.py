@@ -216,6 +216,7 @@ class STTManager:
         self._bargein_thread = None
         self._bargein_tts_data = {'word_list': [], 'words_all': set()}  # shared with monitor thread
         self._bargein_gate = None            # EchoGate owned by the monitor thread
+        self._bargein_backoff = None          # raised bar carried across per-run gates (review F3)
         self._bargein_captured = None        # accepted interrupt utterance (int16)
         self._bargein_captured_ready = threading.Event()  # set AFTER _bargein_captured is written
         self._bargein_enabled = CONFIG['STT'].get('enable_bargein', True)
@@ -2029,6 +2030,16 @@ class STTManager:
         gate = EchoGate(self.silence_threshold, self._bargein_rms_scale,
                         bleed_factor=float(CONFIG['STT'].get('bargein_bleed_factor', 2.5)),
                         min_candidates=int(CONFIG['STT'].get('bargein_min_candidates', 2)))
+        # Persisted backoff (review F3): a veto on a PREVIOUS monitor run
+        # raised the bar for 60 s — the gate is per-run, so re-apply the
+        # raised bar to this fresh gate (in_backoff() then honours the
+        # window before the energy gate). Expired -> discard.
+        _backoff = getattr(self, '_bargein_backoff', None)
+        if _backoff is not None:
+            if time.monotonic() < _backoff['until']:
+                gate.restore_backoff(_backoff)
+            else:
+                self._bargein_backoff = None
         self._bargein_gate = gate
         pre_roll = deque(maxlen=12)   # last 12 frames (~1.5 s)
         speech_buf = []
@@ -2094,6 +2105,10 @@ class STTManager:
                             # Veto: discard, raise the bar for 60 s.
                             # TTS stays stopped (accepted trade-off).
                             gate.backoff()
+                            # The gate is per-run — persist the raised
+                            # bar at manager level so the NEXT monitor
+                            # run's fresh gate inherits it (review F3).
+                            self._bargein_backoff = gate.backoff_state()
                             # Signal completion with a None capture so
                             # take_bargein_utterance returns promptly
                             # instead of blocking the full timeout (F1).

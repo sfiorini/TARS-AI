@@ -85,6 +85,7 @@ def make_manager():
     mgr._bargein_active = True
     mgr._bargein_thread = None
     mgr._bargein_gate = None
+    mgr._bargein_backoff = None
     mgr._bargein_captured = None
     mgr._bargein_captured_ready = threading.Event()
     mgr._bargein_tts_data = {'word_list': [], 'words_all': set()}
@@ -254,6 +255,49 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
         self.assertLess(elapsed, 1.0,
                         f"take blocked {elapsed:.1f}s after a monitor "
                         "crash — the exception path did not signal completion")
+
+    def test_backoff_persists_across_monitor_runs(self):
+        """Review F3: the 60 s raised bar must survive the per-run EchoGate.
+        A veto on one monitor run keeps the NEXT run's fresh gate raised
+        (min_candidates=3, in_backoff True) until the window expires —
+        the same two loud frames that triggered run 1 must NOT trigger
+        during the backoff window, and must again after it expires."""
+        trigger_frames = [frame(3000), frame(3001)] + [frame(21)] * 8
+
+        # run 1: trigger + veto -> backoff recorded at manager level
+        self.mic_frames = list(trigger_frames)
+        self.run_loop(veto_fn=lambda u: False)
+        self.assertTrue(self.mgr._bargein_gate.in_backoff())
+        self.assertIsNotNone(self.mgr._bargein_backoff,
+                              "the veto did not persist the raised bar at "
+                              "manager level — it dies with the per-run gate")
+        # consume run 1's veto completion signal, as the main loop's
+        # take_bargein_utterance does in production
+        self.assertIsNone(self.mgr.take_bargein_utterance(timeout=0.1))
+
+        # run 2: a FRESH gate is built; the raised bar must still apply.
+        self.mgr._bargein_active = True
+        self.stop_calls.clear()
+        self.mic_frames = list(trigger_frames)
+        self.run_loop(veto_fn=lambda u: True)   # accept if it wrongly fires
+        self.assertEqual([], self.stop_calls,
+                         "the raised bar did not survive into the second "
+                         "monitor run — a fresh gate re-armed the old "
+                         "false-positive trigger")
+        self.assertFalse(self.mgr._bargein_captured_ready.is_set())
+        self.assertTrue(self.mgr._bargein_gate.in_backoff())
+        self.assertEqual(3, self.mgr._bargein_gate.min_candidates)
+
+        # after the window expires the original bar is restored
+        self.mgr._bargein_backoff['until'] = time.monotonic() - 0.1
+        self.mgr._bargein_active = True
+        self.stop_calls.clear()
+        self.mic_frames = list(trigger_frames)
+        self.run_loop(veto_fn=lambda u: True)
+        self.assertEqual([1], self.stop_calls,
+                         "the backoff never expired — the raised bar is "
+                         "permanent instead of a 60 s window")
+        self.assertTrue(self.mgr._bargein_captured_ready.is_set())
 
     def test_ten_second_cap_ends_recording(self):
         """Post-trigger recording caps at 80 frames (10 s) even without silence."""

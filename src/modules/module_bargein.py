@@ -58,3 +58,23 @@ class EchoGate:
 
     def in_backoff(self) -> bool:
         return time.monotonic() < self._backoff_until
+
+    def backoff_state(self):
+        """The raised bar as {'bleed_factor', 'min_candidates', 'until'}
+        (monotonic deadline) — for persisting a backoff ACROSS gate
+        instances: the monitor builds a fresh gate per run, so the 60 s
+        raised bar must be carried at manager level and re-applied
+        (review F3)."""
+        return {'bleed_factor': self.bleed_factor,
+                'min_candidates': self.min_candidates,
+                'until': self._backoff_until}
+
+    def restore_backoff(self, state):
+        """Re-apply a persisted backoff onto a fresh gate (review F3).
+        Never lowers the bar below this gate's configured values."""
+        self.bleed_factor = max(self.bleed_factor,
+                                float(state['bleed_factor']))
+        self.min_candidates = max(self.min_candidates,
+                                  int(state['min_candidates']))
+        self._backoff_until = max(self._backoff_until,
+                                   float(state['until']))
