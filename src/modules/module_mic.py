@@ -294,19 +294,46 @@ class _AudioHub:
             self._native_rate = get_native_rate()
         return self._native_rate
 
+    def stats(self) -> dict:
+        """Lock-free-ish hub stats snapshot for supervision layers.
+
+        Counter reads are GIL-atomic; `_lock` is taken only for the
+        consumer-count/name reads. `last_*_age_s` is None before the first
+        chunk ever arrives (callers must treat None as "no data yet").
+        """
+        now = time.monotonic()
+        with self._lock:
+            consumers = len(self._callbacks) + len(self._readers)
+            names = [self._callback_names[r] for r in self._callbacks]
+        stream = self._stream
+        return {
+            "chunk_count": self._chunk_count,
+            "last_chunk_age_s": (now - self._last_chunk_mono) if self._last_chunk_mono else None,
+            "last_nonzero_age_s": (now - self._last_nonzero_mono) if self._last_nonzero_mono else None,
+            "consumer_exc_count": self._consumer_exc_count,
+            "consecutive_read_stalls": self._consecutive_read_stalls,
+            "stream_open": stream is not None,
+            "stream_active": bool(getattr(stream, "active", False)) if stream is not None else False,
+            "consumers": consumers,
+            "callback_names": names,
+            "recovery_in_progress": self._recovery_in_progress,
+        }
+
     # -- Callback consumer API --
 
-    def register_callback(self, callback):
+    def register_callback(self, callback, name=None):
         """Register a callback consumer. Returns an ID for unregistering."""
         with self._lock:
             rid = self._next_id
             self._next_id += 1
             self._callbacks[rid] = callback
+            self._callback_names[rid] = name or f"cb-{rid}"
             self._rebuild_snapshots()
             try:
                 self._ensure_stream()
             except Exception:
                 self._callbacks.pop(rid, None)
+                self._callback_names.pop(rid, None)
                 self._rebuild_snapshots()
                 raise
             return rid
@@ -315,6 +342,7 @@ class _AudioHub:
         """Remove a callback consumer by ID."""
         with self._lock:
             self._callbacks.pop(rid, None)
+            self._callback_names.pop(rid, None)
             self._rebuild_snapshots()
             self._maybe_stop()
 
@@ -433,6 +461,11 @@ def invalidate_audio_hub():
     that and must not be reused, or the mic stays deaf until reboot.
     """
     _hub.invalidate()
+
+
+def audio_hub_stats():
+    """Lock-free-ish hub stats snapshot for STT/other consumers."""
+    return _hub.stats()
 
 
 # ── Public stream helpers ──────────────────────────────────────────
