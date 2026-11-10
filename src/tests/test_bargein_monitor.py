@@ -286,6 +286,24 @@ class TestTakeBargeinUtterance(unittest.TestCase):
     def test_take_timeout_returns_none(self):
         self.assertIsNone(self.mgr.take_bargein_utterance(timeout=0.05))
 
+    def test_stop_clears_unconsumed_capture(self):
+        """Review F2: stop_bargein_monitor must clear a capture that was
+        never consumed — an unconsumed capture (e.g. an interrupted
+        filler/follow-up nobody took) must NOT leak into a later round as
+        stale audio."""
+        self.mgr._bargein_captured = np.zeros(2000, dtype=np.int16)
+        self.mgr._bargein_captured_ready.set()
+        self.mgr.stop_bargein_monitor()
+        self.assertFalse(self.mgr._bargein_captured_ready.is_set(),
+                         "stop left the ready Event set — a later take "
+                         "would return stale audio")
+        self.assertIsNone(self.mgr._bargein_captured)
+        t0 = time.monotonic()
+        taken = self.mgr.take_bargein_utterance(timeout=0.5)
+        self.assertIsNone(taken,
+                          "a subsequent take returned the stale capture")
+        self.assertLess(time.monotonic() - t0, 1.0)
+
     def test_transcribe_bargein_audio_returns_dict(self):
         self.mgr._bargein_transcribe = lambda buf: "hello there"
         audio = np.zeros(2000, dtype=np.int16)

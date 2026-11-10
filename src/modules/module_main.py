@@ -381,10 +381,29 @@ def utterance_callback(message):
                 if stt_manager:
                     stt_manager.start_bargein_monitor(tts_text=followup_clean)
                 speed.start('followup_tts')
-                asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
+                was_interrupted = asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
                 speed.log_tool('followup_tts', speed.stop('followup_tts'))
+                # Stop-and-listen (review F2): an interrupted filler /
+                # follow-up consumes its captured utterance through the
+                # SAME wiring as the main round — take BEFORE stop (the
+                # stop clears any unconsumed capture), then re-enter the
+                # round entry point. Kill switch:
+                # bargein_listen_after_interrupt = False.
+                _followup_bargein_text = None
+                if was_interrupted and stt_manager and CONFIG['STT'].get('bargein_listen_after_interrupt', True):
+                    _audio = stt_manager.take_bargein_utterance(timeout=8.0)
+                    if _audio is not None:
+                        _result = stt_manager.transcribe_bargein_audio(_audio)
+                        if _result and _result.get("text"):
+                            _followup_bargein_text = _result["text"].strip()
                 if stt_manager:
                     stt_manager.stop_bargein_monitor()
+                if _followup_bargein_text:
+                    # The interrupting speech becomes the next turn via the
+                    # same round entry point; the re-entered round owns the
+                    # LISTENING transition.
+                    utterance_callback(json.dumps({"text": _followup_bargein_text}))
+                    return
                 set_tars_state(TarsState.LISTENING)
                 try:
                     from modules.module_chatui import socketio

@@ -16,6 +16,10 @@ Invariants under test:
   wake word required.
 - ``bargein_listen_after_interrupt = False`` (kill switch) ->
   ``take_bargein_utterance`` is never called.
+- Review F2: an interrupted filler / deferred follow-up consumes its
+  captured utterance through the SAME wiring (take -> transcribe ->
+  re-enter the round entry point) — the capture is never dropped and
+  never leaks stale into a later round.
 """
 import json
 import os
@@ -51,16 +55,19 @@ from modules.module_state import TarsState  # noqa: E402
 class FakeBargeinStt:
     """Stands in for the STT manager on the interrupted path."""
 
-    def __init__(self, audio=None, transcript=None):
+    def __init__(self, audio=None, transcript=None, take_results=None):
         self.calls = []
         self._audio = audio
         self._transcript = transcript
+        self._take_results = list(take_results) if take_results is not None else None
 
     def start_bargein_monitor(self, tts_text=""):
         self.calls.append(("start", tts_text))
 
     def take_bargein_utterance(self, timeout=8.0):
         self.calls.append(("take", timeout))
+        if self._take_results is not None:
+            return self._take_results.pop(0) if self._take_results else None
         return self._audio
 
     def transcribe_bargein_audio(self, audio):
@@ -158,6 +165,89 @@ class TestStopAndListen(StopAndListenTestCase):
             fake = FakeBargeinStt(audio=np.zeros(16000, dtype=np.int16),
                                   transcript={"text": "should not be used"})
             self._run_interrupted_turn(fake)
+
+        self.assertEqual([], self.round_calls)
+        self.assertNotIn("take", fake.call_names())
+        self.assertIn(TarsState.LISTENING, self._states_set())
+
+
+class _CallbackCaptureRunner:
+    """Captures the TurnCallbacks handed to start_turn (started=True) so
+    the REAL _speak_followup can be driven directly in the test — the
+    deferred follow-up speaks through callbacks.speak on the tool loop's
+    turn thread in production."""
+
+    def __init__(self):
+        self.callbacks = None
+
+    def start_turn(self, parsed, user_text, source, callbacks):
+        self.callbacks = callbacks
+        return True
+
+
+class TestFollowupStopAndListen(StopAndListenTestCase):
+    """Review F2: an interrupted filler/deferred follow-up must consume
+    the captured utterance — same stop-and-listen wiring as the main
+    round — instead of silently dropping it (and leaking a stale capture
+    into a later round via the never-cleared ready Event)."""
+
+    def _run_and_get_speak(self, fake_stt):
+        saved = module_main.stt_manager
+        module_main.stt_manager = fake_stt
+        self.addCleanup(setattr, module_main, "stt_manager", saved)
+        runner = _CallbackCaptureRunner()
+        p = mock.patch.object(module_toolloop, "get_loop_runner",
+                              return_value=runner)
+        p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch.object(module_toolloop, "fire_and_forget_calls",
+                              return_value=[])
+        p.start()
+        self.addCleanup(p.stop)
+        message = json.dumps({
+            "text": "tell me something long",
+            "preemptive_llm_result": {"reply": "A long reply.",
+                                      "function_calls": []},
+        })
+        self._real_cb(message)
+        self.assertIsNotNone(runner.callbacks,
+                             "start_turn never received the callbacks — "
+                             "_speak_followup was not built")
+        return runner.callbacks.speak
+
+    def test_interrupted_followup_consumes_capture(self):
+        """The real _speak_followup, interrupted: the captured utterance is
+        taken, transcribed, and re-enters the round entry point as a pure
+        {"text": ...} payload — exactly the main-round wiring."""
+        audio = np.zeros(16000, dtype=np.int16)
+        # take #1 = the main reply round (no capture there); take #2 = the
+        # interrupted follow-up -> the captured audio
+        fake = FakeBargeinStt(take_results=[None, audio],
+                              transcript={"text": "tell me about x"})
+        speak = self._run_and_get_speak(fake)
+
+        speak("Here is the follow-up.")
+
+        # exactly one re-entry, pure {"text": ...} payload
+        self.assertEqual(1, len(self.round_calls))
+        self.assertEqual({"text": "tell me about x"},
+                         json.loads(self.round_calls[0]))
+        # the follow-up consulted the monitor: take BEFORE stop
+        names = fake.call_names()
+        self.assertEqual(2, names.count("start"))
+        self.assertEqual(2, names.count("take"))
+        self.assertEqual(2, names.count("stop"))
+        self.assertLess(names.index("take"), names.index("stop"))
+
+    def test_followup_kill_switch_off_never_takes(self):
+        """bargein_listen_after_interrupt = False: the interrupted follow-up
+        never takes — no capture consumed, no re-entry, LISTENING."""
+        with mock.patch.dict(module_main.CONFIG["STT"],
+                             {"bargein_listen_after_interrupt": False}):
+            fake = FakeBargeinStt(take_results=[],
+                                  transcript={"text": "should not be used"})
+            speak = self._run_and_get_speak(fake)
+            speak("Here is the follow-up.")
 
         self.assertEqual([], self.round_calls)
         self.assertNotIn("take", fake.call_names())

@@ -2292,13 +2292,21 @@ class STTManager:
         self._bargein_tts_data['words_all'] = set(word_list)
 
     def stop_bargein_monitor(self):
-        """Stop the barge-in monitor thread and wait for mic stream to close."""
+        """Stop the barge-in monitor thread and wait for mic stream to close.
+
+        Also clears any unconsumed capture (review F2): a capture nobody
+        took (e.g. an interrupted filler/follow-up) must never leak into a
+        later round's take_bargein_utterance as stale audio — the safety
+        net for any caller that forgets to consume.
+        """
         self._bargein_active = False
         if self._bargein_thread is not None:
             self._bargein_thread.join(timeout=3)
             if self._bargein_thread.is_alive():
                 queue_message("WARN: Barge-in monitor thread did not exit cleanly")
             self._bargein_thread = None
+        self._bargein_captured = None
+        self._bargein_captured_ready.clear()
 
     def take_bargein_utterance(self, timeout=8.0) -> Optional[np.ndarray]:
         """Wait for the barge-in monitor's captured utterance (S-M3-07).
