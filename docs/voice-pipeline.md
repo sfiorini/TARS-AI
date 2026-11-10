@@ -34,11 +34,13 @@ Digital silence has its own guard: fresh chunks but **≥ 60 s** of all-zero aud
 
 ### AUDIO-HUB log lines
 
-A healthy heartbeat logs every 30 s while consumers exist, and every stale transition logs an immediate WARNING discriminator:
+A healthy heartbeat logs every 30 s while consumers exist, every stale transition logs an immediate WARNING discriminator, and each escalation rung logs its own line:
 
 ```
 AUDIO-HUB: cb=2(atomik,spectrum) rd=1 stream=open/active rate=63.2/s last_chunk=0.01s last_nonzero=0.4s exc=0 stalls=0 state=HEALTHY
 AUDIO-HUB: STALE mode=callbacks-stopped|detect-stalled|digital-silence chunk_age=7.2s check_rate=0.0/s rms=0.013 exc=3 cb=[atomik,spectrum] -> L1-reopen
+WARNING: AUDIO-HUB still stale mode=<mode> 10s after L1 -> L2 restart_sound_server
+CRITICAL: AUDIO-HUB still stale mode=<mode> 60s after L2 — repeating L2 restart_sound_server
 ```
 
 ### The four failure modes
