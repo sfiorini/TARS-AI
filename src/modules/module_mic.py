@@ -179,6 +179,16 @@ class _AudioHub:
 
         self._next_id = 0
 
+        # Single-writer counters — ONLY the RT callback thread writes these.
+        # All other threads read them (GIL-atomic reads, no lock).
+        self._chunk_count = 0          # RT: += 1 per callback
+        self._last_chunk_mono = 0.0    # RT: = time.monotonic()
+        self._last_nonzero_mono = 0.0  # RT: = now if chunk.any()
+        self._consumer_exc_count = 0   # RT: += 1 in the except branch
+        self._consecutive_read_stalls = 0   # read() path (not RT)
+        self._recovery_in_progress = False  # written under _lock, read atomically
+        self._callback_names = {}      # rid -> diagnostic name (S-M1-02)
+
     def _rebuild_snapshots(self):
         """Rebuild the lock-free snapshots. Must be called under self._lock."""
         self._cb_snapshot = tuple(self._callbacks.values())
@@ -194,12 +204,18 @@ class _AudioHub:
         # Single memcpy — required because PA reuses the indata buffer
         chunk = indata.copy()
 
+        now = time.monotonic()
+        self._chunk_count += 1
+        self._last_chunk_mono = now
+        if chunk.any():
+            self._last_nonzero_mono = now
+
         # Dispatch to callback consumers
         for cb in self._cb_snapshot:
             try:
                 cb(chunk, frames, time_info, status)
             except Exception:
-                pass
+                self._consumer_exc_count += 1
 
         # Buffer for read consumers (float32 only — int16 conversion in read())
         for buf, evt in self._rd_snapshot:
