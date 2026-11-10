@@ -83,6 +83,12 @@ _watchdog_interval = 2
 # (deliberately de-energized) channels must stay de-energized.
 _engaged_channels = set()
 _unhealthy_chip_reads = 0  # consecutive unhealthy MODE1/MODE2 reads (repair needs 2)
+# F4: chip-repair re-init rate limit — a glitch state re-init cannot clear
+# must not re-create the I2C bus every ~4 s (bus churn, ~45 log lines/min,
+# and every re-init clears the PWM registers).
+_CHIP_REPAIR_MIN_INTERVAL = 30.0
+_last_chip_repair_attempt = 0.0
+_last_chip_repair_log = 0.0
 
 # One lock around PCA handle swaps and MOVING transitions so the watchdog,
 # movement threads and servo_status never race on shared state. RLock (not
@@ -104,19 +110,25 @@ def signal_servo_activity():
 
 def _write_register(reg, value):
     """Write a raw PCA9685 register; uses the driver struct attribute when
-    present, else raw writeto on the stored I2C handle.
+    present, else raw writeto on the stored I2C handle. Returns True when
+    the write landed, False otherwise (F4: callers must not treat a
+    silently failed register write as success).
     NOTE: must be defined BEFORE initialize_pca9685() — that function is
     called at module import time and references this helper."""
     if pca is None:
-        return
+        return False
     attr = {0x00: "mode1_reg", 0x01: "mode2_reg"}.get(reg)
     try:
         if attr is not None and hasattr(pca, attr):
             setattr(pca, attr, value)
         elif _i2c is not None:
             _i2c.writeto(0x40, bytes([reg, value]))
+        else:
+            return False
+        return True
     except Exception as e:
         queue_message(f"WARNING: PCA9685 register 0x{reg:02X} write failed: {e}")
+        return False
 
 def initialize_pca9685():
     
@@ -130,7 +142,13 @@ def initialize_pca9685():
             _i2c = i2c
             pca = PCA9685(i2c, address=0x40)
             pca.frequency = 50
-            _write_register(0x01, 0x04)  # MODE2: output-drive state verified working on this board (0x01 = silent, no motor drive)
+            # MODE2: output-drive state verified working on this board
+            # (0x01 = silent, no motor drive). A failed write is NOT a
+            # successful init (F4): the chip is left in an unverified drive
+            # state — report failure so the repair path retries later.
+            if not _write_register(0x01, 0x04):
+                queue_message("ERROR: PCA9685 MODE2 configuration write failed - init failed")
+                return False
             queue_message("LOAD: PCA9685 initialized successfully")
             return True
             
@@ -525,8 +543,11 @@ def _repair_chip_state_if_needed():
     state without a reboot.
     A repair requires TWO CONSECUTIVE unhealthy reads: a single transient
     I2C NACK must never abort a movement with a mid-walk re-init (which
-    clears the PWM output registers). A healthy read resets the streak."""
-    global _unhealthy_chip_reads
+    clears the PWM output registers). A healthy read resets the streak.
+    Repairs are rate-limited to once per _CHIP_REPAIR_MIN_INTERVAL (F4):
+    a glitch state re-init cannot clear must not re-create the I2C bus
+    every ~4 s."""
+    global _unhealthy_chip_reads, _last_chip_repair_attempt, _last_chip_repair_log
     
     mode1 = _read_mode1()
     mode2 = _read_mode2()
@@ -537,6 +558,15 @@ def _repair_chip_state_if_needed():
     if _unhealthy_chip_reads < 2:
         queue_message(f"SERVO: PCA9685 state unhealthy (MODE1={mode1}, MODE2={mode2}) - waiting for a second consecutive unhealthy read before repair")
         return
+    now = time.time()
+    if now - _last_chip_repair_attempt < _CHIP_REPAIR_MIN_INTERVAL:
+        # Keep the streak (>=2) so the repair fires on the first tick after
+        # the window expires; log the skip throttled, not once per tick.
+        if now - _last_chip_repair_log >= _CHIP_REPAIR_MIN_INTERVAL:
+            _last_chip_repair_log = now
+            queue_message(f"SERVO: PCA9685 state still unhealthy (MODE1={mode1}, MODE2={mode2}) - chip repair rate-limited to once per {_CHIP_REPAIR_MIN_INTERVAL:.0f}s")
+        return
+    _last_chip_repair_attempt = now
     _unhealthy_chip_reads = 0
     queue_message(f"SERVO: PCA9685 state unhealthy (MODE1={mode1}, MODE2={mode2}) - re-initializing")
     if initialize_pca9685():

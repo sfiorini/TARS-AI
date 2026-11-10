@@ -148,6 +148,7 @@ class ServoctlSelfHealingTestCase(unittest.TestCase):
         "_watchdog_running", "_watchdog_thread", "_watchdog_interval",
         "_engaged_channels",
         "battery_module", "_i2c", "_unhealthy_chip_reads", "_last_pca_none_log",
+        "_last_chip_repair_attempt", "_last_chip_repair_log",
     )
 
     def setUp(self):
@@ -467,6 +468,29 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
             self.assertTrue(servoctl.initialize_pca9685())
         self.assertEqual(fake_pca.mode2_reg, 0x04)
 
+    def test_init_returns_false_when_mode2_write_fails(self):
+        # F4: the MODE2 write failing is NOT a successful init — the chip is
+        # left in an unverified drive state, so reporting success would make
+        # the repair path believe the chip is fixed. _write_register must not
+        # swallow the failure.
+        class _Mode2WriteFailsPca:
+            mode1_reg = 0x20
+
+            @property
+            def mode2_reg(self):
+                return 0x01
+
+            @mode2_reg.setter
+            def mode2_reg(self, value):
+                raise OSError("register write failed")
+
+        fake_pca = _Mode2WriteFailsPca()
+        with mock.patch.object(servoctl.busio, "I2C", return_value=mock.MagicMock()), \
+             mock.patch.object(servoctl, "PCA9685", return_value=fake_pca), \
+             mock.patch.object(servoctl, "queue_message") as qm:
+            self.assertFalse(servoctl.initialize_pca9685())
+        self.assertTrue(any("write failed" in str(c.args[0]) for c in qm.call_args_list))
+
     def test_read_mode2_returns_register_value(self):
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
         self.assertEqual(servoctl._read_mode2(), 0x1E)
@@ -719,6 +743,62 @@ class TestWatchdogConsecutiveUnhealthyReads(ServoctlSelfHealingTestCase):
             servoctl._watchdog_tick()
             init.assert_not_called()  # repair skipped while MOVING
         self.assertFalse(servoctl.MOVING)  # but the stuck flag was reset
+
+
+class TestChipRepairRateLimit(ServoctlSelfHealingTestCase):
+    """F4: the chip-repair re-init must be rate-limited (at most once per
+    30 s). A glitch state that re-init cannot clear must not re-create the
+    I2C bus every ~4 s: constant bus churn, ~45 log lines/minute, and every
+    re-init clears the PWM registers (a movement starting during a repair
+    tick would be aborted)."""
+
+    def _permanently_unhealthy_idle(self):
+        servoctl.pca = _FakeMode1Pca(0x01)  # MODE1 lost bit 0x20, never recovers
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time() - 60
+        servoctl._unhealthy_chip_reads = 0
+
+    def test_repair_rate_limited_while_chip_stays_unhealthy(self):
+        self._permanently_unhealthy_idle()
+        servoctl._last_chip_repair_attempt = time.time()  # repair just attempted
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            for _ in range(6):  # ~12 s of ticks — all inside the 30 s window
+                servoctl._watchdog_tick()
+        init.assert_not_called()
+
+    def test_repair_attempt_sets_rate_limit_anchor(self):
+        self._permanently_unhealthy_idle()
+        servoctl._last_chip_repair_attempt = 0.0  # window long expired
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            servoctl._watchdog_tick()
+            init.assert_called_once()
+            self.assertGreater(servoctl._last_chip_repair_attempt, 0.0)
+            # further ticks inside the window are suppressed
+            for _ in range(4):
+                servoctl._watchdog_tick()
+        init.assert_called_once()
+
+    def test_repair_runs_again_after_rate_window_expires(self):
+        self._permanently_unhealthy_idle()
+        servoctl._last_chip_repair_attempt = time.time() - 31  # window expired
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            servoctl._watchdog_tick()
+        init.assert_called_once()
+
+    def test_rate_limited_skip_logs_throttled_not_every_tick(self):
+        self._permanently_unhealthy_idle()
+        servoctl._last_chip_repair_attempt = time.time()  # inside the window
+        servoctl._last_chip_repair_log = 0.0
+        with mock.patch.object(servoctl, "queue_message") as qm:
+            for _ in range(5):
+                servoctl._watchdog_tick()
+        skips = [
+            c for c in qm.call_args_list
+            if c.args and "rate-limited" in str(c.args[0])
+        ]
+        self.assertEqual(len(skips), 1, "skip log must be throttled, not once per tick")
 
 
 class TestWatchdogLazyInit(ServoctlSelfHealingTestCase):
