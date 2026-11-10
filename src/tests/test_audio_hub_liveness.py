@@ -53,3 +53,35 @@ class TestOnAudioCounters:
         hub._rebuild_snapshots()
         hub._on_audio(_chunk(), 512, None, None)     # must not raise
         assert hub._consumer_exc_count == 1
+
+
+_STAT_KEYS = {
+    "chunk_count", "last_chunk_age_s", "last_nonzero_age_s",
+    "consumer_exc_count", "consecutive_read_stalls",
+    "stream_open", "stream_active", "consumers",
+    "callback_names", "recovery_in_progress",
+}
+
+
+class TestStatsSnapshot:
+    """S-M1-02: stats() snapshot + register_callback(name=...)."""
+
+    def test_stats_snapshot_keys(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        hub.register_callback(lambda chunk: None, name="atomik")
+        s = hub.stats()
+        assert set(s.keys()) == _STAT_KEYS
+        assert s["callback_names"] == ["atomik"]
+        assert s["consumers"] == 1
+        assert s["stream_open"] is False
+        assert s["recovery_in_progress"] is False
+
+    def test_unregister_removes_name(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        rid = hub.register_callback(lambda chunk: None, name="atomik")
+        assert hub.stats()["callback_names"] == ["atomik"]
+        hub.unregister_callback(rid)
+        assert hub.stats()["callback_names"] == []
+        assert 0 not in hub._callback_names
