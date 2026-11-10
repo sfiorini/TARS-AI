@@ -1040,7 +1040,7 @@ CONFIG_METADATA = {
             'label': 'Barge-In Candidate Frames',
             'type': 'slider',
             'min': 1,
-            'max': 4,
+            'max': 3,
             'step': 1,
             'depends_on': [{'field': 'enable_bargein', 'values': ['True', 'true']}],
             'description': 'Consecutive 125 ms frames above the gate needed to trigger an interrupt (2 = 250 ms). Raise to 3 to reject coughs and bangs.'

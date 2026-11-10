@@ -97,6 +97,12 @@ class TestBargeinKeyDefaults(unittest.TestCase):
         self.assertEqual(stt["bargein_min_candidates"], 2)
         self.assertIs(stt["bargein_listen_after_interrupt"], True)
 
+    def test_bargein_min_candidates_slider_max_matches_docs(self):
+        """Slider ceiling must stay at the documented 3-frame (375 ms) cap."""
+        self.assertEqual(
+            module_config.CONFIG_METADATA['STT']['bargein_min_candidates']['max'], 3
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
