@@ -606,3 +606,25 @@ class TestHubWatchdogStartStop:
             module_mic.stop_hub_watchdog()
             t1.join(5.0)
             assert not t1.is_alive()
+
+    def test_start_hub_watchdog_idempotent(self):
+        """S-M1-13 regression guard: two starts, exactly one live daemon
+        thread named `audio-hub-watchdog`; stop joins it."""
+        module_mic._hub_watchdog_stop.set()         # any prior state cleared
+        if module_mic._hub_watchdog_thread is not None:
+            module_mic._hub_watchdog_thread.join(2.0)
+        module_mic._hub_watchdog_thread = None
+        try:
+            with mock.patch.object(module_mic, "_hub_watchdog_tick"):
+                module_mic.start_hub_watchdog(interval=0.05)
+                t1 = module_mic._hub_watchdog_thread
+                module_mic.start_hub_watchdog(interval=0.05)   # idempotent
+                assert module_mic._hub_watchdog_thread is t1
+                alive = [th for th in threading.enumerate()
+                         if th.name == "audio-hub-watchdog"]
+                assert len(alive) == 1
+                module_mic.stop_hub_watchdog()
+                t1.join(5.0)
+                assert not t1.is_alive()
+        finally:
+            module_mic._hub_watchdog_thread = None
