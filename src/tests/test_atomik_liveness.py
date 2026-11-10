@@ -31,6 +31,13 @@ def _loud_slice(n=1024):
     return (0.3 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
 
 
+def _append_chunk(det, arr):
+    """Append one chunk to the detector's chunk-deque buffer the way the
+    RT callback does (S-M1-09)."""
+    det.buffer.append(np.asarray(arr, dtype=np.float32))
+    det._buffered_samples += len(arr)
+
+
 # ---------------------------------------------------------------------------
 # S-M1-08 — monotonic clock + VAD slice + progress counters
 # ---------------------------------------------------------------------------
@@ -40,8 +47,8 @@ def test_vad_slice_uses_newest_samples(monkeypatch):
     ~1 s-old head. 1 s of silence followed by loud speech at the tail must
     stamp a nonzero _last_window_rms even when the VAD gate itself passes."""
     det = _template_detector()
-    det.buffer.extend(np.zeros(16000, dtype=np.float32))
-    det.buffer.extend(_loud_slice(1024))
+    _append_chunk(det, np.zeros(16000, dtype=np.float32))
+    _append_chunk(det, _loud_slice(1024))
     monkeypatch.setattr(time, "monotonic", lambda: 100.0)
 
     det._detect_template()
@@ -56,7 +63,7 @@ def test_monotonic_no_clock_latch(monkeypatch):
     """A backward wall-clock (NTP) step must not latch detection off.
     detect() must read time.monotonic(), never time.time()."""
     det = _template_detector()
-    det.buffer.extend(np.zeros(16000, dtype=np.float32))
+    _append_chunk(det, np.zeros(16000, dtype=np.float32))
 
     # Wall clock jumps backward between reads (NTP step): 100 -> 50.
     wall = {"calls": 0}
@@ -86,7 +93,7 @@ def test_counters_advance(monkeypatch):
     """Every detect() call increments _check_count before any gate and
     stamps _last_exit with the reason it exited."""
     det = _template_detector()
-    det.buffer.extend(np.zeros(16000, dtype=np.float32))
+    _append_chunk(det, np.zeros(16000, dtype=np.float32))
     monkeypatch.setattr(time, "monotonic", lambda: 100.0)
 
     before = det._check_count
@@ -97,3 +104,72 @@ def test_counters_advance(monkeypatch):
     # the VAD gate on the silent slice rejects -> "vad".
     assert det._last_exit == "vad"
     assert det._last_window_rms == pytest.approx(0.0)
+
+
+# ---------------------------------------------------------------------------
+# S-M1-09 — chunk-deque buffer + _window()/last_window() accessors
+# ---------------------------------------------------------------------------
+
+def test_window_returns_trailing_seconds():
+    """_window(1.0) returns exactly the trailing 1 s of buffered audio."""
+    det = _template_detector()
+    for i in range(3):
+        _append_chunk(det, np.full(16000, i + 1, dtype=np.float32))
+
+    w = det._window(1.0)
+
+    assert w is not None
+    assert len(w) == 16000
+    np.testing.assert_array_equal(w, np.full(16000, 3, dtype=np.float32))
+
+
+def test_window_none_when_short():
+    """Fewer than the requested seconds buffered -> None (gates hold)."""
+    det = _template_detector()
+    _append_chunk(det, np.zeros(320, dtype=np.float32))
+
+    assert det._window(1.0) is None
+
+
+def test_buffered_samples():
+    """buffered_samples equals the sum of buffered chunk lengths."""
+    det = _template_detector()
+    _append_chunk(det, np.zeros(1000, dtype=np.float32))
+    _append_chunk(det, np.zeros(500, dtype=np.float32))
+
+    assert det.buffered_samples == 1500
+
+
+def test_last_window_short_returns_all():
+    """last_window(2.0) with <2 s buffered returns everything concatenated."""
+    det = _template_detector()
+    _append_chunk(det, np.full(16000, 7.0, dtype=np.float32))
+
+    w = det.last_window(2.0)
+
+    assert len(w) == 16000
+    np.testing.assert_array_equal(w, np.full(16000, 7.0, dtype=np.float32))
+
+
+def test_detect_works_with_chunk_buffer(monkeypatch):
+    """Detection is NOT permanently deaf with a chunk-count len(buffer):
+    100 chunks of 320 samples (len(buffer) == 100, far below the old
+    16000-sample gate) must still reach the similarity comparison."""
+    det = _template_detector()
+    t = np.arange(320 * 100) / 16000.0
+    speech = (0.1 * np.sin(2 * np.pi * 440.0 * t)).astype(np.float32)
+    for i in range(100):
+        _append_chunk(det, speech[i * 320:(i + 1) * 320])
+    assert len(det.buffer) == 100
+
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(det.vad, "is_speech", lambda w: True)
+
+    before = det._check_count
+    detected, confidence = det.detect()
+
+    # The stub template (all zeros) has zero norm -> similarity 0.0 -> the
+    # detect path ran to the similarity comparison and exited there.
+    assert det._check_count == before + 1
+    assert det._last_exit == "below-threshold"
+    assert detected is False

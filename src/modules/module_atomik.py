@@ -442,7 +442,16 @@ class WakeWordSystem:
         self.debug = debug or self.DEBUG_DETECTION
         self.mfcc_extractor = MFCCExtractor(sample_rate=sample_rate)
         self.vad = VoiceActivityDetector(sample_rate=sample_rate)
-        self.buffer = deque(maxlen=sample_rate * 3)
+        # Chunk deque (S-M1-09): one float32 array per device chunk. The old
+        # scalar deque made np.array(list(buffer)[-16000:]) re-box ~48k boxed
+        # numpy scalars at 10 Hz inside the RT callback — the prime suspect
+        # for TID 69247's 92%-of-a-core spin. maxlen is in CHUNKS: at the
+        # smallest device chunk size (256 frames @ 16 kHz) 192 chunks =
+        # 49,152 samples ≈ 3.07 s (~192 KB float32 peak — negligible).
+        self.buffer = deque(maxlen=192)          # deque of CHUNKS (float32 arrays)
+        self._buffered_samples = 0               # single-writer: RT callback only
+                                                   # (diagnostic; over-counts on
+                                                   # eviction — NEVER gate on it)
         self.model = None  # OnnxWakeWordModel (model mode) or None (template mode)
         self._using_onnx = False
         self.last_detection_time = 0
@@ -472,6 +481,36 @@ class WakeWordSystem:
         self._check_count = 0        # += 1 at top of detect(), before any gate (RT single-writer)
         self._last_exit = ""         # "cooldown"|"interval"|"vad"|"feature"|"below-threshold"|"detected"
         self._last_window_rms = 0.0  # rms of the VAD slice (1024 samples, cheap)
+
+    # --- Buffer accessors (S-M1-09) ---
+
+    def _window(self, seconds=1.0):
+        """np.concatenate of trailing chunks (float32); None if < seconds buffered."""
+        need = int(self.sample_rate * seconds)
+        parts = []
+        total = 0
+        for arr in reversed(self.buffer):
+            parts.append(arr)
+            total += len(arr)
+            if total >= need:
+                break
+        if total < need:
+            return None
+        return np.concatenate(parts[::-1])[-need:]
+
+    @property
+    def buffered_samples(self):
+        """Live sample count actually held in the chunk deque."""
+        return sum(len(a) for a in self.buffer)
+
+    def last_window(self, seconds=2.0):
+        """Public: trailing audio for module_stt post-detection gates."""
+        w = self._window(seconds)
+        if w is not None:
+            return w
+        if self.buffer:
+            return np.concatenate(list(self.buffer), dtype=np.float32)
+        return np.zeros(0, dtype=np.float32)
 
     # --- Data collection helpers ---
 
@@ -728,7 +767,8 @@ class WakeWordSystem:
 
         def audio_callback(audio_np, frames, time_info, status):
             nonlocal detected_flag
-            self.buffer.extend(audio_np)
+            self.buffer.append(np.asarray(audio_np, dtype=np.float32))
+            self._buffered_samples += len(audio_np)
 
             detected, confidence = self.detect()
             if detected:
@@ -746,7 +786,10 @@ class WakeWordSystem:
             return self._detect_template()
 
         self._check_count += 1  # advanced before any gate (RT single-writer)
-        if self.model is None or len(self.buffer) < int(self.sample_rate * 1.0):
+        if self.model is None:
+            return False, 0.0
+        audio_window = self._window(1.0)
+        if audio_window is None:
             return False, 0.0
         if time.monotonic() - self.last_detection_time < self.cooldown:
             self._last_exit = "cooldown"
@@ -755,8 +798,6 @@ class WakeWordSystem:
             self._last_exit = "interval"
             return False, 0.0
         self.last_check_time = time.monotonic()
-
-        audio_window = np.array(list(self.buffer)[-int(self.sample_rate):], dtype=np.float32)
 
         # --- Gate 1: Energy gate ---
         rms = np.sqrt(np.mean(audio_window ** 2))
@@ -909,7 +950,10 @@ class WakeWordSystem:
     def _detect_template(self):
         """Original template-based detection using cosine similarity."""
         self._check_count += 1  # advanced before any gate (RT single-writer)
-        if not self.templates or len(self.buffer) < int(self.sample_rate * 1.0):
+        if not self.templates:
+            return False, 0.0
+        audio_window = self._window(1.0)
+        if audio_window is None:
             return False, 0.0
         if time.monotonic() - self.last_detection_time < self.cooldown:
             self._last_exit = "cooldown"
@@ -919,7 +963,6 @@ class WakeWordSystem:
             return False, 0.0
         self.last_check_time = time.monotonic()
 
-        audio_window = np.array(list(self.buffer)[-int(self.sample_rate):], dtype=np.float32)
         # VAD gate on the NEWEST ~64 ms (window tail) — the same audio the
         # MFCC below will judge, not the ~1 s-old head of the window.
         vad_slice = audio_window[-1024:]
