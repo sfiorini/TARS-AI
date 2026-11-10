@@ -125,3 +125,30 @@ class TestCallbackNameThreading:
             with module_mic.open_native_stream(callback=lambda chunk: None,
                                                 blocksize=512, name="atomik"):
                 assert hub.stats()["callback_names"] == ["atomik"]
+
+
+class TestReadStallAccounting:
+    """S-M1-03: read() timeout increments the stall counter; data resets it."""
+
+    def test_read_stall_counter(self):
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        rid = hub.register_reader()
+        # Replace the reader's Event with one whose wait() returns False
+        # immediately — no real 5 s block, no stream needed.
+        buf, evt, dtype = hub._readers[rid]
+        fake_evt = mock.MagicMock()
+        fake_evt.wait.return_value = False
+        hub._readers[rid] = (buf, fake_evt, dtype)
+
+        data, overflow = hub.read(rid, 2000)
+        assert overflow is True                      # silence-padded timeout
+        assert data.shape == (2000, 1)
+        assert hub.stats()["consecutive_read_stalls"] == 1
+
+        # Feed one chunk -> the next read produces data and resets the counter
+        buf.append(np.ones((2000, 1), dtype=np.float32))
+        data, overflow = hub.read(rid, 2000)
+        assert overflow is False
+        assert data.shape == (2000, 1)
+        assert hub.stats()["consecutive_read_stalls"] == 0
