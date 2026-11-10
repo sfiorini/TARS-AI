@@ -145,7 +145,7 @@ class SpectrumSystem:
     def start_audio_stream(self):
         try:
             self.stream = open_native_stream(
-                callback=self.audio_callback, blocksize=self.chunk_size
+                callback=self.audio_callback, blocksize=self.chunk_size, name="spectrum"
             )
             self.stream.start()
             self.audio_running = True

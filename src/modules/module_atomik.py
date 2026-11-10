@@ -727,7 +727,7 @@ class WakeWordSystem:
                 detected_flag = True
 
         with open_native_stream(callback=make_resampling_callback(audio_callback),
-                                blocksize=512):
+                                blocksize=512, name="atomik"):
             while not detected_flag:
                 time.sleep(0.05)
         return True

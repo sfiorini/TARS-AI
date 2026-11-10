@@ -484,10 +484,11 @@ def open_native_stream(**kwargs):
     variable-size chunks.
     """
     callback = kwargs.pop("callback", None)
+    name = kwargs.pop("name", None)
     # blocksize and other kwargs are consumed but not used by the shared hub
     kwargs.pop("blocksize", None)
     if callback:
-        return _SharedCallbackStream(callback)
+        return _SharedCallbackStream(callback, name=name)
     return _SharedReadStream()
 
 
@@ -497,13 +498,14 @@ class _SharedCallbackStream:
     Compatible with sd.InputStream context-manager protocol.
     """
 
-    def __init__(self, callback):
+    def __init__(self, callback, name=None):
         self._callback = callback
+        self._name = name
         self._rid = None
 
     def start(self):
         if self._rid is None:
-            self._rid = _hub.register_callback(self._callback)
+            self._rid = _hub.register_callback(self._callback, name=self._name)
 
     def stop(self):
         pass  # stream stays alive for other consumers
