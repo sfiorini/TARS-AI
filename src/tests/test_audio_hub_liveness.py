@@ -1128,6 +1128,39 @@ class TestAuditFixes:
             "never-nonzero silence must not restart the sound server repeatedly "
             f"(got {l2.call_count} L2 restarts in 300 s)")
 
+    def test_silence_storm_not_rearmed_by_post_l2_reopen(self):
+        """B/F1 regression: restart_sound_server() ends with
+        invalidate_audio_hub(), so after every L2 the stream is closed and the
+        rule-3 branch reopens it. Clearing the ladder on that reopen re-armed
+        the escalation and produced an L1->L2 restart every ~10 s. The ladder
+        must only be cleared by genuine delivery."""
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)
+        hub._chunk_count = 500
+        hub._first_chunk_mono = clock.now - 120.0
+        hub._last_nonzero_mono = 0.0                # never non-zero
+        _wd_reset(clock)
+        # A real reopen must actually restore the stream, otherwise the tick
+        # stays in rule 3 forever and never exercises the ladder at all.
+        hub._ensure_stream = lambda: setattr(hub, "_stream", mock.MagicMock(active=True))
+
+        def _restart_closes_stream():
+            hub._stream = None                      # invalidate_audio_hub()
+
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(module_mic, "queue_message"), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server",
+                        side_effect=_restart_closes_stream) as l2:
+            for _ in range(150):                    # 300 s
+                module_mic._hub_watchdog_tick()
+                clock.advance(2)
+
+        assert l2.call_count <= 1, (
+            "a post-L2 reopen must not re-arm the silence storm "
+            f"(got {l2.call_count} restarts in 300 s)")
+
     def test_healthy_tick_resets_hub_l1_rate_limit(self):
         """A/F2: the watchdog cleared its own l1 anchor on a healthy tick but
         the hub's 10 s limiter kept running, so a re-stall within 10 s issued a

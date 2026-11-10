@@ -645,8 +645,14 @@ def _hub_watchdog_tick():
             reopened = False
         _wd_state["invalidate"] = now                     # throttle anchor advances
         if reopened:
-            _wd_state["l1"] = None
-            _wd_state["l2"] = None
+            # Do NOT clear the ladder here. A reopen is not evidence of
+            # recovery — delivery is. restart_sound_server() ends with
+            # invalidate_audio_hub(), so after every L2 the stream is closed
+            # and this branch reopens it; clearing the ladder here would
+            # re-arm the whole escalation and turn the bounded never-nonzero
+            # silence warning into an L1->L2 restart every ~10 s (audit B/F1
+            # regression). The healthy branch clears the ladder once chunks
+            # actually flow again.
             return
         # Reopen FAILED -> fall through to the ladder (audit A/F1). L1 cannot
         # help a stream that will not open; L2 (sound-server restart) is the

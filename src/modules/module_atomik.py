@@ -830,7 +830,11 @@ class WakeWordSystem:
                 # recovery is running sd._terminate()/_initialize() — PortAudio
                 # is not thread-safe, so this would race the teardown. Skip the
                 # reopen and let the ladder escalate instead.
-                if last_recovery:
+                # Re-read at the moment of the reopen: the poll-loop sample
+                # can be ~50 ms stale, which is enough for a recovery to start
+                # in between. Read the hub flag directly so the hub's chunk
+                # counter is not perturbed (a stats() call would bump it).
+                if getattr(module_mic._hub, "_recovery_in_progress", False) or last_recovery:
                     queue_message("WARNING: sound server recovery in progress "
                                   "— deferring wake-listener L1 reopen")
                 else:

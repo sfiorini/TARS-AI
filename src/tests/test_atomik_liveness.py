@@ -11,6 +11,7 @@ Covers the three liveness fixes on the atomik detect() path:
 All device access is stubbed; these tests run on macOS with no hardware.
 """
 import time
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -459,9 +460,13 @@ def test_listen_defers_l1_while_recovery_in_progress(monkeypatch):
     monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
     monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
     invalidated = []
+    # The poll-loop sample says "no recovery" (stale), but the hub flag is set
+    # by the time the reopen is attempted — the fresh read must catch it.
     _patch_hub(monkeypatch,
-               lambda: {"chunk_count": 0, "recovery_in_progress": True},
+               lambda: {"chunk_count": 0, "recovery_in_progress": False},
                invalidated)
+    monkeypatch.setattr(module_mic, "_hub",
+                        mock.MagicMock(_recovery_in_progress=True))
 
     with pytest.raises(AudioStallError):
         det.listenForWakeWord(stall_timeout=0.2, max_recoveries=2)
