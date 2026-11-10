@@ -183,7 +183,20 @@ From the `[STT]` template comments (mix wake-word and STT engines freely — the
 
 ## Barge-in and speaker ID
 
-- `enable_bargein = True` lets you interrupt TARS mid-sentence; `bargein_mode = fuzzy` (word matching against the playing text) or `voiceprint` (`speaker_id` cosine match, threshold `vad_speaker_threshold`); `bargein_sensitivity` 1–10 scales the gate (1 = hard to interrupt, 10 = very sensitive) — `module_stt.py` lines ~222-230.
+**Why mid-sentence interruption was broken (pre-M3).** The old barge-in monitors opened the mic during TTS playback but **discarded every 125 ms frame while `is_tts_playing()` was true** — the mic was open and capturing, and the audio was thrown away, so the trigger could never fire. M3 rewrites the path: frames are never discarded while TTS plays; the mic stays a registered hub reader through playback, and every frame feeds the echo gate.
+
+**The echo gate (energy-first).** A frame is an interrupt *candidate* only when `RMS > max(silence_threshold × rms_scale, bleed_floor × bargein_bleed_factor)`. The bleed floor is a running EMA of mic energy while TTS plays — the gate learns what TARS's own voice looks like on this mic — plus a 250 ms echo grace after playback stops. `bargein_min_candidates` consecutive above-gate frames (~250–375 ms at the 125 ms frame rate) are required before the cancel fires, so a single cough or bang does not truncate a reply. The gate (`module_bargein.py`, `EchoGate`) solely owns the candidate streak — a `"candidate"` return *is* the trigger.
+
+**Speaker ID is the veto, not the trigger.** The cancel is energy-based; the mode check (`fuzzy` = novel words vs the playing text, `voiceprint` = known-speaker match) runs at end-of-speech and decides whether the captured utterance is *kept* (fed into the next turn) or *discarded* (the gate backs off for 60 s; TTS stays stopped — the accepted trade-off on a false positive). The voiceprint bar is `_bargein_voiceprint_threshold`, derived from `bargein_sensitivity` (0.90 at sensitivity 1 → 0.65 at sensitivity 10) — not a raw threshold config key. Honest deviation: the voiceprint veto lands ~0.6 s **after** the cancel, because a usable embedding needs ~1 s of speech — it protects the listen handoff, not the playback. The cancel itself fires at 250–375 ms.
+
+**Stop-and-listen.** An accepted interruption is transcribed and becomes the next conversational turn — no wake word needed: the transcript re-enters the same round entry point the normal STT path uses, as a pure `{"text": …}` payload. `bargein_listen_after_interrupt = False` is the kill switch: an interruption then just stops the reply and returns to wake-word listening.
+
+**Cancel path.** TTS playback writes in ≤100 ms sub-slices and checks the cancel flag inside each slice; a cancel calls `abort()` on the registered persistent stream (thread-safe `Pa_AbortStream`, flushes the buffer) — cancel-to-silence ≤ ~200 ms. Previously a cancel could take up to ~1 s to be heard, because `sd.stop()` never touched the persistent stream.
+
+**AEC status.** PipeWire echo cancellation is installed and its `echo_cancel_source` node exists, but the default capture source is the raw USB mic — audio is not echo-cancelled unless the capture path is pointed at the AEC source. The gate does not depend on AEC: the bleed-floor EMA is the primary defence and adapts to either capture path.
+
+**Config keys** (`[STT]`): `enable_bargein = True`, `bargein_mode = fuzzy | voiceprint`, `bargein_sensitivity = 5` (1–10; scales the RMS gate and the voiceprint bar), `bargein_bleed_factor = 2.5` (how much louder than TARS's own speaker bleed a sound must be to count as an interruption), `bargein_min_candidates = 2` (consecutive 125 ms frames above the gate needed to trigger), `bargein_listen_after_interrupt = True` (stop-and-listen; the rollback switch).
+
 - `speaker_id_enabled = True` passively tags who spoke (`speaker_id_threshold = 0.75`); the name goes into the LLM context.
 - `use_indicators = True` plays a beep when listening starts/stops.
 
