@@ -168,6 +168,11 @@ class _AudioHub:
 
     _GRACE_PERIOD = 2.0  # seconds to keep stream alive after last consumer
 
+    # No chunk for this long on an active stream => judged unhealthy (F2).
+    # Generous: silent rooms still deliver (silent) chunks every callback
+    # block (~10-30 ms), so this only trips when the callback stops firing.
+    _STALE_CHUNK_PERIOD = 10.0
+
     def __init__(self):
         self._lock = threading.Lock()
         self._stream = None
@@ -187,6 +192,7 @@ class _AudioHub:
 
         # Single-writer counters — ONLY the RT callback thread writes these.
         # All other threads read them (GIL-atomic reads, no lock).
+        self._stream_opened_mono = None  # when _ensure_stream last created a stream
         self._chunk_count = 0          # RT: += 1 per callback
         self._last_chunk_mono = 0.0    # RT: = time.monotonic()
         self._last_nonzero_mono = 0.0  # RT: = now if chunk.any()
@@ -229,6 +235,25 @@ class _AudioHub:
             buf.append(chunk)
             evt.set()
 
+    def _stream_delivering(self):
+        """Counter-aware liveness for the live stream (F2). Called UNDER _lock
+        by _ensure_stream; reads the RT counters lock-free (GIL-atomic reads).
+
+        True when the stream is delivering chunks per the S-M1-1 counters —
+        an active-but-silent stream (active=True, stopped=False, no chunks)
+        is the exact stall this feature targets and must be reopened.
+        Conservative: a stream that has never delivered a chunk
+        (_chunk_count == 0) or was just (re)created gets the benefit of the
+        doubt — a fresh stream is legitimately silent until its first
+        callback fires, and judging it stale would churn recreation.
+        """
+        if self._chunk_count == 0:
+            return True
+        anchor = self._last_chunk_mono
+        if self._stream_opened_mono is not None:
+            anchor = max(anchor, self._stream_opened_mono)
+        return (time.monotonic() - anchor) < self._STALE_CHUNK_PERIOD
+
     def _ensure_stream(self):
         """Health check + bounded create. Callers must NOT hold _lock:
         this method acquires it per attempt and sleeps between attempts
@@ -240,9 +265,10 @@ class _AudioHub:
                 self._grace_timer = None
             if self._stream is not None:
                 if (getattr(self._stream, "active", True)
-                        and not getattr(self._stream, "stopped", False)):
+                        and not getattr(self._stream, "stopped", False)
+                        and self._stream_delivering()):
                     return                      # genuinely healthy — keep
-                try:                            # dead/stopped stream object — recreate
+                try:                            # dead/stopped/silent stream — recreate
                     self._stream.stop()
                     self._stream.close()
                 except Exception:
@@ -261,6 +287,7 @@ class _AudioHub:
                     if self._stream is None:
                         self._stream = stream
                         self._native_rate = rate
+                        self._stream_opened_mono = time.monotonic()
                     else:                       # another thread won the race
                         try:
                             stream.stop(); stream.close()

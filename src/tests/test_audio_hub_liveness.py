@@ -284,6 +284,76 @@ class TestEnsureStreamHealthRetry:
         assert hub._callbacks == {}
 
 
+class TestEnsureStreamCounterAwareHealth:
+    """F2: the health check consults the S-M1-1 counters — a stream that is
+    active+not-stopped but delivering nothing is unhealthy and must be
+    recreated; a fresh stream must not be churned."""
+
+    def test_recent_chunk_reuses_stream(self):
+        hub = _AudioHub()
+        healthy = mock.MagicMock()
+        healthy.active = True
+        healthy.stopped = False
+        hub._stream = healthy
+        hub._chunk_count = 5
+        hub._last_chunk_mono = time.monotonic()      # delivered just now
+        _FakeInputStream.instances = []
+        with mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream):
+            hub._ensure_stream()
+        assert hub._stream is healthy
+        assert _FakeInputStream.instances == []       # no churn on healthy path
+
+    def test_stale_chunk_recreates_stream(self):
+        hub = _AudioHub()
+        silent = mock.MagicMock()                     # active but silent — the
+        silent.active = True                          # exact stall this feature targets
+        silent.stopped = False
+        hub._stream = silent
+        hub._chunk_count = 5
+        hub._last_chunk_mono = time.monotonic() - 3600.0   # long-stalled
+        _FakeInputStream.instances = []
+        with mock.patch.object(module_mic, "get_device_info", return_value=(0, 16000)), \
+             mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream), \
+             mock.patch.object(module_mic.time, "sleep"):
+            hub._ensure_stream()
+        assert len(_FakeInputStream.instances) == 1   # silent stream reopened
+        assert hub._stream is _FakeInputStream.instances[0]
+        silent.stop.assert_called_once()
+        silent.close.assert_called_once()
+
+    def test_never_delivered_chunk_reuses_stream(self):
+        hub = _AudioHub()
+        fresh = mock.MagicMock()                      # just created — legitimately
+        fresh.active = True                           # silent for a moment
+        fresh.stopped = False
+        hub._stream = fresh
+        hub._chunk_count = 0                          # no chunk ever arrived
+        hub._last_chunk_mono = 0.0
+        _FakeInputStream.instances = []
+        with mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream):
+            hub._ensure_stream()
+        assert hub._stream is fresh
+        assert _FakeInputStream.instances == []        # no thrash on fresh stream
+
+    def test_freshly_recreated_stream_reuses_stream(self):
+        # After L1 recovery the cumulative _chunk_count is >0 and the stale
+        # _last_chunk_mono belongs to the OLD stream — the NEW stream must
+        # still get its silence grace window, or recovery thrashes.
+        hub = _AudioHub()
+        fresh = mock.MagicMock()
+        fresh.active = True
+        fresh.stopped = False
+        hub._stream = fresh
+        hub._chunk_count = 5                          # chunks from the old stream
+        hub._last_chunk_mono = time.monotonic() - 3600.0
+        hub._stream_opened_mono = time.monotonic()    # new stream, just opened
+        _FakeInputStream.instances = []
+        with mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream):
+            hub._ensure_stream()
+        assert hub._stream is fresh
+        assert _FakeInputStream.instances == []        # no recreate churn
+
+
 class TestRequestL1Recovery:
     """S-M1-05: AudioStallError + request_l1_recovery (rate-limited reopen)."""
 
