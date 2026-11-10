@@ -530,6 +530,8 @@ def load_config():
             "user_details": config['CHAR']['user_details'],
             "enable_thinking_responses": config.getboolean('CHAR', 'enable_thinking_responses', fallback=True),
             "thinking_responses": config['CHAR']['thinking_responses'],
+            "thinking_refresh_enabled": config.getboolean('CHAR', 'thinking_refresh_enabled', fallback=True),
+            "thinking_refresh_minutes": config.getint('CHAR', 'thinking_refresh_minutes', fallback=30),
             "responses": config['CHAR']['responses'],
             "traits": persona_traits,
         },
@@ -798,6 +800,12 @@ CONFIG_METADATA = {
         },
         'thinking_responses': {
             'description': 'After TARS hears your question, it takes a moment to think of an answer (the AI needs time to generate a response). During that pause, TARS will say one of these filler phrases so you know it is working and did not freeze. Things like "Let me think..." or "One moment..." You can customize these the same way as the responses above. Set to [] (empty brackets) if you want silence while it thinks.'
+        },
+        'thinking_refresh_enabled': {
+            'description': 'When ON, TARS periodically asks the AI for a fresh set of thinking filler phrases (in addition to the list above). When OFF, only the configured phrases are used.'
+        },
+        'thinking_refresh_minutes': {
+            'description': 'How often (in minutes) TARS asks the AI for new thinking phrases. 30 is a good default.'
         },
         'responses': {
             'description': 'When you say the wake word (like "Hey TARS"), TARS will immediately say one of these short phrases to let you know it heard you. This happens BEFORE it actually processes what you say next. Think of it like saying "Yeah?" when someone calls your name. You can change these to whatever you want, add new ones, or remove ones you do not like. The format is a list in square brackets with each phrase in quotes separated by commas. Set to [] (empty brackets) if you do not want any response.'

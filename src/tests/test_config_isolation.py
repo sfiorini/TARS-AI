@@ -84,6 +84,20 @@ class TestSessionConfigIsolation(unittest.TestCase):
         self.assertEqual(cfg["TTS"].tts_fallback_list, _TEMPLATE_FALLBACK)
 
 
+class TestThinkingKeyDefaults(unittest.TestCase):
+    """S-M4-01: the two new [CHAR] thinking-refresh keys resolve from the
+    template (old robot configs without them fall back to True / 30)."""
+
+    def test_thinking_key_defaults(self):
+        old_cache = module_config._config_cache
+        module_config._config_cache = None
+        self.addCleanup(setattr, module_config, "_config_cache", old_cache)
+        cfg = module_config.load_config()
+        char = cfg["CHAR"]
+        self.assertIs(char["thinking_refresh_enabled"], True)
+        self.assertEqual(char["thinking_refresh_minutes"], 30)
+
+
 class TestBargeinKeyDefaults(unittest.TestCase):
     """S-M3-01: the three new [STT] barge-in keys resolve from the template."""
 

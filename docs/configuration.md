@@ -26,7 +26,7 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 ## `src/config.ini` sections (`src/config.ini.template`)
 
 ### `[CHAR]` — character & user
-`character_card_path` (relative to `src/`, default `character/TARS/TARS.json`), `user_name`, `user_details`, `location_name`, `latitude`/`longitude` (location-aware answers), `responses` (phrases said right after the wake word, JSON array), `enable_thinking_responses` + `thinking_responses` (filler phrases while the LLM thinks).
+`character_card_path` (relative to `src/`, default `character/TARS/TARS.json`), `user_name`, `user_details`, `location_name`, `latitude`/`longitude` (location-aware answers), `responses` (phrases said right after the wake word, JSON array), `enable_thinking_responses` + `thinking_responses` (filler phrases while the LLM thinks), `thinking_refresh_enabled` + `thinking_refresh_minutes` (a background daemon periodically asks the AI for a fresh set of filler phrases; default ON, every 30 minutes).
 
 ### `[LLM]` — the brain, called directly from the Pi
 `llm_backend` (`openai | grok | deepinfra | other`), `base_url` (used by `other`; the Pi POSTs to `{base_url}/v1/chat/completions`), `openai_model` / `grok_model` / `other_model`, `systemprompt`, `contextsize` (history tokens; 2000 on Pi Zero 2 up to 16000 on Pi5, template default 16000), `max_tokens`, `seed` (-1 = random), `temperature`, `top_p`, `json_mode` (disable for backends without `response_format`), `override_encoding_model` (tokenizer, `cl100k_base` default).
