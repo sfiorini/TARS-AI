@@ -16,6 +16,7 @@ tests assert on source structure:
 import ast
 import os
 import unittest
+from unittest import mock
 
 _REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
@@ -71,6 +72,40 @@ class TestStartupInitializationWatchdog(unittest.TestCase):
             self.assertIn("Exception", handler_types,
                           "the start_hub_watchdog guard must catch "
                           "Exception (like the servo-watchdog block)")
+
+    def _watchdog_try_node(self):
+        """The innermost try in startup_initialization whose DIRECT body
+        calls start_hub_watchdog — not the servo one, and not the
+        enclosing function-wide try that also contains the call."""
+        fn = self._startup_initialization()
+        for node in ast.walk(fn):
+            if not (isinstance(node, ast.Try) and node.handlers):
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.Try):
+                    continue          # nested guard — found at its own level
+                for sub in ast.walk(stmt):
+                    if (isinstance(sub, ast.Call)
+                            and getattr(sub.func, "attr",
+                                        getattr(sub.func, "id", ""))
+                            == "start_hub_watchdog"):
+                        return node
+        self.fail("start_hub_watchdog try block not found")
+
+    def test_watchdog_failure_logs_warning(self):
+        """F4: the guard must not be a silent `except Exception: pass` —
+        the failure path emits the real WARNING line. Executes the ACTUAL
+        try/except block from module_main.py (extracted via AST) with a
+        raising start_hub_watchdog and asserts on the queue_message
+        mock's call args, matching the real format string."""
+        node = self._watchdog_try_node()
+        code = compile(ast.unparse(node), "<hub-watchdog-block>", "exec")
+        qm = mock.MagicMock()
+        with mock.patch("modules.module_mic.start_hub_watchdog",
+                        side_effect=RuntimeError("boom")):
+            exec(code, {"queue_message": qm})
+        qm.assert_called_once_with(
+            "WARNING: Audio hub watchdog not started: boom")
 
 
 class TestAppStartBlasEnv(unittest.TestCase):
