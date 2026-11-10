@@ -1549,9 +1549,17 @@ class STTManager:
             now = time.monotonic()
             queue_message(f"WARNING: wake listener stalled ({e}) — escalating to sound-server restart")
             if now - self._last_l2_mono >= 60.0:
-                self._last_l2_mono = now
-                from modules.module_audio_recovery import restart_sound_server
-                restart_sound_server()
+                from modules.module_mic import audio_hub_stats
+                if audio_hub_stats()["recovery_in_progress"]:
+                    # A recovery is already in flight (hub watchdog L2 / TTS)
+                    # — do not even attempt a concurrent restart. The 60 s
+                    # anchor is NOT stamped, so the next stall re-checks.
+                    queue_message("WARNING: sound server recovery already in progress "
+                                  "— skipping L2 escalation")
+                else:
+                    self._last_l2_mono = now
+                    from modules.module_audio_recovery import restart_sound_server
+                    restart_sound_server()
             else:
                 queue_message("WARNING: L2 sound-server restart rate-limited (60s) — skipping")
             return False     # processing loop retries (with backoff from S-M1-11)
