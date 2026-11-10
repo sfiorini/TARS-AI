@@ -52,7 +52,8 @@ class EchoGate:
         """
         if tts_playing:
             warm = self._playing_frames >= self.WARMUP_FRAMES
-            kind = self._judge(rms, self.threshold) if warm else "bleed"
+            threshold = self.threshold
+            kind = self._judge(rms, threshold) if warm else "bleed"
             if kind == "quiet":
                 # while playing, below-threshold is still TARS's own voice
                 # bleeding into the mic — never report it as silence
@@ -60,8 +61,17 @@ class EchoGate:
             if not warm:
                 self._playing_frames += 1
                 self._streak = 0
-            self.bleed_floor = ((1 - self.ema_alpha) * self.bleed_floor
-                                + self.ema_alpha * max(rms, self.bleed_floor))
+            # Learn the floor from EVERY warm-up frame (the floor is still
+            # unknown, so "above threshold" means nothing yet), and afterwards
+            # only from frames that did NOT reach the gate.  A frame above the
+            # threshold is the user talking over TARS; if it raised the floor,
+            # the NEXT frame's bar would rise by bleed_factor*ema_alpha of it
+            # and with min_candidates=2 the effective bar became ~4x the bleed
+            # floor instead of the documented bleed_factor (review F1) — a
+            # moderate-volume speaker would clear 2.5x and never trigger.
+            if not warm or rms <= threshold:
+                self.bleed_floor = ((1 - self.ema_alpha) * self.bleed_floor
+                                    + self.ema_alpha * max(rms, self.bleed_floor))
             self._grace_remaining = 2       # 2 frames = 250 ms echo grace
             return kind
         if self._grace_remaining > 0:

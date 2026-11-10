@@ -1083,8 +1083,10 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                     if was_interrupted:
                         break
 
-                    # Brief pause between chunks for barge-in detection.
-                    # Monitor checks mic RMS only when _tts_playing is clear.
+                    # Brief pause between chunks (legacy). The monitor no
+                    # longer depends on it: it judges mic frames continuously,
+                    # including while _tts_playing is set. Kept because it is
+                    # harmless and pinned by the playback-recovery tests.
                     # Skip it for streaming slices (<3s) or playback stutters —
                     # the window only makes sense between full sentences.
                     chunk_seconds = len(data) / max(samplerate, 1)

@@ -111,6 +111,37 @@ class TestEchoGate(unittest.TestCase):
         # a single frame, 100x the floor: must trigger on THIS frame
         self.assertEqual(gate.on_frame(5.0, tts_playing=True), "candidate")
 
+    def test_playing_moderate_overshoot_triggers_at_documented_factor(self):
+        """The documented bar is bleed_factor x the floor — not ~4x it.
+
+        Review F1: the floor must not learn from frames that clear the gate,
+        otherwise the frame that triggers (2nd of 2) is judged against a floor
+        its own predecessor just raised: with bleed_factor=2.5 and
+        ema_alpha=0.2 a sustained tone had to reach 4x the floor.
+        """
+        gate = make_gate(min_candidates=2, bleed_factor=2.5)
+        for _ in range(20):
+            gate.on_frame(1.0, tts_playing=True)          # floor -> ~1.0
+        floor = gate.bleed_floor
+        # 3x the floor: above the documented 2.5x bar, well under 4x
+        loud = floor * 3.0
+        self.assertEqual(gate.on_frame(loud, tts_playing=True), "bleed")
+        self.assertEqual(gate.on_frame(loud, tts_playing=True), "candidate",
+                         "a sustained 3x-bleed voice never triggered — the "
+                         "effective bar is above the documented bleed_factor")
+
+    def test_playing_warmup_boundary_is_exact(self):
+        """The warm-up boundary is WARMUP_FRAMES: the last learning frame
+        still cannot trigger, the very next one can (pins the off-by-one
+        independently of the constant's value)."""
+        gate = make_gate(min_candidates=1)
+        for _ in range(gate.WARMUP_FRAMES - 1):
+            self.assertEqual(gate.on_frame(0.05, tts_playing=True), "bleed")
+        # the final warm-up frame must NOT be able to trigger
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "bleed")
+        # ... the next frame is judged
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "candidate")
+
     def test_playing_returns_to_bleed_after_trigger(self):
         """After a trigger the streak resets, so the immediately following
         bleed-level frame does not double-fire."""

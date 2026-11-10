@@ -145,16 +145,20 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
         ``tts_playing=True`` — together that made interrupting TARS mid-sentence
         impossible; only the ~1 s of gaps between sentences could trigger.
 
-        Here the floor learns quiet playback (amplitude 10), then the user
-        talks over TARS (amplitude 3000) WHILE TTS is still playing: the
-        monitor must stop playback exactly once and capture the utterance.
+        Here the floor learns TARS's own playback level (amplitude 5000), so
+        the gate is `max(1000, floor*2.5) ≈ 10000` — the silence term (1000)
+        is irrelevant.  A user voice at amplitude 20000 clears the BLEED bar
+        while TTS is still playing: the monitor must stop playback exactly
+        once and capture the utterance.  (Amplitudes are chosen so the bleed
+        term, not the silence term, is what the user has to beat — otherwise
+        the test would pass even if the floor were never learned.)
         """
         self.tts_playing = True
         self.mic_frames = (
-            [frame(10)] * 12                              # playback warm-up: learn the floor
-            + [frame(3000), frame(3001)]                  # user talks over TARS -> trigger
-            + [frame(3002)]                               # post-trigger speech
-            + [frame(11)] * 8)                            # ~1 s silence -> end of utterance
+            [frame(5000)] * 12                            # playback warm-up: learn the floor
+            + [frame(20000), frame(20001)]                # user talks over TARS -> trigger
+            + [frame(20002)]                              # post-trigger speech
+            + [frame(100)] * 8)                           # ~1 s silence -> end of utterance
         self.run_loop(veto_fn=lambda u: True)
         self.assertEqual([1], self.stop_calls,
                          "barge-in never fired while TTS was playing — the "

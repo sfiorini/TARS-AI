@@ -2062,6 +2062,12 @@ class STTManager:
         speech_buf = []
         triggered = False
         silent_frames = 0
+        # Diagnostics: one line per second of monitoring, so a failed
+        # interruption attempt is diagnosable from the log instead of being
+        # guesswork (this is how the bar gets tuned: `pk` is the loudest mic
+        # RMS the user actually reached vs `thr`, the value they had to beat).
+        dbg_frames = 0
+        dbg_peak = 0.0
 
         try:
             with ResamplingInputStream(dtype="int16") as mic:
@@ -2086,6 +2092,21 @@ class STTManager:
                     # could ever trigger.  The gate rejects TARS's own voice
                     # with its bleed floor instead of by discarding frames.
                     kind = gate.on_frame(rms, tts_playing=is_tts_playing())
+
+                    # 1 Hz diagnostic line (bounded: monitors only run while
+                    # TARS speaks). peak-so-far is the number that matters when
+                    # an interruption fails — it shows how far the user's voice
+                    # was from the gate.
+                    dbg_frames += 1
+                    dbg_peak = max(dbg_peak, rms)
+                    if dbg_frames >= 8:
+                        queue_message(
+                            f"BARGEIN: rms={rms:.0f} pk={dbg_peak:.0f} "
+                            f"floor={gate.bleed_floor:.0f} thr={gate.threshold:.0f} "
+                            f"playing={int(is_tts_playing())} -> {kind}"
+                        )
+                        dbg_frames = 0
+                        dbg_peak = 0.0
                     if kind == "candidate":
                         # "candidate" is returned ONLY on the triggering
                         # frame — it IS the trigger.  No loop-level streak,
