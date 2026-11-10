@@ -110,6 +110,106 @@ def test_counters_advance(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Audit F2 — a raising detect pass must freeze _check_count
+# ---------------------------------------------------------------------------
+
+class _ExplodingModel:
+    """Stand-in for a corrupt ONNX model: predict() raises on every call."""
+
+    def predict(self, feat):
+        raise RuntimeError("corrupt model")
+
+
+def test_detect_model_throwing_predict_freezes_check_count(monkeypatch):
+    """F2: a detect pass that RAISES must not advance _check_count (the
+    listenForWakeWord/hub liveness signal) — otherwise a permanently
+    broken detector looks alive and the L1/L2 ladder never trips. The
+    raise counts into _check_error_count instead."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = _ExplodingModel()
+    _append_chunk(det, _loud_slice(16000))     # 1 s of loud speech-band audio
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+
+    before = det._check_count
+    with pytest.raises(RuntimeError):
+        det.detect()
+
+    assert det._check_count == before          # frozen despite the raise
+    assert det._check_error_count == 1
+
+
+def test_detect_model_normal_false_still_advances_check_count():
+    """F2 counterpart: a normal (non-raising) False pass still advances
+    _check_count and does not touch _check_error_count."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = None                            # early (False, 0.0) return
+
+    before = det._check_count
+    detected, score = det.detect()
+
+    assert detected is False
+    assert det._check_count == before + 1
+    assert det._check_error_count == 0
+
+
+def test_detect_template_throwing_freezes_check_count(monkeypatch):
+    """F2 applies to the template path too: a raising _detect_template pass
+    must freeze _check_count and count into _check_error_count."""
+    det = _template_detector()
+    _append_chunk(det, _loud_slice(16000))
+    monkeypatch.setattr(time, "monotonic", lambda: 100.0)
+    monkeypatch.setattr(det.mfcc_extractor, "extract_mfcc",
+                        lambda w: (_ for _ in ()).throw(RuntimeError("mfcc boom")))
+
+    before = det._check_count
+    with pytest.raises(RuntimeError):
+        det.detect()
+
+    assert det._check_count == before
+    assert det._check_error_count == 1
+
+
+def test_listen_escalates_when_detect_raises_every_chunk(monkeypatch):
+    """F2 end-to-end: chunks keep arriving but every detect() raises (the
+    hub swallows it like _on_audio does). _check_count must stay frozen so
+    the stall deadline expires and listenForWakeWord escalates to
+    AudioStallError — instead of resetting the deadline forever."""
+    det = WakeWordSystem(mode=WakeWordSystem.MODE_MODEL)
+    det.model = _ExplodingModel()
+    det.cooldown = 0.0          # let every pass reach the throwing predict()
+    det.check_interval = 0.0    # (the deadline itself uses real monotonic time)
+    state = {"enters": 0, "callback": None}
+
+    def deliver(state_):
+        cb = state_["callback"]
+        if cb is not None:
+            for _ in range(5):                 # 5 chunks delivered per registration
+                try:
+                    cb(_loud_slice(16000), 16000, None, None)
+                except Exception:
+                    pass                       # _on_audio swallows consumer raises
+
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state, deliver))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    counter = {"chunk_count": 0}
+
+    def fake_stats():
+        counter["chunk_count"] += 1
+        return counter
+
+    invalidated = []
+    _patch_hub(monkeypatch, fake_stats, invalidated)
+    frozen_check = det._check_count
+
+    with pytest.raises(AudioStallError):
+        det.listenForWakeWord(stall_timeout=0.2, max_recoveries=1)
+
+    assert det._check_count == frozen_check   # throwing detector froze it
+    assert det._check_error_count >= 1
+    assert state["enters"] == 1
+
+
+# ---------------------------------------------------------------------------
 # S-M1-09 — chunk-deque buffer + _window()/last_window() accessors
 # ---------------------------------------------------------------------------
 
