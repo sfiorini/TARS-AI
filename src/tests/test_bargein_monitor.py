@@ -84,11 +84,17 @@ def make_manager():
     mgr.amp_gain = 1.0
     mgr._bargein_active = True
     mgr._bargein_thread = None
+    mgr._bargein_lock = threading.Lock()
+    mgr._bargein_generation = 1
     mgr._bargein_gate = None
     mgr._bargein_backoff = None
     mgr._bargein_captured = None
     mgr._bargein_captured_ready = threading.Event()
     mgr._bargein_tts_data = {'word_list': [], 'words_all': set()}
+    mgr._bargein_enabled = True
+    mgr._bargein_mode = 'fuzzy'
+    mgr.sherpa_recognizer = object()   # truthy: fuzzy mode passes its check
+    mgr.fastrtc_model = None
     mgr._bargein_transcribe = lambda buf: None
     return mgr
 
@@ -126,7 +132,7 @@ class BargeinMonitorTestCase(unittest.TestCase):
         self.addCleanup(p.stop)
 
     def run_loop(self, veto_fn):
-        self.mgr._bargein_frame_loop(veto_fn)
+        self.mgr._bargein_frame_loop(self.mgr._bargein_generation, veto_fn)
 
 
 class TestBargeinFrameLoop(BargeinMonitorTestCase):
@@ -299,6 +305,29 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
                          "permanent instead of a 60 s window")
         self.assertTrue(self.mgr._bargein_captured_ready.is_set())
 
+    def test_stale_publish_after_stop_does_not_set_event(self):
+        """Audit F3: a monitor whose run is no longer current must NEVER
+        publish — the stop's clear must be the last writer. Here the run
+        is stopped while the veto runs (e.g. the round's stop lands during
+        the transcribe): the end-of-speech publish must be dropped instead
+        of writing the capture / setting the ready Event after the clear."""
+        def _veto(utterance):
+            # the round is stopped while the veto transcribes — the
+            # generation moves on without this run
+            self.mgr._bargein_generation = 2
+            return True
+        self.mic_frames = (
+            [frame(3000), frame(3001)]
+            + [frame(21)] * 8)
+        self.run_loop(veto_fn=_veto)
+        self.assertFalse(self.mgr._bargein_captured_ready.is_set(),
+                         "a stale monitor set the ready Event after its "
+                         "run ended — the stop's clear was not the last "
+                         "writer")
+        self.assertIsNone(self.mgr._bargein_captured,
+                          "a stale monitor wrote the capture after its "
+                          "run ended")
+
     def test_ten_second_cap_ends_recording(self):
         """Post-trigger recording caps at 80 frames (10 s) even without silence."""
         self.mic_frames = (
@@ -308,6 +337,135 @@ class TestBargeinFrameLoop(BargeinMonitorTestCase):
         self.assertTrue(self.mgr._bargein_captured_ready.is_set())
         # first loud frame (pre-roll) + trigger frame + 78 more = 80 frames
         self.assertEqual(80 * 2000, self.mgr._bargein_captured.size)
+
+
+class TestBargeinRunOwnership(BargeinMonitorTestCase):
+    """Audit F1/F3: per-run generation tokens — a monitor can only be
+    stopped and can only publish on behalf of ITS OWN run.
+
+    Uses the REAL start_bargein_monitor / stop_bargein_monitor with a
+    scripted mic — no hardware, no network."""
+
+    def test_stale_stop_is_noop(self):
+        """A stop naming a superseded run id is a NO-OP: the newer run's
+        monitor stays alive and can still trigger a cancel."""
+        class _ModeMic:
+            # shared across mic instances: 'quiet' -> endless quiet frames,
+            # 'loud' -> endless above-gate frames
+            mode = ['quiet']
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def flush(self):
+                pass
+
+            def read(self, n):
+                if _ModeMic.mode[0] == 'loud':
+                    return frame(3000), False
+                return frame(0), False
+
+        p = mock.patch.object(module_stt, "ResamplingInputStream",
+                              lambda **kwargs: _ModeMic())
+        p.start()
+        self.addCleanup(p.stop)
+
+        run_a = self.mgr.start_bargein_monitor("")
+        self.assertIsNotNone(run_a, "start_bargein_monitor must return "
+                                 "the run id that owns the monitor")
+        run_b = self.mgr.start_bargein_monitor("")
+        self.assertNotEqual(run_a, run_b,
+                            "each start must mint a FRESH run id")
+
+        # the stale stop (run A) must be a no-op — run B owns the monitor
+        self.mgr.stop_bargein_monitor(run_id=run_a)
+        self.assertTrue(self.mgr._bargein_active,
+                        "a stale stop tore down the newer run's monitor")
+        self.assertEqual(run_b, self.mgr._bargein_generation)
+        self.assertIsNotNone(self.mgr._bargein_thread)
+        self.assertTrue(self.mgr._bargein_thread.is_alive(),
+                        "a stale stop killed the newer run's monitor thread")
+
+        # ...and run B's monitor can still trigger a cancel
+        _ModeMic.mode[0] = 'loud'
+        deadline = time.monotonic() + 5.0
+        while not self.stop_calls and time.monotonic() < deadline:
+            time.sleep(0.01)
+        self.assertEqual([1], self.stop_calls,
+                         "the surviving monitor never fired the cancel")
+        self.assertEqual(["barge-in"], self.cancel_calls)
+
+        self.mgr.stop_bargein_monitor(run_id=run_b)
+        self.assertFalse(self.mgr._bargein_active)
+
+    def test_stale_thread_not_rearmed(self):
+        """Audit F3: after a stop whose join times out (the thread sits in
+        a slow mic read), a subsequent start must NOT re-arm the stale
+        thread — when its read finally returns it exits, leaving exactly
+        one live monitor."""
+        release = threading.Event()
+        state = {'slow': True}
+
+        class _SlowMic:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def flush(self):
+                pass
+
+            def read(self, n):
+                if state['slow']:
+                    # simulate the hub's evt.wait(timeout=5.0) stall —
+                    # test-controlled so no real 5 s block is needed
+                    release.wait(timeout=30)
+                return frame(0), False
+
+        p = mock.patch.object(module_stt, "ResamplingInputStream",
+                              lambda **kwargs: _SlowMic())
+        p.start()
+        self.addCleanup(p.stop)
+
+        run_a = self.mgr.start_bargein_monitor("")
+        thread_a = self.mgr._bargein_thread
+        self.assertTrue(thread_a.is_alive())
+
+        # a stop whose join times out while the thread is stuck in read:
+        # shrink the join so the test doesn't wait the full 6 s — the
+        # thread is GENUINELY still alive, which is the F3 precondition
+        real_join = thread_a.join
+        thread_a.join = lambda timeout=None: real_join(0.05)
+        self.mgr.stop_bargein_monitor(run_id=run_a)
+        self.assertTrue(thread_a.is_alive(),
+                        "precondition broken: the thread was not stuck")
+        self.assertIsNone(self.mgr._bargein_thread)
+
+        # a subsequent start must NOT re-arm the stale thread
+        state['slow'] = False
+        run_b = self.mgr.start_bargein_monitor("")
+        thread_b = self.mgr._bargein_thread
+        self.assertIsNot(thread_b, thread_a)
+        self.assertTrue(thread_b.is_alive())
+
+        # release the stale thread's read: the generation mismatch must
+        # make it exit instead of resuming the loop
+        release.set()
+        del thread_a.join  # restore the real join for the assertion below
+        thread_a.join(timeout=5)
+        self.assertFalse(thread_a.is_alive(),
+                         "the stale thread was re-armed by the new start "
+                         "— two live monitors")
+        self.assertTrue(thread_b.is_alive())
+        self.assertEqual([], self.stop_calls,
+                         "the stale thread triggered a cancel after its "
+                         "run was stopped")
+
+        self.mgr.stop_bargein_monitor(run_id=run_b)
 
 
 class TestTakeBargeinUtterance(unittest.TestCase):

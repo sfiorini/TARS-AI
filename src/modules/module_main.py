@@ -188,10 +188,16 @@ def utterance_callback(message):
             text = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'-<>]', '', text)
             return text.strip()
 
+        # Per-run barge-in ownership (audit F1): the main round captures the
+        # run id its start_bargein_monitor() minted and hands it back to its
+        # matching stop — a deferred follow-up that starts a NEWER monitor
+        # can then never be torn down by the main round's (stale) stop.
+        _main_bargein_run = [None]
+
         def _on_first_play():
             set_tars_state(TarsState.TALKING)
             if stt_manager:
-                stt_manager.start_bargein_monitor(tts_text="")
+                _main_bargein_run[0] = stt_manager.start_bargein_monitor(tts_text="")
 
         pipeline = SentenceTTSPipeline(
             CONFIG['TTS']['ttsoption'],
@@ -295,7 +301,7 @@ def utterance_callback(message):
                 pipeline.finish()
                 pipeline.join(timeout=5)
                 if stt_manager:
-                    stt_manager.stop_bargein_monitor()
+                    stt_manager.stop_bargein_monitor(run_id=_main_bargein_run[0])
                 try:
                     if _is_webui:
                         from modules.module_chatui import socketio
@@ -378,8 +384,9 @@ def utterance_callback(message):
                 set_tars_state(TarsState.TALKING)
                 if ui_manager:
                     ui_manager.update_streaming_data(text)
+                _followup_run = None
                 if stt_manager:
-                    stt_manager.start_bargein_monitor(tts_text=followup_clean)
+                    _followup_run = stt_manager.start_bargein_monitor(tts_text=followup_clean)
                 speed.start('followup_tts')
                 was_interrupted = asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
                 speed.log_tool('followup_tts', speed.stop('followup_tts'))
@@ -397,7 +404,9 @@ def utterance_callback(message):
                         if _result and _result.get("text"):
                             _followup_bargein_text = _result["text"].strip()
                 if stt_manager:
-                    stt_manager.stop_bargein_monitor()
+                    # stop THIS follow-up's run — not whatever is current
+                    # (audit F1)
+                    stt_manager.stop_bargein_monitor(run_id=_followup_run)
                 if _followup_bargein_text:
                     # The interrupting speech becomes the next turn via the
                     # same round entry point; the re-entered round owns the
@@ -453,7 +462,7 @@ def utterance_callback(message):
                 reply_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'-<>]', '', reply)
                 set_tars_state(TarsState.TALKING)
                 if stt_manager:
-                    stt_manager.start_bargein_monitor(tts_text=reply_clean)
+                    _main_bargein_run[0] = stt_manager.start_bargein_monitor(tts_text=reply_clean)
                 speed.start('tts')
                 was_interrupted = asyncio.run(play_audio_chunks(reply_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
                 pipeline._duration = speed.stop('tts')
@@ -487,7 +496,9 @@ def utterance_callback(message):
                 if result and result.get("text"):
                     _bargein_text = result["text"].strip()
         if stt_manager:
-            stt_manager.stop_bargein_monitor()
+            # the MAIN round's run id — a follow-up that started a newer
+            # monitor makes this stop a no-op instead of killing it (F1)
+            stt_manager.stop_bargein_monitor(run_id=_main_bargein_run[0])
         if _bargein_text:
             # The interrupting speech becomes the next conversational turn:
             # the SAME round entry point the normal STT path uses, with a

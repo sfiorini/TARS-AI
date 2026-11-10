@@ -60,9 +60,14 @@ class FakeBargeinStt:
         self._audio = audio
         self._transcript = transcript
         self._take_results = list(take_results) if take_results is not None else None
+        self._next_run_id = 0
 
     def start_bargein_monitor(self, tts_text=""):
-        self.calls.append(("start", tts_text))
+        # audit F1: the real manager returns a per-run generation token;
+        # the caller must capture it and hand it back to the matching stop
+        self._next_run_id += 1
+        self.calls.append(("start", tts_text, self._next_run_id))
+        return self._next_run_id
 
     def take_bargein_utterance(self, timeout=8.0):
         self.calls.append(("take", timeout))
@@ -74,8 +79,8 @@ class FakeBargeinStt:
         self.calls.append(("transcribe", audio))
         return self._transcript
 
-    def stop_bargein_monitor(self):
-        self.calls.append(("stop",))
+    def stop_bargein_monitor(self, run_id=None):
+        self.calls.append(("stop", run_id))
 
     def call_names(self):
         return [c[0] for c in self.calls]
@@ -238,6 +243,25 @@ class TestFollowupStopAndListen(StopAndListenTestCase):
         self.assertEqual(2, names.count("take"))
         self.assertEqual(2, names.count("stop"))
         self.assertLess(names.index("take"), names.index("stop"))
+
+    def test_followup_stops_own_run_id(self):
+        """Audit F1: every stop names ITS OWN run id — the main round's
+        stop (run 1) must not tear down the follow-up's monitor (run 2):
+        each start/stop pair is matched, never crossed."""
+        audio = np.zeros(16000, dtype=np.int16)
+        fake = FakeBargeinStt(take_results=[None, audio],
+                              transcript={"text": "tell me about x"})
+        speak = self._run_and_get_speak(fake)
+
+        speak("Here is the follow-up.")
+
+        start_ids = [c[2] for c in fake.calls if c[0] == "start"]
+        stop_ids = [c[1] for c in fake.calls if c[0] == "stop"]
+        self.assertEqual([1, 2], start_ids)
+        self.assertEqual([1, 2], stop_ids,
+                         "each stop must name its own run id — a stop "
+                         "naming None (or the other run's id) can tear "
+                         "down a monitor it does not own")
 
     def test_followup_kill_switch_off_never_takes(self):
         """bargein_listen_after_interrupt = False: the interrupted follow-up

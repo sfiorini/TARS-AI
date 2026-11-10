@@ -214,6 +214,8 @@ class STTManager:
         # Barge-in monitoring
         self._bargein_active = False
         self._bargein_thread = None
+        self._bargein_lock = threading.Lock()   # guards generation/thread/capture handoff (audit F1/F3)
+        self._bargein_generation = 0           # per-run token: a monitor may only stop/publish for ITS run
         self._bargein_tts_data = {'word_list': [], 'words_all': set()}  # shared with monitor thread
         self._bargein_gate = None            # EchoGate owned by the monitor thread
         self._bargein_backoff = None          # raised bar carried across per-run gates (review F3)
@@ -1962,11 +1964,16 @@ class STTManager:
 
         Args:
             tts_text: The text TARS is currently saying (used by fuzzy mode).
+
+        Returns the run id (generation token) that owns this monitor, or
+        None when no monitor was started — pass the id to the matching
+        ``stop_bargein_monitor(run_id=...)`` so a stale round can never
+        tear down a newer run's monitor (audit F1).
         """
         if not self._bargein_enabled:
-            return
+            return None
         if self.silence_threshold is None:
-            return  # Can't monitor without a noise floor
+            return None  # Can't monitor without a noise floor
 
         mode = self._bargein_mode
 
@@ -1984,16 +1991,21 @@ class STTManager:
 
         if mode == 'fuzzy' and self.sherpa_recognizer is None and self.fastrtc_model is None:
             queue_message("WARN: Barge-in fuzzy mode requires sherpa-onnx or fastrtc, skipping")
-            return
+            return None
 
-        self._bargein_active = True
+        with self._bargein_lock:
+            # a fresh generation invalidates any stale thread still stuck
+            # in a slow read — it cannot be re-armed (audit F3)
+            self._bargein_generation += 1
+            run_id = self._bargein_generation
+            self._bargein_active = True
+            if mode == 'voiceprint':
+                self._start_bargein_voiceprint(run_id)
+            else:
+                self._start_bargein_fuzzy(tts_text, run_id)
+        return run_id
 
-        if mode == 'voiceprint':
-            self._start_bargein_voiceprint()
-        else:
-            self._start_bargein_fuzzy(tts_text)
-
-    def _bargein_frame_loop(self, veto_fn):
+    def _bargein_frame_loop(self, run_id, veto_fn):
         """Shared per-125ms frame loop for both barge-in modes (S-M3-06).
 
         The EchoGate is the SOLE owner of the candidate streak: a
@@ -2051,7 +2063,11 @@ class STTManager:
                 # Flush stale audio from OS buffer (discard first ~0.5s)
                 mic.flush()
 
-                while self._bargein_active:
+                # run_id (audit F1/F3): this loop only runs and only
+                # publishes while ITS generation is current — a stop or a
+                # newer start bumps the generation and the loop exits at
+                # the next check instead of being re-armed.
+                while self._bargein_active and self._bargein_generation == run_id:
                     data, _ = mic.read(2000)  # ~125ms frame
                     rms = self._compute_rms_fast(data)
                     rms = rms if rms is not None else 0.0
@@ -2095,8 +2111,20 @@ class STTManager:
                         # end of speech: ~1 s of silence (8 frames) or the
                         # 10 s cap (80 frames) — runs on EVERY appended
                         # frame, candidate frames included
+                        # A stale run must never publish — the stop's
+                        # clear has to be the LAST writer (audit F3).
+                        if self._bargein_generation != run_id:
+                            return
                         utterance = np.concatenate(speech_buf)
-                        if veto_fn(utterance):
+                        accepted = veto_fn(utterance)
+                        # re-check AFTER the veto: it may transcribe for
+                        # seconds and the run may have been stopped (or
+                        # superseded) meanwhile — a stale publish would
+                        # leak the PREVIOUS round's audio into the next
+                        # round as a bogus turn (audit F3)
+                        if self._bargein_generation != run_id:
+                            return
+                        if accepted:
                             # write BEFORE set — the waiter may run as
                             # soon as the Event is set
                             self._bargein_captured = utterance
@@ -2118,11 +2146,14 @@ class STTManager:
         except Exception as e:
             queue_message(f"WARN: Barge-in monitor error: {e}")
             # A crashing monitor must still signal completion — the main
-            # loop's take_bargein_utterance must not hang for 8 s (F1).
-            self._bargein_captured = None
-            self._bargein_captured_ready.set()
+            # loop's take_bargein_utterance must not hang for 8 s (F1) —
+            # but ONLY for the current run: a stale crash must not set
+            # the Event after its stop cleared it (audit F3).
+            if self._bargein_generation == run_id:
+                self._bargein_captured = None
+                self._bargein_captured_ready.set()
 
-    def _start_bargein_fuzzy(self, tts_text):
+    def _start_bargein_fuzzy(self, tts_text, run_id):
         """Fuzzy word-matching barge-in monitor (thin wrapper: builds the
         novel-word veto_fn and runs the shared frame loop)."""
 
@@ -2149,10 +2180,10 @@ class STTManager:
             return bool(novel)
 
         self._bargein_thread = threading.Thread(
-            target=self._bargein_frame_loop, args=(_veto,), daemon=True)
+            target=self._bargein_frame_loop, args=(run_id, _veto), daemon=True)
         self._bargein_thread.start()
 
-    def _start_bargein_voiceprint(self):
+    def _start_bargein_voiceprint(self, run_id):
         """Voiceprint barge-in monitor (thin wrapper: builds the
         speaker-embedding veto_fn and runs the shared frame loop).
 
@@ -2219,7 +2250,7 @@ class STTManager:
             return matched
 
         self._bargein_thread = threading.Thread(
-            target=self._bargein_frame_loop, args=(_veto,), daemon=True)
+            target=self._bargein_frame_loop, args=(run_id, _veto), daemon=True)
         self._bargein_thread.start()
 
     def _bargein_transcribe(self, audio_buffer):
@@ -2306,22 +2337,48 @@ class STTManager:
         self._bargein_tts_data['word_list'] = word_list
         self._bargein_tts_data['words_all'] = set(word_list)
 
-    def stop_bargein_monitor(self):
+    def stop_bargein_monitor(self, run_id=None):
         """Stop the barge-in monitor thread and wait for mic stream to close.
+
+        run_id: the generation token returned by the matching
+        start_bargein_monitor(). A STALE stop (a newer run owns the
+        monitor) is a NO-OP — one round can never tear down another
+        round's monitor (audit F1). run_id=None stops whatever run is
+        current (legacy callers with no ownership handle).
 
         Also clears any unconsumed capture (review F2): a capture nobody
         took (e.g. an interrupted filler/follow-up) must never leak into a
         later round's take_bargein_utterance as stale audio — the safety
-        net for any caller that forgets to consume.
+        net for any caller that forgets to consume. The clear is skipped
+        when a newer start happened during the join — the clear must be
+        the LAST writer (audit F3).
         """
-        self._bargein_active = False
-        if self._bargein_thread is not None:
-            self._bargein_thread.join(timeout=3)
-            if self._bargein_thread.is_alive():
+        with self._bargein_lock:
+            if run_id is not None and run_id != self._bargein_generation:
+                return  # stale stop — a newer run owns the monitor
+            # bumping the generation invalidates this run: a thread still
+            # stuck in a slow read cannot be re-armed and cannot publish
+            self._bargein_generation += 1
+            self._bargein_active = False
+            thread = self._bargein_thread
+            stopped_generation = self._bargein_generation
+        if thread is not None:
+            # join OUTSIDE the lock, with a timeout ABOVE the hub's 5 s
+            # read bound (audit F3): a 3 s join could return while the
+            # thread is still inside mic.read and re-armable.
+            thread.join(timeout=6)
+            if thread.is_alive():
                 queue_message("WARN: Barge-in monitor thread did not exit cleanly")
-            self._bargein_thread = None
-        self._bargein_captured = None
-        self._bargein_captured_ready.clear()
+        with self._bargein_lock:
+            # null only the thread we joined — a newer start may have
+            # already installed its own
+            if thread is not None and self._bargein_thread is thread:
+                self._bargein_thread = None
+            # clear only when no newer start happened during the join —
+            # otherwise a newer run's capture would be wiped (audit F3)
+            if self._bargein_generation == stopped_generation:
+                self._bargein_captured = None
+                self._bargein_captured_ready.clear()
 
     def take_bargein_utterance(self, timeout=8.0) -> Optional[np.ndarray]:
         """Wait for the barge-in monitor's captured utterance (S-M3-07).
