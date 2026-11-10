@@ -799,12 +799,17 @@ class WakeWordSystem:
                     while not detected_flag:
                         time.sleep(0.05)
                         s = audio_hub_stats()
+                        # F3: capture the CURRENT chunk count on every poll so the
+                        # stall log reflects the moment of the stall decision — in
+                        # mode (c) (chunks advancing, detection frozen) a stale
+                        # value would make it indistinguishable from mode (a).
+                        last_chunk = s["chunk_count"]
                         if self._check_count != last_check:
                             # check-advance implies chunk-advance (detect() runs only
                             # from the RT callback) — equivalent to 'both advanced'.
                             # chunk-advance WITHOUT check-advance (mode c) must NOT
                             # reset: the deadline then expires -> L1 -> AudioStallError.
-                            last_chunk, last_check = s["chunk_count"], self._check_count
+                            last_check = self._check_count
                             deadline = time.monotonic() + stall_timeout
                         elif time.monotonic() > deadline:
                             break          # stall -> exit `with` (unregister) -> L1 below
