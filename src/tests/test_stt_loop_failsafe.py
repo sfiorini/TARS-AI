@@ -90,6 +90,41 @@ class TestSttLoopFailSafe:
 
         assert sleeps == [0.5, 1.0, 2.0, 4.0, 5.0, 5.0], sleeps
 
+    def test_paused_iterations_reset_backoff(self, monkeypatch):
+        """F7: the paused branch's `continue` must not skip the backoff
+        reset — a prior error's raised backoff would otherwise survive any
+        number of clean paused iterations, and the first error after a long
+        pause would sleep the stale raised value instead of 0.5 s."""
+        mgr = _minimal_manager()
+        state = {"errors": 0, "paused_iters": 0}
+        sleeps = []
+
+        def fake_detect():
+            state["errors"] += 1
+            if state["errors"] <= 2:            # first burst: ratchet backoff
+                raise RuntimeError("boom")
+            if state["errors"] == 4:            # post-pause error observed, stop
+                mgr.running = False
+                return False
+            raise RuntimeError("boom-after-pause")
+
+        def fake_is_paused():
+            # paused for exactly two iterations after the first error burst
+            if state["errors"] == 2 and state["paused_iters"] < 2:
+                state["paused_iters"] += 1
+                return True
+            return False
+
+        mgr.is_paused = fake_is_paused
+        monkeypatch.setattr(mgr, "_detect_wake_word", fake_detect)
+        monkeypatch.setattr(module_stt.time, "sleep", lambda s: sleeps.append(s))
+        with mock.patch.object(module_stt, "queue_message"):
+            mgr._stt_processing_loop()          # run inline; loop must terminate
+
+        # 0.5, 1.0 = error ratchet; 0.1, 0.1 = paused iterations; the final
+        # post-pause error must sleep the RESET 0.5, not the stale 2.0.
+        assert sleeps == [0.5, 1.0, 0.1, 0.1, 0.5], sleeps
+
 
 # ---------------------------------------------------------------------------
 # S-M1-12 — atomik stall -> L2 escalation (rate-limited 60 s, instance-scoped)
