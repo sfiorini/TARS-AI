@@ -282,3 +282,56 @@ class TestEnsureStreamHealthRetry:
         # Rollback: the failed registration was removed after retries exhausted
         assert hub.stats()["consumers"] == 0
         assert hub._callbacks == {}
+
+
+class TestRequestL1Recovery:
+    """S-M1-05: AudioStallError + request_l1_recovery (rate-limited reopen)."""
+
+    def test_audio_stall_error_is_runtime_error(self):
+        from modules.module_mic import AudioStallError
+        assert issubclass(AudioStallError, RuntimeError)
+
+    def test_request_l1_recovery_rate_limited(self):
+        hub = _AudioHub()
+        calls = {"invalidate": 0, "ensure": 0}
+
+        def fake_invalidate():
+            calls["invalidate"] += 1
+
+        def fake_ensure():
+            calls["ensure"] += 1
+
+        with mock.patch.object(hub, "invalidate", side_effect=fake_invalidate), \
+             mock.patch.object(hub, "_ensure_stream", side_effect=fake_ensure):
+            first = hub.request_l1_recovery()
+            second = hub.request_l1_recovery()
+        assert first is True
+        assert second is False                    # rate limit: 1 per 10 s
+        assert calls["invalidate"] == 1
+        assert calls["ensure"] == 1
+
+    def test_request_l1_recovery_no_deadlock_real_invalidate(self):
+        # invalidate() takes _lock itself; request_l1_recovery must NOT hold
+        # _lock across the invalidate/_ensure_stream calls (would deadlock).
+        hub = _AudioHub()
+        hub._stream = mock.MagicMock()            # real invalidate closes it
+        with mock.patch.object(hub, "_ensure_stream") as ensure:
+            done = threading.Event()
+
+            def run():
+                assert hub.request_l1_recovery() is True
+                done.set()
+
+            t = threading.Thread(target=run, daemon=True)
+            t.start()
+            assert done.wait(5.0), "request_l1_recovery deadlocked on _lock"
+            assert hub._stream is None            # invalidate really ran
+            assert ensure.called
+
+    def test_request_l1_recovery_returns_false_on_ensure_failure(self):
+        hub = _AudioHub()
+        with mock.patch.object(hub, "invalidate"), \
+             mock.patch.object(hub, "_ensure_stream", side_effect=RuntimeError("boom")), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            assert hub.request_l1_recovery() is False
+            assert qm.called                      # failure logged, not raised

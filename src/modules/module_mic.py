@@ -26,6 +26,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import sounddevice as sd
 
 from modules import module_audio_devices
+from modules.module_messageQue import queue_message
 
 try:
     import soxr as _soxr
@@ -146,6 +147,11 @@ def dev_frames(model_frames, native_rate=None):
 # One PortAudio stream, many consumers. Solves USB mic exclusion.
 #
 
+class AudioStallError(RuntimeError):
+    """Raised by listenForWakeWord when the audio input path stops making
+    progress after repeated L1 recoveries (dual-signal stall)."""
+
+
 class _AudioHub:
     """Singleton that manages a single shared PortAudio input stream.
 
@@ -187,6 +193,7 @@ class _AudioHub:
         self._consumer_exc_count = 0   # RT: += 1 in the except branch
         self._consecutive_read_stalls = 0   # read() path (not RT)
         self._recovery_in_progress = False  # written under _lock, read atomically
+        self._last_l1_mono = None  # L1 rate-limit anchor (None = never issued)
         self._callback_names = {}      # rid -> diagnostic name (S-M1-02)
 
     def _rebuild_snapshots(self):
@@ -287,6 +294,30 @@ class _AudioHub:
                 except Exception:
                     pass
                 self._stream = None
+
+    def request_l1_recovery(self):
+        """L1 rung of the shared escalation ladder: invalidate + reopen.
+
+        Rate-limited to 1 per 10 s. Must NOT hold _lock: invalidate() takes
+        the lock itself and _ensure_stream() acquires it per attempt (S-M1-04
+        contract) — a plain Lock would deadlock.
+        Returns True when the reopen succeeded, False when rate-limited or
+        the reopen failed (caller escalates; never raises into the watchdog).
+        """
+        now = time.monotonic()
+        # NOTE: None sentinel, not 0.0 — time.monotonic() is near 0.0 in a
+        # fresh process on macOS, so a 0.0 anchor would wrongly rate-limit
+        # the FIRST recovery for 10 s after boot.
+        if self._last_l1_mono is not None and now - self._last_l1_mono < 10.0:
+            return False
+        self._last_l1_mono = now
+        self.invalidate()                    # takes _lock internally
+        try:
+            self._ensure_stream()            # health check + bounded retry, lock-free call
+            return True
+        except Exception as e:
+            queue_message(f"WARNING: audio hub L1 reopen failed: {e}")
+            return False
 
     def _maybe_stop(self):
         """Schedule stream shutdown if no consumers remain. Called under lock."""
