@@ -195,6 +195,7 @@ class _AudioHub:
         self._stream_opened_mono = None  # when _ensure_stream last created a stream
         self._chunk_count = 0          # RT: += 1 per callback
         self._last_chunk_mono = 0.0    # RT: = time.monotonic()
+        self._first_chunk_mono = 0.0   # RT: = now on the FIRST chunk (set once)
         self._last_nonzero_mono = 0.0  # RT: = now if chunk.any()
         self._consumer_exc_count = 0   # RT: += 1 in the except branch
         self._consecutive_read_stalls = 0   # read() path (not RT)
@@ -220,6 +221,8 @@ class _AudioHub:
         now = time.monotonic()
         self._chunk_count += 1
         self._last_chunk_mono = now
+        if not self._first_chunk_mono:            # single GIL-atomic float store
+            self._first_chunk_mono = now
         if chunk.any():
             self._last_nonzero_mono = now
 
@@ -396,6 +399,7 @@ class _AudioHub:
             "last_chunk_age_s": (now - self._last_chunk_mono) if self._last_chunk_mono else None,
             "last_nonzero_age_s": (now - self._last_nonzero_mono) if self._last_nonzero_mono else None,
             "stream_opened_age_s": (now - self._stream_opened_mono) if self._stream_opened_mono else None,
+            "first_chunk_age_s": (now - self._first_chunk_mono) if self._first_chunk_mono else None,
             "consumer_exc_count": self._consumer_exc_count,
             "consecutive_read_stalls": self._consecutive_read_stalls,
             "stream_open": stream is not None,
@@ -651,11 +655,16 @@ def _hub_watchdog_tick():
         stale = age is None or age > 5.0
     nz = s["last_nonzero_age_s"]
     # Sustained digital silence: either ≥ 60 s since the last non-zero
-    # chunk, or chunks arriving that have NEVER been non-zero (all-zeros
+    # chunk, or ≥ 60 s of chunks that have NEVER been non-zero (all-zeros
     # from the very first chunk — _last_nonzero_mono stays 0 -> nz None).
+    # BOTH cases obey the same ≥ 60 s threshold: a muted or echo-cancelled
+    # source legitimately yields exact-zero float32 during silence, so the
+    # first ~2 s of never-nonzero audio is not a dead digital path.
     # nz None with zero chunks is "no data yet", not silence.
+    first_age = s["first_chunk_age_s"]
     digital_silence = ((nz is not None and nz > 60.0)
-                       or (nz is None and s["chunk_count"] > 0))
+                       or (nz is None and first_age is not None
+                           and first_age > 60.0))
     # Mode (c): chunks arriving but the live listener's check counter has
     # been frozen ≥ 5 s — the detection path (swallowed consumer exception /
     # dispatch-blocked) is stalled behind an otherwise healthy hub.
