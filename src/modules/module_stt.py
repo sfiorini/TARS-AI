@@ -742,7 +742,6 @@ class STTManager:
                     time.sleep(0.1)
                     continue
                 if self._detect_wake_word():
-                    backoff = 0.5                      # reset on success
                     if self.DEBUG:
                         queue_message("DEBUG: Wake word detected, starting transcription")
                     STTManager._last_status_was_sleeping = False
@@ -752,6 +751,11 @@ class STTManager:
                     # Check again if paused before transcribing
                     if not self.is_paused():
                         self._transcribe_utterance()
+                # F4: reset the backoff after ANY exception-free iteration,
+                # not only on wake detection — otherwise idle listening (where
+                # nothing is detected) keeps a transient error ratcheted at the
+                # 5 s cap and the loop becomes sluggish.
+                backoff = 0.5
             except Exception as e:
                 queue_message(f"ERROR: STT loop iteration failed ({e}) — retrying in {backoff:.1f}s")
                 time.sleep(backoff)
