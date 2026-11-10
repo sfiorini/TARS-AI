@@ -330,6 +330,67 @@ class TestRefreshLoop(_ThinkingStateTestCase):
         self.assertEqual(event.waits, [5 * 60])
 
 
+class TestLlmFillerWiring(_ThinkingStateTestCase):
+    """S-M4-04: _maybe_play_thinking_response consumes get_filler_phrase
+    (imported lazily inside the function — the module_llm <->
+    module_thinking cycle is broken on BOTH sides)."""
+
+    def _call(self):
+        """Run _maybe_play_thinking_response with queue_message captured and
+        no real playback thread spawned; returns (result, messages, targets)."""
+        capture = _QueueCapture()
+        targets = []
+
+        class _NoThread:
+            def __init__(self, target=None, daemon=None, name=None):
+                self.target = target
+
+            def start(self):
+                targets.append(self.target)
+
+        with mock.patch.object(module_llm, "queue_message", capture), \
+             mock.patch.object(module_llm.threading, "Thread", _NoThread), \
+             mock.patch.dict(module_llm.CONFIG["CHAR"],
+                             {"enable_thinking_responses": True}):
+            result = module_llm._maybe_play_thinking_response()
+        return result, capture.messages, targets
+
+    def test_filler_uses_generated_set(self):
+        """A non-empty generated set wins: the filler plays a generated
+        phrase even when the config list is empty."""
+        module_thinking._generated = ["gen phrase"]
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": "[]"}):
+            result, messages, targets = self._call()
+        self.assertTrue(result)
+        self.assertEqual(messages, ["gen phrase"])
+        self.assertEqual(len(targets), 1, "playback thread must start")
+
+    def test_filler_none_returns_false(self):
+        """get_filler_phrase() None -> _maybe_play_thinking_response
+        returns False (the tool-loop HOLDING_LINE fallback fires)."""
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": '["cfg phrase"]'}), \
+             mock.patch.object(module_thinking, "get_filler_phrase",
+                               return_value=None):
+            result, messages, targets = self._call()
+        self.assertFalse(result)
+        self.assertEqual(messages, [])
+        self.assertEqual(targets, [])
+
+    def test_config_phrases_still_play_when_generated_empty(self):
+        """Fallback chain through the new module: empty generated set,
+        config phrases present -> a config phrase plays (pre-S-M4-04
+        behavior preserved)."""
+        module_thinking._generated = []
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": '["cfg one", "cfg two"]'}):
+            result, messages, targets = self._call()
+        self.assertTrue(result)
+        self.assertIn(messages[0], {"cfg one", "cfg two"})
+        self.assertEqual(len(targets), 1)
+
+
 class TestDaemonLifecycle(_ThinkingStateTestCase):
     """S-M4-03: start/stop follow the cputemp daemon pattern — named daemon
     thread, is_alive guard, idempotent start, explicit stop."""

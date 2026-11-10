@@ -146,19 +146,13 @@ def _maybe_play_thinking_response():
         if not enable_thinking:
             return False
 
-        thinking_responses_raw = CONFIG["CHAR"].get('thinking_responses', '[]')
-        try:
-            thinking_responses = json.loads(thinking_responses_raw)
-        except (json.JSONDecodeError, TypeError):
-            thinking_responses = []
-        if not isinstance(thinking_responses, list):
-            thinking_responses = []
-
-        if not thinking_responses:
-            return False
-
-        thinking_text = random.choice(thinking_responses)
-        if not (thinking_text and isinstance(thinking_text, str) and thinking_text.strip()):
+        # Lazy import — breaks the module_llm <-> module_thinking cycle
+        # (this module needs get_filler_phrase; that module needs
+        # raw_complete_llm). Both sides import INSIDE functions, never at
+        # module top level — see the mirror comment in module_thinking.py.
+        from modules.module_thinking import get_filler_phrase
+        thinking_text = get_filler_phrase()
+        if not thinking_text:
             return False
 
         queue_message(f"{thinking_text}")
