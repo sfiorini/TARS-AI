@@ -28,7 +28,7 @@ import sounddevice as sd
 import soundfile as sf
 import requests
 
-from modules.module_mic import ResamplingInputStream, get_native_rate
+from modules.module_mic import ResamplingInputStream, get_native_rate, AudioStallError
 
 from modules.module_messageQue import queue_message
 from modules.module_config import load_config, get_capabilities
@@ -233,6 +233,10 @@ class STTManager:
 
         # Last recorded audio for speaker ID (set by transcription backends)
         self._last_audio_float32 = None
+
+        # L2 sound-server restart rate limit (60 s) — instance-scoped so it
+        # survives across _detect_wake_word_atomik() calls (S-M1-12)
+        self._last_l2_mono = 0.0
 
         # Cache progress bar, webui port, and character name so they aren't recreated per frame
         self._progress_bar_funcs = None
@@ -1531,12 +1535,26 @@ class STTManager:
         # Wait for TTS to finish before entering blocking wake word listener
         while is_tts_playing():
             time.sleep(0.05)
-        while True:
-            detector.listenForWakeWord()
-            audio_window = detector.last_window(2.0)
-            if self._run_wake_gates(audio_window, transcript_verify_fn=transcript_verify_fn):
-                self._handle_wake_detected()
-                return True
+        # The AudioStallError catch sits OUTSIDE the while True: so a persistent
+        # stall cannot spin — one catch -> one L2 -> return False -> the
+        # processing loop retries with backoff (S-M1-11).
+        try:
+            while True:
+                detector.listenForWakeWord()
+                audio_window = detector.last_window(2.0)
+                if self._run_wake_gates(audio_window, transcript_verify_fn=transcript_verify_fn):
+                    self._handle_wake_detected()
+                    return True
+        except AudioStallError as e:
+            now = time.monotonic()
+            queue_message(f"WARNING: wake listener stalled ({e}) — escalating to sound-server restart")
+            if now - self._last_l2_mono >= 60.0:
+                self._last_l2_mono = now
+                from modules.module_audio_recovery import restart_sound_server
+                restart_sound_server()
+            else:
+                queue_message("WARNING: L2 sound-server restart rate-limited (60s) — skipping")
+            return False     # processing loop retries (with backoff from S-M1-11)
 
     def _detect_wake_word_sherpa_onnx(self) -> bool:
         """Detect wake word using sherpa-onnx with a pre-allocated circular buffer."""
