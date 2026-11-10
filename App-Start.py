@@ -3,6 +3,10 @@ os.environ["LIBCAMERA_LOG_LEVELS"] = "3"
 os.environ["PYGAME_HIDE_SUPPORT_PROMPT"] = "1"
 # Ensure PipeWire/PulseAudio is reachable (needed when launched from autostart)
 os.environ.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+# BLAS/OpenMP thread pools spin-wait and burn a core on the Pi; numpy reads
+# these at import, so they must be set before the venv Python (app.py) starts.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 import subprocess
 import time

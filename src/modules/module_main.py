@@ -607,6 +607,11 @@ def startup_initialization():
         except Exception as e:
             queue_message(f"WARNING: Servo watchdog not started: {e}")
         try:
+            from modules.module_mic import start_hub_watchdog
+            start_hub_watchdog()
+        except Exception as e:
+            queue_message(f"WARNING: Audio hub watchdog not started: {e}")
+        try:
             from modules.module_cputemp import (
                 CPUTempModule,
                 set_cpu_temp_instance, 
