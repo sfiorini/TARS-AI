@@ -388,6 +388,7 @@ class _AudioHub:
         now = time.monotonic()
         with self._lock:
             consumers = len(self._callbacks) + len(self._readers)
+            readers = len(self._readers)
             names = [self._callback_names[r] for r in self._callbacks]
         stream = self._stream
         return {
@@ -400,6 +401,7 @@ class _AudioHub:
             "stream_open": stream is not None,
             "stream_active": bool(getattr(stream, "active", False)) if stream is not None else False,
             "consumers": consumers,
+            "readers": readers,
             "callback_names": names,
             "recovery_in_progress": self._recovery_in_progress,
         }
@@ -557,6 +559,22 @@ def audio_hub_stats():
     return _hub.stats()
 
 
+# Live listener diagnostics — the mode-(c) discriminator. module_atomik
+# publishes its active detector here for the duration of listenForWakeWord
+# (and clears it on every exit path). The watchdog reads _check_count and
+# _last_window_rms (GIL-atomic reads; the RT callback thread is the single
+# writer) to compute check_rate and detect a frozen detection path behind
+# an otherwise healthy hub.
+_active_listener = None
+
+
+def publish_listener_diagnostics(detector):
+    """Register the live wake listener (None to clear). The watchdog's
+    detect-stalled mode reads the detector's check counter between ticks."""
+    global _active_listener
+    _active_listener = detector
+
+
 # ── Hub watchdog daemon (S-M1-07) ─────────────────────────────────
 #
 # Always-on supervision for the shared input stream, covering the cases no
@@ -572,14 +590,46 @@ def audio_hub_stats():
 _wd_state = {"heartbeat": 0.0, "l1": None, "l2": None, "invalidate": time.monotonic()}
 
 
+def _fmt_rate(rate):
+    """63.2/s when known, '-' when not yet computable / no listener."""
+    return f"{rate:.1f}/s" if rate is not None else "-"
+
+
 def _hub_watchdog_tick():
     """One supervision pass. Directly unit-testable; driven by the daemon
     loop every 2 s. All deadlines monotonic."""
     from modules.module_audio_recovery import restart_sound_server
     s = _hub.stats()
+    now = time.monotonic()
+    # -- Per-tick rate bookkeeping (BEFORE any early return, so the deltas
+    #    stay tick-fresh even across no-op ticks). The healthy heartbeat and
+    #    the STALE discriminator both consume these rates. --
+    prev_time = _wd_state.get("prev_time")
+    prev_chunks = _wd_state.get("prev_chunks")
+    chunk_rate = None
+    if prev_time is not None and prev_chunks is not None and now > prev_time:
+        chunk_rate = (s["chunk_count"] - prev_chunks) / (now - prev_time)
+    det = _active_listener
+    check_now = getattr(det, "_check_count", None) if det is not None else None
+    rms_now = float(getattr(det, "_last_window_rms", 0.0)) if det is not None else None
+    prev_check = _wd_state.get("prev_check")
+    check_rate = None
+    if (check_now is not None and prev_check is not None
+            and prev_time is not None and now > prev_time):
+        check_rate = (check_now - prev_check) / (now - prev_time)
+    # mode-(c) bookkeeping: how long has the live listener's check counter
+    # been frozen? (None sentinel: first frozen observation, not yet stale.)
+    if check_now is None or check_now != prev_check:
+        _wd_state["check_frozen_since"] = None
+    elif _wd_state.get("check_frozen_since") is None:
+        _wd_state["check_frozen_since"] = now
+    _wd_state["prev_time"] = now
+    _wd_state["prev_chunks"] = s["chunk_count"]
+    _wd_state["prev_check"] = check_now
+    frozen_for = (now - _wd_state["check_frozen_since"]
+                  if _wd_state.get("check_frozen_since") is not None else 0.0)
     if s["consumers"] == 0 or s["recovery_in_progress"]:
         return                                            # rules 1-2
-    now = time.monotonic()
     if not s["stream_open"]:
         # rule 3: invalidate() hole — consumers alive but stream gone.
         if now - _wd_state["invalidate"] > 2.0:           # 2 s throttle
@@ -606,7 +656,11 @@ def _hub_watchdog_tick():
     # nz None with zero chunks is "no data yet", not silence.
     digital_silence = ((nz is not None and nz > 60.0)
                        or (nz is None and s["chunk_count"] > 0))
-    if not stale and not digital_silence:
+    # Mode (c): chunks arriving but the live listener's check counter has
+    # been frozen ≥ 5 s — the detection path (swallowed consumer exception /
+    # dispatch-blocked) is stalled behind an otherwise healthy hub.
+    detect_stalled = (not stale) and frozen_for >= 5.0
+    if not stale and not digital_silence and not detect_stalled:
         # Healthy: reset the ladder so every stale episode starts at a fresh
         # cheap L1 — never an immediate ~22 s L2 after a long healthy gap.
         # BUT only when audio is genuinely flowing. A stream that reopened
@@ -620,14 +674,19 @@ def _hub_watchdog_tick():
             _wd_state["l2"] = None
         if now - _wd_state["heartbeat"] >= 30.0:
             _wd_state["heartbeat"] = now
-            queue_message(f"AUDIO-HUB: cb={s['consumers']}({','.join(s['callback_names'])}) "
+            queue_message(f"AUDIO-HUB: cb={s['consumers'] - s['readers']}"
+                          f"({','.join(s['callback_names'])}) "
+                          f"rd={s['readers']} "
                           f"stream={'open' if s['stream_open'] else 'closed'}/"
                           f"{'active' if s['stream_active'] else 'inactive'} "
+                          f"rate={_fmt_rate(chunk_rate)} "
                           f"last_chunk={age if age is None else round(age, 2)}s "
+                          f"last_nonzero={nz if nz is None else round(nz, 2)}s "
+                          f"check_rate={_fmt_rate(check_rate)} "
                           f"exc={s['consumer_exc_count']} "
                           f"stalls={s['consecutive_read_stalls']} state=HEALTHY")
         return
-    # STALE or digital silence -> discriminator + escalation ladder.
+    # STALE, digital silence, or detect-stalled -> discriminator + ladder.
     # Ladder bookkeeping contract (rules 4-6):
     #   * `l1` is stamped ONLY when a fresh L1 is actually issued (`l1 is None
     #     or now - l1 >= 10.0`). It is NEVER stamped on ordinary stale ticks —
@@ -637,7 +696,8 @@ def _hub_watchdog_tick():
     #   * Once `l2` is stamped the ladder is in L2 mode: repeat L2 at >= 60 s
     #     cadence and NEVER re-issue L1 (no reopen-storm between L2s).
     mode = ("digital-silence" if digital_silence else
-            "callbacks-stopped" if s["consumer_exc_count"] == 0 else "swallowed-exception")
+            "detect-stalled" if detect_stalled else
+            "callbacks-stopped")
     l1 = _wd_state["l1"]
     l2 = _wd_state["l2"]
     if l2 is not None:
@@ -655,8 +715,11 @@ def _hub_watchdog_tick():
         return
     if l1 is None or now - l1 >= 10.0:                   # rule 4: fresh L1
         queue_message(f"WARNING: AUDIO-HUB STALE mode={mode} chunk_age="
-                      f"{age if age is None else round(age, 2)}s exc={s['consumer_exc_count']} "
-                      f"cb={','.join(s['callback_names'])} -> L1-reopen")
+                      f"{age if age is None else round(age, 2)}s "
+                      f"check_rate={_fmt_rate(check_rate)} "
+                      f"rms={'-' if rms_now is None else f'{rms_now:.3f}'} "
+                      f"exc={s['consumer_exc_count']} "
+                      f"cb=[{','.join(s['callback_names'])}] -> L1-reopen")
         _wd_state["l1"] = now                            # stamp ONLY when issuing the L1
         _hub.request_l1_recovery()                       # return value ignored — ladder anchors on the stamp
         return

@@ -10,8 +10,10 @@ All tests are off-robot: sounddevice streams are never opened against real
 hardware — `_ensure_stream` is stubbed or `sd.InputStream` is faked, and the
 watchdog is driven tick-by-tick with a fake monotonic clock.
 """
+import re
 import threading
 import time
+from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -59,7 +61,7 @@ _STAT_KEYS = {
     "chunk_count", "last_chunk_age_s", "last_nonzero_age_s",
     "stream_opened_age_s",
     "consumer_exc_count", "consecutive_read_stalls",
-    "stream_open", "stream_active", "consumers",
+    "stream_open", "stream_active", "consumers", "readers",
     "callback_names", "recovery_in_progress",
 }
 
@@ -779,6 +781,244 @@ class TestDigitalSilenceFirstChunk:
             module_mic._hub_watchdog_tick()
         l1_req.assert_called_once()            # stale rule (age None) — by design
         assert "mode=callbacks-stopped" in qm.call_args.args[0]   # NOT silence
+
+
+class _FakeDetector:
+    """Stand-in for the published live wake listener: the watchdog reads
+    _check_count (RT single-writer) and _last_window_rms from it."""
+
+    def __init__(self, check_count=0, rms=0.0):
+        self._check_count = check_count
+        self._last_window_rms = rms
+
+
+class TestWatchdogDiscriminatorLogging:
+    """F2: the heartbeat and STALE lines must carry the fields that
+    distinguish the four failure modes on the next real hang:
+    healthy: rd, rate, last_nonzero, check_rate, exc, stalls
+    stale: mode= (callbacks-stopped | detect-stalled | digital-silence)
+           + chunk_age, check_rate, rms, exc
+    """
+
+    def _hub_full(self, clock, chunk_age=0.01, nz_age=0.4, exc=0):
+        """Hub with 2 callbacks (atomik, spectrum) + 1 reader, stream open."""
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        hub.register_callback(lambda chunk: None, name="atomik")
+        hub.register_callback(lambda chunk: None, name="spectrum")
+        hub.register_reader()
+        hub._stream = mock.MagicMock(active=True)
+        hub._last_chunk_mono = clock.now - chunk_age
+        hub._last_nonzero_mono = clock.now - nz_age
+        hub._consumer_exc_count = exc
+        return hub
+
+    def _seed_prev(self, clock, hub, det, check_delta, chunk_delta=126):
+        """Seed the previous-tick anchors so the NEXT tick (after a 2 s
+        clock advance) computes rates over exactly 2 s."""
+        module_mic._wd_state.update({
+            "prev_time": clock.now,
+            "prev_chunks": hub._chunk_count - chunk_delta,
+            "prev_check": None if det is None else det._check_count - check_delta,
+        })
+
+    @staticmethod
+    def _stamp(hub, clock, chunk_age, nz_age):
+        """Re-stamp the hub's mono anchors relative to the (advanced) clock."""
+        hub._last_chunk_mono = clock.now - chunk_age
+        hub._last_nonzero_mono = clock.now - nz_age
+
+    def test_heartbeat_includes_discriminator_fields(self):
+        clock = _FakeClock()
+        hub = self._hub_full(clock)
+        det = _FakeDetector(check_count=1000, rms=0.013)
+        _wd_reset(clock)
+        self._seed_prev(clock, hub, det, check_delta=125)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            module_mic._active_listener = det
+            try:
+                clock.advance(2)
+                self._stamp(hub, clock, 0.01, 0.4)
+                module_mic._hub_watchdog_tick()
+            finally:
+                module_mic._active_listener = None
+        assert qm.called, "healthy heartbeat must fire (anchor 0.0)"
+        line = qm.call_args.args[0]
+        for field in ("cb=2(atomik,spectrum)", "rd=1", "stream=open/active",
+                      "rate=63.0/s", "last_chunk=0.01s", "last_nonzero=0.4s",
+                      "check_rate=62.5/s", "exc=0", "stalls=0",
+                      "state=HEALTHY"):
+            assert field in line, f"heartbeat missing {field!r}: {line}"
+
+    def test_stale_mode_callbacks_stopped(self):
+        """Mode (a): chunk age grows, no detection progress."""
+        clock = _FakeClock()
+        hub = self._hub_full(clock, chunk_age=7.2, nz_age=7.2, exc=3)
+        det = _FakeDetector(check_count=500, rms=0.013)   # frozen check
+        _wd_reset(clock)
+        self._seed_prev(clock, hub, det, check_delta=0)    # prev == now -> 0.0/s
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            module_mic._active_listener = det
+            try:
+                clock.advance(2)
+                self._stamp(hub, clock, 7.2, 7.2)
+                module_mic._hub_watchdog_tick()
+            finally:
+                module_mic._active_listener = None
+        line = qm.call_args.args[0]
+        for field in ("mode=callbacks-stopped", "chunk_age=7.2s",
+                      "check_rate=0.0/s", "rms=0.013", "exc=3",
+                      "cb=[atomik,spectrum]", "-> L1-reopen"):
+            assert field in line, f"STALE line missing {field!r}: {line}"
+
+    def test_stale_mode_digital_silence(self):
+        """Mode (b): chunks fresh, non-zero audio age grows, rms ~ 0."""
+        clock = _FakeClock()
+        hub = self._hub_full(clock, chunk_age=0.01, nz_age=61.0, exc=0)
+        det = _FakeDetector(check_count=500, rms=0.0)
+        _wd_reset(clock)
+        self._seed_prev(clock, hub, det, check_delta=0)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            module_mic._active_listener = det
+            try:
+                clock.advance(2)
+                self._stamp(hub, clock, 0.01, 61.0)
+                module_mic._hub_watchdog_tick()
+            finally:
+                module_mic._active_listener = None
+        line = qm.call_args.args[0]
+        assert "mode=digital-silence" in line
+        assert "chunk_age=0.01s" in line          # chunks ARE fresh
+        assert "check_rate=0.0/s" in line
+
+    def test_stale_mode_detect_stalled(self):
+        """Mode (c): chunks advance but the published listener's check
+        counter is frozen ≥ 5 s — the detection path is stalled behind a
+        healthy hub; the watchdog must emit mode=detect-stalled and
+        escalate."""
+        clock = _FakeClock()
+        hub = self._hub_full(clock, chunk_age=0.01, nz_age=0.4, exc=2)
+        det = _FakeDetector(check_count=500, rms=0.013)
+        _wd_reset(clock)
+        self._seed_prev(clock, hub, det, check_delta=0)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            module_mic._active_listener = det
+            try:
+                for _ in range(4):            # frozen 0 -> 2 -> 4 -> 6 s (≥ 5)
+                    clock.advance(2)
+                    hub._last_chunk_mono = clock.now - 0.01   # chunks keep arriving
+                    hub._last_nonzero_mono = clock.now - 0.4
+                    module_mic._hub_watchdog_tick()
+            finally:
+                module_mic._active_listener = None
+        stale_lines = [c.args[0] for c in qm.call_args_list
+                       if c.args and "STALE" in str(c.args[0])]
+        assert stale_lines, "frozen check behind fresh chunks must go stale"
+        line = stale_lines[-1]
+        assert "mode=detect-stalled" in line
+        assert "chunk_age=0.01s" in line          # chunks ARE advancing
+        assert "check_rate=0.0/s" in line
+        assert "rms=0.013" in line
+        assert "exc=2" in line
+        l1_req.assert_called()                    # mode (c) enters the ladder
+
+    def test_healthy_when_check_advances(self):
+        """Guard rail: an advancing check counter never goes stale."""
+        clock = _FakeClock()
+        hub = self._hub_full(clock)
+        det = _FakeDetector(check_count=500)
+        _wd_reset(clock)
+        self._seed_prev(clock, hub, det, check_delta=0)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message"):
+            module_mic._active_listener = det
+            try:
+                for _ in range(4):
+                    clock.advance(2)
+                    hub._last_chunk_mono = clock.now - 0.01
+                    hub._last_nonzero_mono = clock.now - 0.4
+                    det._check_count += 125               # detection alive
+                    module_mic._hub_watchdog_tick()
+            finally:
+                module_mic._active_listener = None
+        l1_req.assert_not_called()
+
+
+class TestDocsQuoteEmittedShapes:
+    """F2: the AUDIO-HUB example lines in docs/voice-pipeline.md must be
+    structurally identical (numbers normalized) to what the watchdog
+    actually emits — a cheap guard against doc/code drift."""
+
+    @staticmethod
+    def _normalize(line):
+        return re.sub(r"\d+(?:\.\d+)?", "N", line)
+
+    def test_docs_audio_hub_block_matches_emitted_lines(self):
+        clock = _FakeClock()
+        hub = TestWatchdogDiscriminatorLogging()._hub_full(clock)
+        det = _FakeDetector(check_count=1000, rms=0.013)
+        _wd_reset(clock)
+        TestWatchdogDiscriminatorLogging()._seed_prev(clock, hub, det, check_delta=125)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            module_mic._active_listener = det
+            try:
+                clock.advance(2)
+                TestWatchdogDiscriminatorLogging()._stamp(hub, clock, 0.01, 0.4)
+                module_mic._hub_watchdog_tick()          # healthy heartbeat
+            finally:
+                module_mic._active_listener = None
+            healthy = qm.call_args.args[0]
+
+        # stale scenario: chunks stale, frozen check, swallowed excs
+        clock2 = _FakeClock()
+        hub2 = TestWatchdogDiscriminatorLogging()._hub_full(
+            clock2, chunk_age=7.2, nz_age=7.2, exc=3)
+        det2 = _FakeDetector(check_count=500, rms=0.013)
+        _wd_reset(clock2)
+        TestWatchdogDiscriminatorLogging()._seed_prev(clock2, hub2, det2, check_delta=0)
+        with mock.patch.object(module_mic.time, "monotonic", clock2.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub2), \
+             mock.patch.object(hub2, "request_l1_recovery"), \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm2:
+            module_mic._active_listener = det2
+            try:
+                clock2.advance(2)
+                TestWatchdogDiscriminatorLogging()._stamp(hub2, clock2, 7.2, 7.2)
+                module_mic._hub_watchdog_tick()          # stale discriminator
+            finally:
+                module_mic._active_listener = None
+            stale = qm2.call_args.args[0]
+
+        docs = (Path(__file__).resolve().parents[2] / "docs" / "voice-pipeline.md").read_text()
+        block = re.search(r"```(?:text)?\n(AUDIO-HUB:.*?)```", docs, re.S).group(1)
+        doc_lines = block.strip().splitlines()
+        assert len(doc_lines) == 2, doc_lines
+        assert [self._normalize(l) for l in doc_lines] == \
+               [self._normalize(healthy), self._normalize(stale)]
 
 
 class TestHubWatchdogStartStop:
