@@ -1049,10 +1049,21 @@ class TestIna260BootSampler(ServoctlSelfHealingTestCase):
                 self.assertTrue(
                     any("boot current=1.23A" in str(m) for m in logged),
                     "sampler must log informational boot-current lines")
-                # stopping the sampler halts the logging
-                count = len(logged)
+                # stopping the sampler halts the logging: assert the thread
+                # actually TERMINATES (join by name) instead of an exact
+                # count — a line can land between a pre-set snapshot and
+                # stop.set() (F4 race).
                 stop.set()
-                time.sleep(0.8)
+                sampler_thread = next(
+                    (t for t in threading.enumerate()
+                     if t.name == "ina260-boot-sampler"), None)
+                if sampler_thread is not None:
+                    sampler_thread.join(timeout=2.0)
+                self.assertTrue(
+                    sampler_thread is None or not sampler_thread.is_alive(),
+                    "sampler thread must terminate after stop.set()")
+                count = len(logged)
+                time.sleep(0.6)  # one full cadence: nothing new may appear
                 self.assertEqual(len(logged), count,
                                  "sampler must stop logging after stop.set()")
             finally:
