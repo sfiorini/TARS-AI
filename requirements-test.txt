@@ -4,6 +4,12 @@
 # macOS) and install on CI (Python 3.11, ubuntu). soxr is optional at
 # runtime (module_mic falls back to scipy.signal.resample_poly) but is
 # installed so CI exercises the primary resample path.
+#
+# scipy is MANDATORY, not optional: module_atomik hard-imports
+# scipy.fftpack.dct at module level, so any test that imports it (e.g.
+# test_atomik_liveness.py) fails at collection without scipy. It went
+# missing here once and only CI caught it (developers have it installed
+# system-wide) — do not drop it.
 pytest==8.4.2
 python-dotenv==1.2.1
 numpy==2.0.2
@@ -11,3 +17,4 @@ requests==2.32.5
 sounddevice==0.5.6
 soundfile==0.13.1
 soxr==0.5.0.post1
+scipy==1.13.1
