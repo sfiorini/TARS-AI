@@ -845,7 +845,13 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
     speed.log_tool(function_name, speed.stop('tool'))
 
 
-def raw_complete_llm(user_prompt, istext=True):
+def raw_complete_llm(user_prompt, istext=True, timeout=None):
+    # S-M4-02: optional per-call timeout. None keeps the [LLM]
+    # request_timeout default (no behavior change for existing callers);
+    # module_thinking passes 30 so a hung LLM endpoint cannot pin the
+    # thinking-refresh daemon.
+    if timeout is None:
+        timeout = CONFIG['LLM'].get('request_timeout', 120)
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {CONFIG['LLM']['api_key']}"
@@ -862,7 +868,7 @@ def raw_complete_llm(user_prompt, istext=True):
     response = None
     try:
         response = _http_session.post(url, headers=headers, json=data,
-                                timeout=CONFIG['LLM'].get('request_timeout', 120))
+                                timeout=timeout)
         response.raise_for_status()
         bot_reply = _extract_text(response.json(), istext)
         return bot_reply
