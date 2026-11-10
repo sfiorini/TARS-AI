@@ -136,6 +136,43 @@ def _stt_dir():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "stt")
 
 
+_ELEVENLABS_STT_URL = "https://api.elevenlabs.io/v1/speech-to-text"
+
+
+def _elevenlabs_post_wav(config, wav_buf, api_key):
+    """POST one WAV buffer to ElevenLabs Scribe.
+
+    Returns ``(text, error)``: ``(text, None)`` on success and
+    ``(None, reason)`` otherwise.  Stateless and free of side effects — no
+    ``_emit_result``, no fallback — so non-utterance callers (the barge-in
+    handoff) reuse exactly the same request shape as the main STT path.
+    """
+    stt_cfg = config.get('STT') or {}
+    model = stt_cfg.get('elevenlabs_stt_model', '') or 'scribe_v2'
+    language = (stt_cfg.get('language', 'english') or '').strip().lower()
+    language_code = _ELEVENLABS_LANGUAGE_CODES.get(language)
+    headers = {"xi-api-key": api_key}
+    data = {
+        "model_id": model,
+        "tag_audio_events": "false",
+        "timestamps_granularity": "none",
+    }
+    if language_code:
+        data["language_code"] = language_code
+    files = {"file": ("audio.wav", wav_buf, "audio/wav")}
+    try:
+        response = requests.post(
+            _ELEVENLABS_STT_URL,
+            headers=headers, data=data, files=files, timeout=15
+        )
+    except Exception as e:
+        return None, f"request failed: {e}"
+    if response.status_code != 200:
+        return None, f"HTTP {response.status_code}"
+    text = (response.json().get("text") or "").strip()
+    return (text, None) if text else (None, "empty text")
+
+
 class STTManager:
     """Manages Speech-to-Text processing for TARS-AI."""
 
@@ -1077,45 +1114,29 @@ class STTManager:
             # scribe_v2 verified working on the robot's account (live probe);
             # overridable via [STT] elevenlabs_stt_model in config.ini
             model = self.config['STT'].get('elevenlabs_stt_model', '') or 'scribe_v2'
-            language = self.config['STT'].get('language', 'english').strip().lower()
-            language_code = _ELEVENLABS_LANGUAGE_CODES.get(language)
 
             if self.DEBUG:
                 total_samples = sum(len(c) for c in chunks)
                 queue_message(f"DEBUG STT: Sending {total_samples} samples to ElevenLabs Scribe ({model})")
 
             wav_buf = self._chunks_to_wav_buffer(chunks, self.MODEL_RATE)
-            headers = {"xi-api-key": api_key}
-            data = {
-                "model_id": model,
-                "tag_audio_events": "false",
-                "timestamps_granularity": "none",
-            }
-            if language_code:
-                data["language_code"] = language_code
-            files = {"file": ("audio.wav", wav_buf, "audio/wav")}
-            response = requests.post(
-                "https://api.elevenlabs.io/v1/speech-to-text",
-                headers=headers, data=data, files=files, timeout=15
-            )
-            if response.status_code != 200:
+            raw_text, post_error = _elevenlabs_post_wav(self.config, wav_buf, api_key)
+            if post_error == "empty text":
+                fallback_warning = "WARNING: ElevenLabs STT returned empty text, falling back to external STT"
+            elif post_error:
                 fallback_warning = (
-                    f"WARNING: ElevenLabs STT failed (HTTP {response.status_code}), "
+                    f"WARNING: ElevenLabs STT failed ({post_error}), "
                     "falling back to external STT"
                 )
             else:
-                raw_text = (response.json().get("text") or "").strip()
-                if not raw_text:
-                    fallback_warning = "WARNING: ElevenLabs STT returned empty text, falling back to external STT"
-                else:
-                    if self.DEBUG:
-                        queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")
-                    extra = {
-                        "result": [
-                            {"conf": 1.0, "start": 0, "end": 0, "word": raw_text}
-                        ]
-                    }
-                    return self._emit_result(raw_text, extra)
+                if self.DEBUG:
+                    queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")
+                extra = {
+                    "result": [
+                        {"conf": 1.0, "start": 0, "end": 0, "word": raw_text}
+                    ]
+                }
+                return self._emit_result(raw_text, extra)
         except Exception as e:
             fallback_warning = f"WARNING: ElevenLabs STT failed ({e}), falling back to external STT"
 
@@ -2284,6 +2305,44 @@ class STTManager:
             target=self._bargein_frame_loop, args=(run_id, _veto), daemon=True)
         self._bargein_thread.start()
 
+    def _transcribe_captured_audio(self, audio_int16):
+        """Transcribe a captured barge-in utterance with the CONFIGURED STT
+        processor.  Returns text or None.
+
+        This exists because the quick recognizers (`sherpa_recognizer`,
+        `fastrtc_model`) are only loaded for the sherpa-onnx / fastrtc
+        WAKE-WORD processors.  On `wake_word_processor = atomik` they are
+        always None, so `_bargein_transcribe()` returned None for every
+        interruption: the utterance was captured, then silently discarded, and
+        the user had to repeat themselves.
+        """
+        processor = (self.config.get("STT") or {}).get("stt_processor", "")
+        if processor != "elevenlabs":
+            queue_message(
+                f"WARN: barge-in handoff cannot transcribe (stt_processor="
+                f"{processor or 'unset'}, no quick recognizer loaded) — "
+                "the interruption was discarded"
+            )
+            return None
+        api_key = os.environ.get('ELEVENLABS_API_KEY', '')
+        if not api_key:
+            queue_message(
+                "WARN: barge-in handoff: ELEVENLABS_API_KEY not set — "
+                "the interruption was discarded"
+            )
+            return None
+        try:
+            wav_buf = self._chunks_to_wav_buffer([audio_int16], self.MODEL_RATE)
+        except Exception as e:
+            queue_message(f"WARN: barge-in handoff: could not build WAV ({e})")
+            return None
+        text, error = _elevenlabs_post_wav(self.config, wav_buf, api_key)
+        if error:
+            queue_message(f"WARN: barge-in handoff transcription failed ({error})")
+            return None
+        queue_message(f"INFO: barge-in handoff transcribed: '{text[:60]}'")
+        return text
+
     def _bargein_transcribe(self, audio_buffer):
         """Quick transcription of buffered audio for barge-in detection."""
         try:
@@ -2429,12 +2488,20 @@ class STTManager:
         return audio
 
     def transcribe_bargein_audio(self, audio_int16) -> Optional[dict]:
-        """Transcribe a captured barge-in utterance via the existing
-        quick-transcribe path (sherpa/fastrtc). Returns {"text": ...} or
-        None on empty input / empty transcript."""
+        """Transcribe a captured barge-in utterance.
+
+        Tries the quick recognizers first (sherpa/fastrtc, when the wake-word
+        processor loaded them) and falls back to the configured STT processor —
+        without that fallback every interruption on the atomik wake-word path
+        was transcribed as None and thrown away.
+
+        Returns {"text": ...} or None on empty input / empty transcript.
+        """
         if audio_int16 is None or len(audio_int16) == 0:
             return None
         transcript = self._bargein_transcribe([audio_int16])
+        if not transcript:
+            transcript = self._transcribe_captured_audio(audio_int16)
         if not transcript:
             return None
         return {"text": transcript}

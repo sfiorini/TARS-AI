@@ -93,6 +93,12 @@ def make_manager():
     mgr._bargein_tts_data = {'word_list': [], 'words_all': set()}
     mgr._bargein_enabled = True
     mgr._bargein_mode = 'fuzzy'
+    # Real managers always carry `config` (it is the loaded CONFIG dict). The
+    # handoff transcriber reads [STT] stt_processor from it; a stub without it
+    # would only pass by making production code defensive. Deliberately NOT
+    # 'elevenlabs' here so the fallback cannot attempt a network call even if
+    # ELEVENLABS_API_KEY happens to be present in the environment.
+    mgr.config = {"STT": {"stt_processor": "sherpa-onnx", "language": "english"}}
     mgr.sherpa_recognizer = object()   # truthy: fuzzy mode passes its check
     mgr.fastrtc_model = None
     mgr._bargein_transcribe = lambda buf: None
