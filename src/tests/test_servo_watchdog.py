@@ -305,6 +305,27 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
         self.assertFalse(servoctl._mode2_healthy(0x0B))  # observed live: outputs off
         self.assertFalse(servoctl._mode2_healthy(None))   # unreadable
 
+    def test_mode2_exact_match_table(self):
+        # S-M2-01: MODE2 must be EXACTLY 0x04 — the only empirically working
+        # output-drive state on this board. The old masked check
+        # (mode2 & 0x0C) == 0x04 classified hi-Z glitch modes 0x05/0x06/0x07/
+        # 0x16/0x17 as healthy, so the watchdog never repaired them.
+        table = [
+            (0x04, True),
+            (0x01, False),
+            (0x05, False),
+            (0x06, False),
+            (0x07, False),
+            (0x0B, False),
+            (0x16, False),
+            (0x17, False),
+            (0x1E, False),
+            (None, False),
+        ]
+        for mode2, expected in table:
+            with self.subTest(mode2=hex(mode2) if mode2 is not None else None):
+                self.assertIs(servoctl._mode2_healthy(mode2), expected)
+
     def test_write_register_defined_before_init_at_module_level(self):
         # Regression: initialize_pca9685() runs at module import time, so
         # _write_register must be defined earlier in the source (a boot-time
