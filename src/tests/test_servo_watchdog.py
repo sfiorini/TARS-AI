@@ -66,6 +66,38 @@ class _RaisingChannel:
         raise self._exc
 
 
+class _RecordingChannel:
+    """Fake PCA9685 channel recording every duty_cycle write."""
+
+    def __init__(self, writes, index):
+        self._writes = writes
+        self._index = index
+        self._duty = 0
+
+    @property
+    def duty_cycle(self):
+        return self._duty
+
+    @duty_cycle.setter
+    def duty_cycle(self, value):
+        self._duty = value
+        self._writes.append((self._index, value))
+
+
+class _RecordingPca:
+    """Fake PCA9685 recording duty writes as (channel, value) pairs; channels
+    listed in fail_channels raise on write (failing-setter path)."""
+
+    def __init__(self, fail_channels=()):
+        self.writes = []
+        self.channels = {}
+        for i in range(16):
+            if i in fail_channels:
+                self.channels[i] = _RaisingChannel(ValueError("dead channel"))
+            else:
+                self.channels[i] = _RecordingChannel(self.writes, i)
+
+
 class _FakeMode1Pca:
     """Fake PCA9685 exposing readable mode1_reg/mode2_reg (value or raising)."""
 
@@ -113,6 +145,7 @@ class ServoctlSelfHealingTestCase(unittest.TestCase):
         "_last_pwm_time", "_on_movement_start", "_on_movement_end",
         "servo_positions", "_is_ventilate_operation",
         "_watchdog_running", "_watchdog_thread", "_watchdog_interval",
+        "_engaged_channels",
         "battery_module", "_i2c", "_unhealthy_chip_reads", "_last_pca_none_log",
     )
 
@@ -390,6 +423,29 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
             init.assert_not_called()
             servoctl._watchdog_tick()
             init.assert_called_once()
+
+
+class TestEngagedChannels(ServoctlSelfHealingTestCase):
+    """S-M2-03: track which channels hold a live PWM command — the repair
+    path (S-M2-04) re-applies ONLY these; a failed write must never mark a
+    channel engaged."""
+
+    def test_engaged_set_lifecycle(self):
+        servoctl.pca = _RecordingPca()
+        servoctl._engaged_channels = set()
+        self.assertTrue(servoctl.set_servo_pwm(4, 300))
+        self.assertEqual(servoctl._engaged_channels, {4})
+        servoctl.disable_all_servos()
+        self.assertEqual(servoctl._engaged_channels, set())
+
+    def test_failed_write_not_engaged(self):
+        servoctl.pca = _RecordingPca(fail_channels={4})
+        servoctl._engaged_channels = set()
+        self.assertFalse(servoctl.set_servo_pwm(4, 300))
+        self.assertEqual(servoctl._engaged_channels, set())
+        # a good write on another channel still engages it
+        self.assertTrue(servoctl.set_servo_pwm(5, 300))
+        self.assertEqual(servoctl._engaged_channels, {5})
 
 
 class TestWatchdogTiming(ServoctlSelfHealingTestCase):

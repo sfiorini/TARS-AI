@@ -78,6 +78,10 @@ _watchdog_running = False
 _i2c = None  # raw I2C handle kept for register reads (fallback if driver attrs missing)
 _watchdog_thread = None
 _watchdog_interval = 2
+# Channels holding a live PWM command (set on successful writes, cleared by
+# disable_all_servos). The repair path re-applies ONLY these — idle
+# (deliberately de-energized) channels must stay de-energized.
+_engaged_channels = set()
 _unhealthy_chip_reads = 0  # consecutive unhealthy MODE1/MODE2 reads (repair needs 2)
 
 # One lock around PCA handle swaps and MOVING transitions so the watchdog,
@@ -433,6 +437,7 @@ def set_servo_pwm(channel, pwm_value):
             pca_handle.channels[channel].duty_cycle = duty_cycle
             with _state_lock:
                 _last_pwm_time = time.time()
+                _engaged_channels.add(channel)
             return True
             
         except OSError as e:
@@ -664,7 +669,10 @@ def disable_all_servos():
             pca.channels[channel].duty_cycle = 0
     except Exception as e:
         queue_message(f"Error disabling servos: {e}")
-    
+
+    with _state_lock:
+        _engaged_channels.clear()
+
     time.sleep(0.05)
 
 def reset_positions():
