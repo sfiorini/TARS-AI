@@ -740,6 +740,45 @@ class TestWatchdogBootGrace:
             module_mic._hub_watchdog_tick()
         l1_req.assert_called_once()
         l2.assert_not_called()
+class TestDigitalSilenceFirstChunk:
+    """F5: a device delivering all-zero chunks from the VERY first chunk
+    keeps _last_nonzero_mono at 0 -> stats() last_nonzero_age_s is None.
+    Chunks arriving but none ever non-zero IS sustained digital silence
+    (dead digital path) and must escalate; zero chunks at all is the
+    stale rule's business, never the silence guard's."""
+
+    def test_all_zero_from_first_chunk_escalates(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)       # chunks arrive (age fresh)
+        hub._chunk_count = 100
+        hub._last_nonzero_mono = 0.0            # never a non-zero chunk -> nz None
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_called_once()            # the silence guard fired
+        assert "mode=digital-silence" in qm.call_args.args[0]
+
+    def test_zero_chunks_is_stale_not_digital_silence(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)
+        hub._chunk_count = 0
+        hub._last_chunk_mono = 0.0             # no chunk ever -> age None
+        hub._last_nonzero_mono = 0.0           # nz None
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server"), \
+             mock.patch.object(module_mic, "queue_message") as qm:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_called_once()            # stale rule (age None) — by design
+        assert "mode=callbacks-stopped" in qm.call_args.args[0]   # NOT silence
 
 
 class TestHubWatchdogStartStop:
