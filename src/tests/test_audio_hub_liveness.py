@@ -45,6 +45,16 @@ class TestOnAudioCounters:
         assert hub._last_nonzero_mono == before      # silence does not stamp
         assert hub._chunk_count == 2                 # but the chunk counter does
 
+    def test_first_chunk_mono_set_once(self):
+        """F6: _first_chunk_mono is stamped on the FIRST chunk only — the
+        age of the never-nonzero silence case is measured from it."""
+        hub = _AudioHub()
+        hub._on_audio(_chunk(), 512, None, None)
+        first = hub._first_chunk_mono
+        assert first > 0, "first chunk must stamp _first_chunk_mono"
+        hub._on_audio(_chunk(), 512, None, None)
+        assert hub._first_chunk_mono == first   # set once, never restamped
+
     def test_consumer_exception_counted(self):
         hub = _AudioHub()
 
@@ -59,6 +69,7 @@ class TestOnAudioCounters:
 
 _STAT_KEYS = {
     "chunk_count", "last_chunk_age_s", "last_nonzero_age_s",
+    "first_chunk_age_s",
     "consumer_exc_count", "consecutive_read_stalls",
     "stream_open", "stream_active", "consumers", "readers",
     "callback_names", "recovery_in_progress",
@@ -78,6 +89,16 @@ class TestStatsSnapshot:
         assert s["consumers"] == 1
         assert s["stream_open"] is False
         assert s["recovery_in_progress"] is False
+
+    def test_first_chunk_age_s_exposed(self):
+        """F6: stats() exposes first_chunk_age_s — None before the first
+        chunk ever arrives, then the age of the first chunk."""
+        hub = _AudioHub()
+        hub._ensure_stream = lambda: None
+        assert hub.stats()["first_chunk_age_s"] is None
+        hub._first_chunk_mono = 100.0
+        with mock.patch.object(module_mic.time, "monotonic", lambda: 130.0):
+            assert hub.stats()["first_chunk_age_s"] == 30.0
 
     def test_unregister_removes_name(self):
         hub = _AudioHub()
@@ -519,17 +540,37 @@ class TestHubWatchdogLadder:
 
 
 class TestDigitalSilenceFirstChunk:
-    """F5: a device delivering all-zero chunks from the VERY first chunk
+    """F6: a device delivering all-zero chunks from the VERY first chunk
     keeps _last_nonzero_mono at 0 -> stats() last_nonzero_age_s is None.
-    Chunks arriving but none ever non-zero IS sustained digital silence
-    (dead digital path) and must escalate; zero chunks at all is the
-    stale rule's business, never the silence guard's."""
+    That "never non-zero" case must obey the SAME >= 60 s threshold as the
+    sustained case (docs: ">= 60 s of all-zero audio") — a muted or
+    echo-cancelled source legitimately yields exact-zero float32 during
+    silence, and the first ~2 s of it are not a dead digital path.
+    Zero chunks at all is the stale rule's business, never the silence
+    guard's."""
 
-    def test_all_zero_from_first_chunk_escalates(self):
+    def test_all_zero_from_first_chunk_under_60s_no_escalation(self):
         clock = _FakeClock()
         hub = _wd_hub(clock, stale=False)       # chunks arrive (age fresh)
         hub._chunk_count = 100
         hub._last_nonzero_mono = 0.0            # never a non-zero chunk -> nz None
+        hub._first_chunk_mono = clock.now - 30.0   # 30 s of all-zero audio
+        _wd_reset(clock)
+        with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
+             mock.patch.object(module_mic, "_hub", hub), \
+             mock.patch.object(hub, "request_l1_recovery") as l1_req, \
+             mock.patch("modules.module_audio_recovery.restart_sound_server") as l2:
+            clock.advance(2)
+            module_mic._hub_watchdog_tick()
+        l1_req.assert_not_called()             # < 60 s: not yet digital silence
+        l2.assert_not_called()
+
+    def test_all_zero_from_first_chunk_60s_escalates(self):
+        clock = _FakeClock()
+        hub = _wd_hub(clock, stale=False)       # chunks arrive (age fresh)
+        hub._chunk_count = 100
+        hub._last_nonzero_mono = 0.0            # never a non-zero chunk -> nz None
+        hub._first_chunk_mono = clock.now - 61.0   # >= 60 s of all-zero audio
         _wd_reset(clock)
         with mock.patch.object(module_mic.time, "monotonic", clock.monotonic), \
              mock.patch.object(module_mic, "_hub", hub), \

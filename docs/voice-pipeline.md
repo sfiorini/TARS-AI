@@ -50,7 +50,7 @@ The instrumentation distinguishes exactly these:
 | Mode | Signature in the AUDIO-HUB lines |
 |---|---|
 | (a) callbacks stopped | `mode=callbacks-stopped`: `chunk_age` grows past 5 s, `rate=0.0/s` |
-| (b) silence delivered | `mode=digital-silence`: chunks fresh (`rate` healthy, `chunk_age` small) but `last_nonzero` age grows / is absent from the first chunk and `rms` ≈ 0 |
+| (b) silence delivered | `mode=digital-silence`: chunks fresh (`rate` healthy, `chunk_age` small) but `last_nonzero` age grows past 60 s — or is absent from the very first chunk for ≥ 60 s (muted / echo-cancelled source) — and `rms` ≈ 0 |
 | (c) swallowed exception / detect stalled | `mode=detect-stalled`: chunks advance (`chunk_age` small) but `check_rate=0.0/s` — the listener's check counter is frozen while the hub delivers; `exc` shows swallowed consumer exceptions |
 | (d) clock latch | a backward wall-clock step made cooldowns permanent — eliminated by the monotonic-clock fix (every deadline uses `time.monotonic()`, which has no NTP step); the listener-side `WAKE stall` line's `exit=cooldown` with healthy rates would be its fingerprint |
 
