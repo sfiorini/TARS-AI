@@ -14,6 +14,7 @@ import unittest
 from unittest import mock
 
 from modules import module_llm  # noqa: E402
+from modules import module_thinking  # noqa: E402
 from modules.module_llm import raw_complete_llm  # noqa: E402
 
 
@@ -60,6 +61,307 @@ class TestRawCompleteTimeout(unittest.TestCase):
              mock.patch.object(module_llm, "queue_message", _QueueCapture()):
             raw_complete_llm("x")
         self.assertEqual(session.post.call_args[1]["timeout"], 120)
+
+
+class _ThinkingStateTestCase(unittest.TestCase):
+    """Isolate module_thinking's module-level state between tests."""
+
+    def setUp(self):
+        self._old_generated = module_thinking._generated
+        self._old_stop = module_thinking._stop_event
+        self._old_thread = module_thinking._thread
+        module_thinking._generated = []
+        module_thinking._stop_event = threading.Event()
+        module_thinking._thread = None
+
+    def tearDown(self):
+        module_thinking.stop_thinking_refresh()
+        if module_thinking._thread is not None:
+            module_thinking._thread.join(timeout=5)
+        module_thinking._generated = self._old_generated
+        module_thinking._stop_event = self._old_stop
+        module_thinking._thread = self._old_thread
+
+
+class _FakeEvent:
+    """Event stand-in that records wait() delays instead of sleeping."""
+
+    def __init__(self):
+        self._set = False
+        self.waits = []
+
+    def is_set(self):
+        return self._set
+
+    def wait(self, timeout=None):
+        self.waits.append(timeout)
+        return self._set
+
+    def set(self):
+        self._set = True
+
+
+class TestValidatePhrases(unittest.TestCase):
+    """S-M4-03: _validate_phrases pipeline — non-empty list -> strings only
+    -> strip -> drop >40 chars or >6 words -> dedupe (case-insensitive) ->
+    require >=3 survivors else None."""
+
+    def test_non_list_returns_none(self):
+        self.assertIsNone(module_thinking._validate_phrases("hello"))
+        self.assertIsNone(module_thinking._validate_phrases({"a": 1}))
+        self.assertIsNone(module_thinking._validate_phrases(None))
+
+    def test_empty_list_returns_none(self):
+        self.assertIsNone(module_thinking._validate_phrases([]))
+
+    def test_non_strings_dropped(self):
+        self.assertEqual(
+            module_thinking._validate_phrases(["a", 1, "b", "c"]),
+            ["a", "b", "c"])
+        # dropping the int leaves only 2 survivors -> None
+        self.assertIsNone(module_thinking._validate_phrases(["a", 1, "b"]))
+
+    def test_over_40_chars_dropped(self):
+        self.assertEqual(
+            module_thinking._validate_phrases(["a" * 41, "b", "c", "d"]),
+            ["b", "c", "d"])
+        # exactly 40 chars survives
+        self.assertEqual(
+            module_thinking._validate_phrases(["a" * 40, "b", "c"]),
+            ["a" * 40, "b", "c"])
+
+    def test_over_6_words_dropped(self):
+        seven = "one two three four five six seven"
+        self.assertEqual(
+            module_thinking._validate_phrases([seven, "b", "c", "d"]),
+            ["b", "c", "d"])
+        six = "one two three four five six"
+        self.assertEqual(
+            module_thinking._validate_phrases([six, "b", "c"]),
+            [six, "b", "c"])
+
+    def test_phrases_stripped(self):
+        self.assertEqual(
+            module_thinking._validate_phrases(["  a  ", "b", "c"]),
+            ["a", "b", "c"])
+
+    def test_dupes_deduped_case_insensitive(self):
+        self.assertEqual(
+            module_thinking._validate_phrases(
+                ["Alpha", "ALPHA", "beta", "gamma"]),
+            ["Alpha", "beta", "gamma"])
+
+    def test_two_survivors_none_three_kept(self):
+        self.assertIsNone(module_thinking._validate_phrases(["a", "b"]))
+        self.assertEqual(module_thinking._validate_phrases(["a", "b", "c"]),
+                         ["a", "b", "c"])
+
+
+class TestFillerPhraseFallback(_ThinkingStateTestCase):
+    """S-M4-03: fallback chain generated -> config -> None."""
+
+    def test_generated_set_wins(self):
+        module_thinking._generated = ["gen one", "gen two"]
+        self.assertIn(module_thinking.get_filler_phrase(),
+                      {"gen one", "gen two"})
+
+    def test_config_phrases_when_generated_empty(self):
+        module_thinking._generated = []
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": '["cfg one", "cfg two"]'}):
+            self.assertIn(module_thinking.get_filler_phrase(),
+                          {"cfg one", "cfg two"})
+
+    def test_none_when_both_empty(self):
+        module_thinking._generated = []
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": "[]"}):
+            self.assertIsNone(module_thinking.get_filler_phrase())
+
+    def test_none_when_config_garbage(self):
+        module_thinking._generated = []
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_responses": "not json"}):
+            self.assertIsNone(module_thinking.get_filler_phrase())
+
+
+class TestBuildPrompt(unittest.TestCase):
+    """S-M4-03: _build_prompt requests {"phrases": [...]} and names the
+    character (the request forces response_format=json_object, so the prompt
+    must ask for that exact shape)."""
+
+    def test_prompt_has_phrases_shape_and_character_name(self):
+        with mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"character_name": "R2D2"}):
+            prompt = module_thinking._build_prompt()
+        self.assertIn("phrases", prompt)
+        self.assertIn("R2D2", prompt)
+
+
+class TestRefreshOnce(_ThinkingStateTestCase):
+    """S-M4-03: _refresh_once parses every tolerated schema, validates, and
+    swaps under the lock; any failure keeps the old set."""
+
+    def _stub_llm(self, reply, **call_kwargs):
+        stub = mock.MagicMock(return_value=reply, **call_kwargs)
+        patcher = mock.patch.object(module_llm, "raw_complete_llm", stub)
+        self.addCleanup(patcher.stop)
+        patcher.start()
+        capture = _QueueCapture()
+        qpatcher = mock.patch(
+            "modules.module_messageQue.queue_message", capture)
+        self.addCleanup(qpatcher.stop)
+        qpatcher.start()
+        return stub, capture
+
+    def test_phrases_schema_swaps(self):
+        self._stub_llm('{"phrases": ["p1", "p2", "p3"]}')
+        self.assertTrue(module_thinking._refresh_once())
+        self.assertEqual(module_thinking.generated_phrase_count(), 3)
+        self.assertEqual(module_thinking._generated, ["p1", "p2", "p3"])
+
+    def test_main_reply_schema_keeps_old_set(self):
+        module_thinking._generated = ["old1", "old2", "old3"]
+        _, capture = self._stub_llm('{"reply": "here you go"}')
+        self.assertFalse(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated,
+                         ["old1", "old2", "old3"])
+        self.assertEqual(capture.messages, [])
+
+    def test_bare_list_swaps(self):
+        self._stub_llm('["a", "b", "c"]')
+        self.assertTrue(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated, ["a", "b", "c"])
+
+    def test_markdown_fences_tolerated(self):
+        self._stub_llm('```json\n["f1", "f2", "f3"]\n```')
+        self.assertTrue(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated, ["f1", "f2", "f3"])
+
+    def test_garbage_keeps_old_set(self):
+        module_thinking._generated = ["old1", "old2", "old3"]
+        self._stub_llm("not json at all")
+        self.assertFalse(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated,
+                         ["old1", "old2", "old3"])
+
+    def test_none_reply_keeps_old_set_no_raise(self):
+        """A missing LLM key makes raw_complete_llm return None — the
+        refresh must fail cleanly and keep the old set."""
+        module_thinking._generated = ["old1", "old2", "old3"]
+        self._stub_llm(None)
+        self.assertFalse(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated,
+                         ["old1", "old2", "old3"])
+
+    def test_timeout_forwarded(self):
+        stub, _ = self._stub_llm('{"phrases": ["p1", "p2", "p3"]}')
+        module_thinking._refresh_once()
+        self.assertEqual(stub.call_args[1].get("timeout"), 30)
+        module_thinking._refresh_once(timeout=7)
+        self.assertEqual(stub.call_args[1].get("timeout"), 7)
+
+    def test_swap_is_locked_not_in_place(self):
+        """The swap assigns a new list under the lock — a caller holding the
+        old list object is never mutated mid-iteration."""
+        module_thinking._generated = ["old1", "old2", "old3"]
+        old_ref = module_thinking._generated
+        self._stub_llm('{"phrases": ["n1", "n2", "n3"]}')
+        self.assertTrue(module_thinking._refresh_once())
+        self.assertIsNot(module_thinking._generated, old_ref)
+        self.assertEqual(old_ref, ["old1", "old2", "old3"])
+        self.assertEqual(module_thinking._generated, ["n1", "n2", "n3"])
+
+    def test_success_queues_status_message(self):
+        _, capture = self._stub_llm('{"phrases": ["p1", "p2", "p3"]}')
+        module_thinking._refresh_once()
+        self.assertIn("THINKING: refreshed 3 phrases", capture.messages)
+
+    def test_invalid_phrases_keep_old_set(self):
+        """The LLM answers the phrases schema but with junk — validation
+        rejects it and the old set survives."""
+        module_thinking._generated = ["old1", "old2", "old3"]
+        self._stub_llm('{"phrases": ["only one", 2, ""]}')
+        self.assertFalse(module_thinking._refresh_once())
+        self.assertEqual(module_thinking._generated,
+                         ["old1", "old2", "old3"])
+
+
+class TestRefreshLoop(_ThinkingStateTestCase):
+    """S-M4-03: the loop refreshes immediately, waits minutes*60, and one
+    failure never kills the cycle."""
+
+    def test_loop_survives_failure_and_waits_configured_delay(self):
+        calls = []
+
+        def _flaky():
+            calls.append(len(calls))
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return True
+
+        with mock.patch.object(module_thinking, "_refresh_once",
+                               side_effect=_flaky):
+            event = _FakeEvent()
+            event.is_set = lambda: len(calls) >= 2
+            module_thinking._refresh_loop(event)
+        self.assertEqual(len(calls), 2,
+                         "a raising refresh must not kill the loop")
+        self.assertEqual(event.waits, [30 * 60, 30 * 60],
+                         "each iteration waits thinking_refresh_minutes * 60")
+
+    def test_loop_honors_preset_stop_event(self):
+        """A stop set before the loop starts means no refresh at all."""
+        with mock.patch.object(module_thinking, "_refresh_once") as refresh:
+            event = _FakeEvent()
+            event.set()
+            module_thinking._refresh_loop(event)
+        refresh.assert_not_called()
+        self.assertEqual(event.waits, [])
+
+    def test_loop_respects_configured_minutes(self):
+        with mock.patch.object(module_thinking, "_refresh_once",
+                               return_value=True), \
+             mock.patch.dict(module_thinking.CONFIG["CHAR"],
+                             {"thinking_refresh_minutes": 5}):
+            event = _FakeEvent()
+            event.is_set = lambda: len(event.waits) >= 1
+            module_thinking._refresh_loop(event)
+        self.assertEqual(event.waits, [5 * 60])
+
+
+class TestDaemonLifecycle(_ThinkingStateTestCase):
+    """S-M4-03: start/stop follow the cputemp daemon pattern — named daemon
+    thread, is_alive guard, idempotent start, explicit stop."""
+
+    def test_start_idempotent(self):
+        with mock.patch.object(module_thinking, "_refresh_once",
+                               return_value=True):
+            self.assertTrue(module_thinking.start_thinking_refresh())
+            self.assertFalse(module_thinking.start_thinking_refresh(),
+                             "a second start must be a no-op")
+            thread = module_thinking._thread
+            self.assertIsNotNone(thread)
+            self.assertTrue(thread.is_alive())
+            self.assertEqual(thread.name, "thinking-refresh")
+            self.assertTrue(thread.daemon)
+            module_thinking.stop_thinking_refresh()
+            thread.join(timeout=5)
+            self.assertFalse(thread.is_alive())
+
+    def test_stop_sets_event_and_thread_exits(self):
+        with mock.patch.object(module_thinking, "_refresh_once",
+                               return_value=True):
+            module_thinking.start_thinking_refresh()
+            module_thinking.stop_thinking_refresh()
+            self.assertTrue(module_thinking._stop_event.is_set())
+            module_thinking._thread.join(timeout=5)
+            self.assertFalse(module_thinking._thread.is_alive())
+
+    def test_generated_phrase_count_tracks_state(self):
+        self.assertEqual(module_thinking.generated_phrase_count(), 0)
+        module_thinking._generated = ["a", "b"]
+        self.assertEqual(module_thinking.generated_phrase_count(), 2)
 
 
 if __name__ == "__main__":
