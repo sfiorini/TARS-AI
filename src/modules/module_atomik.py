@@ -476,10 +476,13 @@ class WakeWordSystem:
         self._mode = mode  # None = auto-detect during createModel()
         # Liveness progress counters (S-M1-08) — consumed by the bounded
         # listenForWakeWord deadline (S-M1-10). _check_count is single-writer
-        # (RT callback thread) and advances on EVERY detect() call, before
-        # any gate, so a frozen detect() path is distinguishable from a live
-        # one even while chunks keep arriving.
-        self._check_count = 0        # += 1 at top of detect(), before any gate (RT single-writer)
+        # (RT callback thread) and advances on every NON-RAISING detect()
+        # pass, before any gate, so a frozen detect() path is distinguishable
+        # from a live one even while chunks keep arriving. F2: a pass that
+        # raises must NOT advance it (a permanently broken detector must
+        # look dead, not alive) — raises count into _check_error_count.
+        self._check_count = 0        # += 1 after a non-raising detect() pass (RT single-writer)
+        self._check_error_count = 0  # += 1 when a detect() pass raises (RT single-writer)
         self._last_exit = ""         # "cooldown"|"interval"|"vad"|"feature"|"below-threshold"|"detected"
         self._last_window_rms = 0.0  # rms of the VAD slice (1024 samples, cheap)
 
@@ -828,11 +831,30 @@ class WakeWordSystem:
             publish_listener_diagnostics(None)
 
     def detect(self):
+        """Detect wake word in the buffered audio (RT callback thread).
+
+        F2: the pass body runs in _detect_model()/_detect_template_body();
+        _check_count advances ONLY after a non-raising pass so a throwing
+        detector (corrupt model, broken VAD, ...) freezes the liveness
+        signal and the listenForWakeWord/hub ladder escalates instead of
+        seeing a healthy check rate. Raises count into _check_error_count
+        and propagate (module_mic._on_audio swallows them on the RT side).
+        """
         # Template mode uses simpler detection path
         if self._mode == self.MODE_TEMPLATE:
             return self._detect_template()
 
-        self._check_count += 1  # advanced before any gate (RT single-writer)
+        try:
+            result = self._detect_model()
+        except Exception:
+            self._check_error_count += 1  # RT single-writer; freezes _check_count
+            raise
+        self._check_count += 1  # advanced after a successful pass (RT single-writer)
+        return result
+
+    def _detect_model(self):
+        """Model-mode detect body (F2 split out of detect()); a raise here
+        must not advance _check_count."""
         if self.model is None:
             return False, 0.0
         audio_window = self._window(1.0)
@@ -995,8 +1017,21 @@ class WakeWordSystem:
         return 0.0 if norm1 == 0 or norm2 == 0 else dot / (norm1 * norm2)
 
     def _detect_template(self):
-        """Original template-based detection using cosine similarity."""
-        self._check_count += 1  # advanced before any gate (RT single-writer)
+        """Original template-based detection using cosine similarity.
+
+        F2: mirrors detect() — _check_count advances only after a
+        non-raising pass; raises count into _check_error_count.
+        """
+        try:
+            result = self._detect_template_body()
+        except Exception:
+            self._check_error_count += 1  # RT single-writer; freezes _check_count
+            raise
+        self._check_count += 1  # advanced after a successful pass (RT single-writer)
+        return result
+
+    def _detect_template_body(self):
+        """Template-mode detect body (F2 split out of _detect_template())."""
         if not self.templates:
             return False, 0.0
         audio_window = self._window(1.0)
