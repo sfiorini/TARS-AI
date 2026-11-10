@@ -2283,17 +2283,24 @@ class STTManager:
         """
         from modules.module_speaker_id import get_speaker_id_manager
 
-        if len(utterance) < self._bargein_min_speech_samples():
+        min_samples = self._bargein_min_speech_samples()
+        if len(utterance) < min_samples:
+            queue_message(
+                f"INFO: barge-in rejected (too short: {len(utterance)} < "
+                f"{min_samples} samples) — see bargein_min_speech_ms"
+            )
             return False
 
         audio_float32 = utterance.astype(np.float32).flatten() / 32768.0
 
         sid = get_speaker_id_manager()
         if sid is None:
+            queue_message("INFO: barge-in rejected (speaker ID unavailable)")
             return False
 
         embedding = sid.extract_embedding(audio_float32, 16000)
         if embedding is None:
+            queue_message("INFO: barge-in rejected (no speaker embedding from the capture)")
             return False
 
         # Identify speaker (skip normal margin check — we do our own below)
@@ -2325,6 +2332,18 @@ class STTManager:
         # Match requires: above threshold AND margin > 0.05
         # (bleed typically has margin < 0.04, real speech > 0.10)
         matched = bool(name and confidence >= self._bargein_voiceprint_threshold and margin > 0.05)
+
+        if not matched:
+            # Always visible: a rejected interruption discards the user's words.
+            reason = (
+                "unknown voice profile" if not name else
+                f"confidence {confidence:.2f} < {self._bargein_voiceprint_threshold:.2f}"
+                if confidence < self._bargein_voiceprint_threshold else
+                f"margin {margin:.3f} <= 0.05 (sounds like TARS bleed)"
+            )
+            queue_message(
+                f"INFO: barge-in rejected ({reason}) speaker='{name or '-'}'"
+            )
 
         if matched and self.DEBUG:
             queue_message(f"DEBUG: Barge-in detected! Voice matched '{name}' (confidence: {confidence:.2f}, margin: {margin:.3f})")

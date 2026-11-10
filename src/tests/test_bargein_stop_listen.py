@@ -162,6 +162,33 @@ class TestStopAndListen(StopAndListenTestCase):
         self.assertIn("stop", fake.call_names())
         self.assertIn(TarsState.LISTENING, self._states_set())
 
+    def test_no_capture_logs_why(self):
+        """A lost interruption must SAY so.
+
+        Live symptom: barge-in stopped TARS, then went Listening -> Standby
+        with no explanation, because a veto/timeout silently produced no
+        capture. The log is the only way to tell a rejected capture from a
+        failed transcription.
+        """
+        fake = FakeBargeinStt(audio=None, transcript=None)
+        with mock.patch.object(module_main, "queue_message") as qmsg:
+            self._run_interrupted_turn(fake)
+        msgs = [c.args[0] for c in qmsg.call_args_list if c.args]
+        self.assertTrue(
+            any("barge-in" in m.lower() and ("no capture" in m.lower() or "vetoed" in m.lower())
+                for m in msgs),
+            f"no diagnostic about the missing barge-in capture: {msgs}")
+
+    def test_empty_transcript_logs_why(self):
+        """Capture present but transcription empty -> also explained."""
+        fake = FakeBargeinStt(audio=np.zeros(16000, dtype=np.int16), transcript=None)
+        with mock.patch.object(module_main, "queue_message") as qmsg:
+            self._run_interrupted_turn(fake)
+        msgs = [c.args[0] for c in qmsg.call_args_list if c.args]
+        self.assertTrue(
+            any("barge-in" in m.lower() and "transcri" in m.lower() for m in msgs),
+            f"no diagnostic about the empty barge-in transcript: {msgs}")
+
     def test_kill_switch_off_never_takes(self):
         """bargein_listen_after_interrupt = False -> take_bargein_utterance
         is never called; existing behavior (LISTENING, wake word)."""

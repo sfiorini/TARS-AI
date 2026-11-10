@@ -75,9 +75,10 @@ def execute(parameters, context):
     summary = _summarize_search_results(search_results, context.get("user_input", ""))
     if summary:
         return summary
-    if not has_real_reply:
-        return f"Here's what I found: {search_results[:500]}"
-    return None
+    # Summarisation failed (429 / timeout / empty text block). Never leave the
+    # reply silent: hand back the raw results so the voice pipeline says
+    # something instead of ending the turn with no answer after ~36 s.
+    return f"Here's what I found: {search_results[:500]}"
 
 
 def _summarize_search_results(search_results, user_question):

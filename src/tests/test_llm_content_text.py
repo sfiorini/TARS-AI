@@ -102,5 +102,50 @@ class TestWebSearchSummarizeUsesExtractor(unittest.TestCase):
         self.assertGreaterEqual(captured[0]["max_tokens"], 600)
 
 
+class TestWebSearchExecuteFallback(unittest.TestCase):
+    """A failed summarisation must never produce silence.
+
+    Live symptom: the summariser's second LLM call hit 429, so the tool
+    returned None, the deferred reply had nothing to say, and the turn ended
+    after 36 s with no answer.
+    """
+
+    def test_429_falls_back_to_raw_results(self):
+        from skills import skill_web_search
+
+        class _Resp:
+            ok = False
+            status_code = 429
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                import requests as _rq
+                raise _rq.exceptions.HTTPError("429")
+
+        fake_cfg = {"LLM": {"api_key": "k", "llm_backend": "other",
+                            "base_url": "https://x", "other_model": "m",
+                            "temperature": 0.7},
+                    "CHAR": {"character_name": "TARS"}}
+        ctx = {"bot_response": {"reply": "Let me check that for you right now."},
+               "user_input": "weather in Rome"}
+        # module_websearch imports `ddgs`, which is robot-only; stub the module
+        # rather than pulling a hardware dependency into this test.
+        import sys as _sys
+        fake_ws = types.ModuleType("modules.module_websearch")
+        fake_ws.search_google = lambda q: "Rome: light rain, 27 degrees"
+        with mock.patch.dict(_sys.modules, {"modules.module_websearch": fake_ws}), \
+             mock.patch("requests.post", return_value=_Resp()), \
+             mock.patch("modules.module_config.load_config", return_value=fake_cfg), \
+             mock.patch("modules.module_llm.character_manager",
+                        types.SimpleNamespace(char_name="TARS"), create=True), \
+             mock.patch.object(skill_web_search, "search_google",
+                               lambda q: "Rome: light rain, 27 degrees", create=True):
+            out = skill_web_search.execute({"query": "weather Rome"}, ctx)
+        self.assertTrue(out, "a failed summary must still produce an answer")
+        self.assertIn("Rome", out)
+
+
 if __name__ == "__main__":
     unittest.main()

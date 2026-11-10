@@ -491,10 +491,23 @@ def utterance_callback(message):
         _bargein_text = None
         if was_interrupted and stt_manager and CONFIG['STT'].get('bargein_listen_after_interrupt', True):
             audio = stt_manager.take_bargein_utterance(timeout=8.0)
-            if audio is not None:
+            if audio is None:
+                # Silence here was indistinguishable from "barge-in is broken":
+                # a veto or a timeout produced no capture, TARS just went
+                # Listening -> Standby with the user's words gone.
+                queue_message(
+                    "INFO: barge-in no capture (vetoed or timed out) — "
+                    "returning to wake-word listening"
+                )
+            else:
                 result = stt_manager.transcribe_bargein_audio(audio)
                 if result and result.get("text"):
                     _bargein_text = result["text"].strip()
+                else:
+                    queue_message(
+                        f"INFO: barge-in captured {len(audio)} samples but "
+                        "transcription was empty — returning to wake-word listening"
+                    )
         if stt_manager:
             # the MAIN round's run id — a follow-up that started a newer
             # monitor makes this stop a no-op instead of killing it (F1)

@@ -84,6 +84,26 @@ class TestVoiceprintVeto(unittest.TestCase):
         with mock.patch("modules.module_speaker_id.get_speaker_id_manager", return_value=sid):
             self.assertFalse(m._voiceprint_veto(np.zeros(16000, dtype=np.int16)))
 
+    def test_rejections_are_logged_with_a_reason(self):
+        """A silent veto is indistinguishable from a broken feature: the user
+        sees TARS stop, go Listening, then Standby, with their words gone."""
+        cases = [
+            ("too short", dict(min_speech_ms=1000), np.zeros(4000, dtype=np.int16), None),
+            ("low confidence", dict(threshold=0.75), np.zeros(16000, dtype=np.int16),
+             _sid(confidence=0.30)),
+            ("unknown profile", dict(), np.zeros(16000, dtype=np.int16),
+             _sid(name="Unknown_3", confidence=0.99)),
+        ]
+        for label, kwargs, audio, sid in cases:
+            m = _manager(**kwargs)
+            with mock.patch("modules.module_speaker_id.get_speaker_id_manager",
+                            return_value=sid), \
+                 mock.patch.object(module_stt, "queue_message") as qmsg:
+                self.assertFalse(m._voiceprint_veto(audio), label)
+            msgs = [c.args[0] for c in qmsg.call_args_list if c.args]
+            self.assertTrue(any("barge-in rejected" in x.lower() for x in msgs),
+                            f"{label}: no rejection log, got {msgs}")
+
     def test_missing_manager_is_rejected(self):
         m = _manager()
         with mock.patch("modules.module_speaker_id.get_speaker_id_manager", return_value=None):
