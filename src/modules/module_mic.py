@@ -407,6 +407,7 @@ class _AudioHub:
                 if buf:
                     continue  # data arrived between drain loop and clear
                 if not evt.wait(timeout=5.0):
+                    self._consecutive_read_stalls += 1
                     # Timeout — return what we have padded with silence
                     target_dtype = np.int16 if dtype == "int16" else np.float32
                     if collected:
@@ -422,6 +423,7 @@ class _AudioHub:
                     return audio.reshape(-1, 1), True
 
         audio = np.concatenate(collected)[:n_native_frames]
+        self._consecutive_read_stalls = 0   # data-producing return resets the streak
 
         # Convert to requested dtype (all buffered data is float32)
         if dtype == "int16":
