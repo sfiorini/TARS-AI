@@ -43,6 +43,14 @@ _tts_cancel_consumed_gen = 0
 _tts_playing = threading.Event()  # Set while sd.play() is actively outputting audio
 _tts_needs_flush = threading.Event()  # Set after TTS finishes; cleared by STT after flushing
 
+# M3 barge-in: the persistent OutputStream currently playing, registered
+# after start() and cleared in play_chunks' finally. stop_tts_playback()
+# aborts it cross-thread — Pa_AbortStream is thread-safe and flushes the
+# device buffer; sd.stop() alone never touched the persistent stream, so a
+# barge-in mid-utterance kept feeding the device until the chunk drained.
+_active_out_stream = None
+_active_out_lock = threading.Lock()
+
 # Output device discovery — resolved once on first playback. The lock makes
 # resolution thread-safe: a concurrent caller used to see the resolved flag
 # set BEFORE the scan finished and silently got the system default.
@@ -227,6 +235,18 @@ def stop_tts_playback():
     with _tts_cancel_lock:
         _tts_cancel_generation += 1
         _tts_cancel_event.set()
+    # M3: abort the registered persistent stream (thread-safe read under the
+    # lock; the stream may already be gone — a finished utterance's stream is
+    # deregistered in play_chunks' finally, so a later cancel never aborts a
+    # stale stream).
+    global _active_out_stream
+    with _active_out_lock:
+        stream = _active_out_stream
+    if stream is not None:
+        try:
+            stream.abort()  # Pa_AbortStream: thread-safe, flushes the buffer
+        except Exception:
+            pass
     try:
         sd.stop()
     except Exception:
@@ -826,6 +846,7 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
 
     async def play_chunks():
         nonlocal was_interrupted
+        global _active_out_stream
         threading.Thread(target=_notify_talking_state, args=("start_talking",), daemon=True).start()
 
         # Persistent output stream: one stream per utterance avoids the
@@ -839,6 +860,9 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
         except Exception as e:
             queue_message(f"WARNING: persistent output stream failed ({e}) — using per-chunk sd.play")
             out_stream = None
+        if out_stream is not None:
+            with _active_out_lock:
+                _active_out_stream = out_stream
         first_audio_logged = False
 
         try:
@@ -899,7 +923,22 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                         _tts_playing.set()
                         write_error = None
                         try:
-                            await asyncio.to_thread(out_stream.write, data)
+                            # M3 barge-in: feed in <=100 ms sub-slices, checking
+                            # the cancel event between them — a barge-in stops
+                            # the feed within one sub-slice instead of after the
+                            # whole chunk. Slice size derives from the stream's
+                            # sample rate (fake streams in tests expose none —
+                            # fall back to the 44100 the stream is opened at).
+                            rate = getattr(out_stream, "samplerate", None) or 44100
+                            sub = max(1, int(float(rate) * 0.1))
+                            n = len(data)
+                            for start in range(0, n, sub):
+                                if _tts_cancel_event.is_set():
+                                    out_stream.abort()
+                                    was_interrupted = True
+                                    break
+                                await asyncio.to_thread(
+                                    out_stream.write, data[start:start + sub])
                         except Exception as write_err:
                             write_error = write_err
                         finally:
@@ -1051,6 +1090,11 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
         finally:
             # A1: never leave _tts_playing set after play_chunks ends.
             _tts_playing.clear()
+            # M3: deregister the active stream BEFORE the close block below —
+            # a cancel landing after this utterance must never abort a stale
+            # stream (the next utterance registers its own).
+            with _active_out_lock:
+                _active_out_stream = None
 
         if out_stream is not None:
             try:
