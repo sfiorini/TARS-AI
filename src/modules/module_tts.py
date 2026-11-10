@@ -113,34 +113,18 @@ def _fallback_to_default_output():
 
 
 def _recover_sound_server():
-    """Best-effort restart of the user sound server and PortAudio re-init.
+    """Delegate to module_audio_recovery.restart_sound_server (shared ladder).
 
     Servo power-on spikes can wedge the USB audio card: PipeWire keeps a dead
     stream on the PCM (subdevices 0/1), after which BOTH direct hw opens and
     the pulse default fail with PaErrorCode -9985. Restarting the user sound
     services releases the card. No sudo needed — these are --user services.
+    The shared implementation also invalidates the mic hub's dangling
+    InputStream (PortAudio re-init kills it) so a TTS self-heal cannot deafen
+    the mic until reboot.
     """
-    import subprocess, time
-    try:
-        subprocess.run(
-            ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"],
-            timeout=20, capture_output=True,
-        )
-        time.sleep(2)
-        sd._terminate()
-        sd._initialize()
-        # PortAudio re-init invalidates every live stream — including the mic
-        # hub's shared InputStream (module_mic). Signal the hub so it closes its
-        # now-dangling stream and lazily re-creates it on the next read;
-        # without this a TTS self-heal deafens the mic until reboot.
-        try:
-            from modules.module_mic import invalidate_audio_hub
-            invalidate_audio_hub()
-        except Exception as e:
-            queue_message(f"WARNING: could not invalidate mic stream after sound server recovery: {e}")
-        queue_message("INFO: sound server restarted after audio device failure — re-resolving output device")
-    except Exception as e:
-        queue_message(f"WARNING: sound server recovery failed: {e}")
+    from modules.module_audio_recovery import restart_sound_server
+    restart_sound_server()
 
 
 def _reset_output_device_resolution():
