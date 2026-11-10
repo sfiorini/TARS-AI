@@ -15,6 +15,8 @@ pin that contract.
 """
 import configparser
 import os
+import shutil
+import tempfile
 import unittest
 
 from modules import module_config  # noqa: E402
@@ -116,6 +118,51 @@ class TestBargeinKeyDefaults(unittest.TestCase):
         self.assertEqual(
             module_config.CONFIG_METADATA['STT']['bargein_min_candidates']['max'], 3
         )
+
+
+class TestBargeinKeyClamping(unittest.TestCase):
+    """F11: the barge-in tuning keys are clamped at load. A negative
+    bleed factor collapses the echo-protection threshold to the silence
+    gate (TARS interrupts itself on its own speaker bleed);
+    min_candidates <= 0 lets the first above-gate frame trigger."""
+
+    def _load_with(self, bleed, candidates):
+        """Template config with the two barge-in keys overwritten, loaded
+        through load_config() with the cache bypassed and the env path
+        restored afterwards."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        cfg_path = os.path.join(tmp, "config.ini")
+        with open(_TEMPLATE, encoding="utf-8") as fh:
+            text = fh.read()
+        assert "bargein_bleed_factor = 2.5" in text, "template lost the key"
+        text = text.replace("bargein_bleed_factor = 2.5",
+                            f"bargein_bleed_factor = {bleed}")
+        text = text.replace("bargein_min_candidates = 2",
+                            f"bargein_min_candidates = {candidates}")
+        with open(cfg_path, "w", encoding="utf-8") as fh:
+            fh.write(text)
+        saved_path = os.environ.get("TARS_CONFIG_PATH")
+        saved_cache = module_config._config_cache
+        os.environ["TARS_CONFIG_PATH"] = cfg_path
+        module_config._config_cache = None
+        self.addCleanup(module_config.__setattr__, "_config_cache", saved_cache)
+
+        def _restore():
+            if saved_path is None:
+                os.environ.pop("TARS_CONFIG_PATH", None)
+            else:
+                os.environ["TARS_CONFIG_PATH"] = saved_path
+        self.addCleanup(_restore)
+        return module_config.load_config()
+
+    def test_negative_bleed_factor_clamped_to_slider_floor(self):
+        stt = self._load_with(-1, 2)["STT"]
+        self.assertGreaterEqual(stt["bargein_bleed_factor"], 0.1)
+
+    def test_zero_min_candidates_clamped_to_one(self):
+        stt = self._load_with(2.5, 0)["STT"]
+        self.assertGreaterEqual(stt["bargein_min_candidates"], 1)
 
 
 if __name__ == "__main__":

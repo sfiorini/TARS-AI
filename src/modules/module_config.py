@@ -510,8 +510,12 @@ def load_config():
             "enable_bargein": config.getboolean('STT', 'enable_bargein', fallback=True),
             "bargein_mode": config.get('STT', 'bargein_mode', fallback='fuzzy'),
             "bargein_sensitivity": config.getint('STT', 'bargein_sensitivity', fallback=5),
-            "bargein_bleed_factor": config.getfloat('STT', 'bargein_bleed_factor', fallback=2.5),
-            "bargein_min_candidates": config.getint('STT', 'bargein_min_candidates', fallback=2),
+            # F11: clamped at load, consistent with the slider metadata
+            # floors — a negative bleed factor collapses the echo-protection
+            # threshold to the silence gate; min_candidates <= 0 lets the
+            # first above-gate frame trigger (TARS interrupts itself).
+            "bargein_bleed_factor": max(1.0, config.getfloat('STT', 'bargein_bleed_factor', fallback=2.5)),
+            "bargein_min_candidates": max(1, config.getint('STT', 'bargein_min_candidates', fallback=2)),
             "bargein_listen_after_interrupt": config.getboolean('STT', 'bargein_listen_after_interrupt', fallback=True),
             "vad_method": config['STT']['vad_method'],
             "speechdelay": int(config['STT']['speechdelay']),
