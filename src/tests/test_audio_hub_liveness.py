@@ -848,6 +848,13 @@ class TestWatchdogDiscriminatorLogging:
         hub.register_callback(lambda chunk: None, name="spectrum")
         hub.register_reader()
         hub._stream = mock.MagicMock(active=True)
+        # Real invariant: _on_audio stamps _chunk_count and _last_chunk_mono
+        # together, so a fresh chunk age with chunk_count == 0 is impossible.
+        # The boot-grace rule keys off chunk_count == 0, so the fixture must
+        # model a hub that HAS delivered (63/s over 2 s => 126 per tick).
+        hub._chunk_count = 1000
+        hub._stream_opened_mono = clock.now - 60.0
+        hub._first_chunk_mono = clock.now - 60.0
         hub._last_chunk_mono = clock.now - chunk_age
         hub._last_nonzero_mono = clock.now - nz_age
         hub._consumer_exc_count = exc
@@ -1056,9 +1063,18 @@ class TestDocsQuoteEmittedShapes:
         docs = (Path(__file__).resolve().parents[2] / "docs" / "voice-pipeline.md").read_text()
         block = re.search(r"```(?:text)?\n(AUDIO-HUB:.*?)```", docs, re.S).group(1)
         doc_lines = block.strip().splitlines()
-        assert len(doc_lines) == 2, doc_lines
-        assert [self._normalize(l) for l in doc_lines] == \
+        # The block documents the two captured lines, plus the two escalation
+        # rungs (L1 -> L2, and the repeating L2) so an operator can grep them.
+        assert len(doc_lines) == 4, doc_lines
+        assert [self._normalize(l) for l in doc_lines[:2]] == \
                [self._normalize(healthy), self._normalize(stale)]
+        # The escalation lines must match the real format strings verbatim.
+        assert doc_lines[2] == ("WARNING: AUDIO-HUB still stale "
+                               "mode=callbacks-stopped 10s after L1 "
+                               "-> L2 restart_sound_server"), doc_lines[2]
+        assert doc_lines[3] == ("CRITICAL: AUDIO-HUB still stale "
+                               "mode=callbacks-stopped 60s after L2 "
+                               "\u2014 repeating L2 restart_sound_server"), doc_lines[3]
 
 
 class TestHubWatchdogStartStop:
