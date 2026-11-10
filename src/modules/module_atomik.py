@@ -771,48 +771,56 @@ class WakeWordSystem:
         is 'both advanced' per the design). Chunk-advance alone does NOT
         reset the deadline: that is failure mode (c), swallowed consumer
         exception / dispatch-blocked, and MUST escalate to AudioStallError."""
-        from modules.module_mic import AudioStallError, audio_hub_stats
+        from modules.module_mic import (AudioStallError, audio_hub_stats,
+                                        publish_listener_diagnostics)
         recoveries = 0
-        while True:
-            detected_flag = False
+        # Publish ourselves to the hub watchdog for the duration of the
+        # listen: it reads _check_count/_last_window_rms to discriminate
+        # mode (c) (chunks advancing, detection frozen) from a healthy hub.
+        publish_listener_diagnostics(self)
+        try:
+            while True:
+                detected_flag = False
 
-            def audio_callback(audio_np, frames, time_info, status):
-                nonlocal detected_flag
-                self.buffer.append(np.asarray(audio_np, dtype=np.float32))
-                self._buffered_samples += len(audio_np)
+                def audio_callback(audio_np, frames, time_info, status):
+                    nonlocal detected_flag
+                    self.buffer.append(np.asarray(audio_np, dtype=np.float32))
+                    self._buffered_samples += len(audio_np)
 
-                detected, confidence = self.detect()
-                if detected:
-                    detected_flag = True
+                    detected, confidence = self.detect()
+                    if detected:
+                        detected_flag = True
 
-            deadline = time.monotonic() + stall_timeout
-            last_chunk = None
-            last_check = None
-            with open_native_stream(callback=make_resampling_callback(audio_callback),
-                                    blocksize=512, name="atomik"):
-                while not detected_flag:
-                    time.sleep(0.05)
-                    s = audio_hub_stats()
-                    if self._check_count != last_check:
-                        # check-advance implies chunk-advance (detect() runs only
-                        # from the RT callback) — equivalent to 'both advanced'.
-                        # chunk-advance WITHOUT check-advance (mode c) must NOT
-                        # reset: the deadline then expires -> L1 -> AudioStallError.
-                        last_chunk, last_check = s["chunk_count"], self._check_count
-                        deadline = time.monotonic() + stall_timeout
-                    elif time.monotonic() > deadline:
-                        break          # stall -> exit `with` (unregister) -> L1 below
-            if detected_flag:
-                return True
-            recoveries += 1
-            queue_message(f"WARNING: WAKE stall (hub_chunk={last_chunk} check={last_check} "
-                          f"exit={self._last_exit} rms={self._last_window_rms:.4f}) — L1 recovery {recoveries}/{max_recoveries}")
-            from modules import module_mic
-            module_mic.invalidate_audio_hub()
-            if recoveries >= max_recoveries:
-                raise AudioStallError(
-                    f"wake stalled after {recoveries} L1 recoveries "
-                    f"(hub_chunk={last_chunk} check={last_check} exit={self._last_exit})")
+                deadline = time.monotonic() + stall_timeout
+                last_chunk = None
+                last_check = None
+                with open_native_stream(callback=make_resampling_callback(audio_callback),
+                                        blocksize=512, name="atomik"):
+                    while not detected_flag:
+                        time.sleep(0.05)
+                        s = audio_hub_stats()
+                        if self._check_count != last_check:
+                            # check-advance implies chunk-advance (detect() runs only
+                            # from the RT callback) — equivalent to 'both advanced'.
+                            # chunk-advance WITHOUT check-advance (mode c) must NOT
+                            # reset: the deadline then expires -> L1 -> AudioStallError.
+                            last_chunk, last_check = s["chunk_count"], self._check_count
+                            deadline = time.monotonic() + stall_timeout
+                        elif time.monotonic() > deadline:
+                            break          # stall -> exit `with` (unregister) -> L1 below
+                if detected_flag:
+                    return True
+                recoveries += 1
+                queue_message(f"WARNING: WAKE stall (hub_chunk={last_chunk} check={last_check} "
+                              f"exit={self._last_exit} rms={self._last_window_rms:.4f}) — L1 recovery {recoveries}/{max_recoveries}")
+                from modules import module_mic
+                module_mic.invalidate_audio_hub()
+                if recoveries >= max_recoveries:
+                    raise AudioStallError(
+                        f"wake stalled after {recoveries} L1 recoveries "
+                        f"(hub_chunk={last_chunk} check={last_check} exit={self._last_exit})")
+        finally:
+            publish_listener_diagnostics(None)
 
     def detect(self):
         # Template mode uses simpler detection path

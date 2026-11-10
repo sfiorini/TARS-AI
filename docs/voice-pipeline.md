@@ -34,23 +34,27 @@ Digital silence has its own guard: fresh chunks but **≥ 60 s** of all-zero aud
 
 ### AUDIO-HUB log lines
 
-A healthy heartbeat logs every 30 s while consumers exist, and every stale transition logs an immediate WARNING discriminator:
+A healthy heartbeat logs every 30 s while consumers exist, and every stale transition logs an immediate WARNING discriminator. `rate` is the hub chunk rate, `check_rate` the live listener's detect-counter rate; `check_rate`/`rms` show `-` when no wake listener is active:
 
+```text
+AUDIO-HUB: cb=2(atomik,spectrum) rd=1 stream=open/active rate=63.0/s last_chunk=0.01s last_nonzero=0.4s check_rate=62.5/s exc=0 stalls=0 state=HEALTHY
+WARNING: AUDIO-HUB STALE mode=callbacks-stopped chunk_age=7.2s check_rate=0.0/s rms=0.013 exc=3 cb=[atomik,spectrum] -> L1-reopen
 ```
-AUDIO-HUB: cb=2(atomik,spectrum) rd=1 stream=open/active rate=63.2/s last_chunk=0.01s last_nonzero=0.4s exc=0 stalls=0 state=HEALTHY
-AUDIO-HUB: STALE mode=callbacks-stopped|detect-stalled|digital-silence chunk_age=7.2s check_rate=0.0/s rms=0.013 exc=3 cb=[atomik,spectrum] -> L1-reopen
-```
+
+`mode=` is one of `callbacks-stopped` | `detect-stalled` | `digital-silence`.
 
 ### The four failure modes
 
 The instrumentation distinguishes exactly these:
 
-| Mode | Signature |
+| Mode | Signature in the AUDIO-HUB lines |
 |---|---|
-| (a) callbacks stopped | chunk age grows, no detection progress |
-| (b) silence delivered | chunks fresh, but non-zero-audio age grows and window RMS ≈ 0 |
-| (c) swallowed exception | chunks advance but the detector check counter is frozen; consumer exception count grows |
-| (d) clock latch | a backward wall-clock step made cooldowns permanent — eliminated by the monotonic-clock fix (every deadline uses `time.monotonic()`, which has no NTP step) |
+| (a) callbacks stopped | `mode=callbacks-stopped`: `chunk_age` grows past 5 s, `rate=0.0/s` |
+| (b) silence delivered | `mode=digital-silence`: chunks fresh (`rate` healthy, `chunk_age` small) but `last_nonzero` age grows / is absent from the first chunk and `rms` ≈ 0 |
+| (c) swallowed exception / detect stalled | `mode=detect-stalled`: chunks advance (`chunk_age` small) but `check_rate=0.0/s` — the listener's check counter is frozen while the hub delivers; `exc` shows swallowed consumer exceptions |
+| (d) clock latch | a backward wall-clock step made cooldowns permanent — eliminated by the monotonic-clock fix (every deadline uses `time.monotonic()`, which has no NTP step); the listener-side `WAKE stall` line's `exit=cooldown` with healthy rates would be its fingerprint |
+
+While a wake listener is live, `module_atomik.listenForWakeWord` also logs its own per-detector diagnostics on every stall (`hub_chunk`, `check`, `exit` reason, window `rms`) — the listener-side deadline covers mode (c) even between watchdog ticks.
 
 ### BLAS thread pools
 

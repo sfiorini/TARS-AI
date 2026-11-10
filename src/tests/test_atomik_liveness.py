@@ -287,3 +287,26 @@ def test_listen_recovers_when_hub_revives(monkeypatch):
     assert det.listenForWakeWord(stall_timeout=0.2, max_recoveries=3) is True
     assert state["enters"] == 2
     assert len(invalidated) == 1
+
+
+def test_listen_publishes_detector_to_watchdog(monkeypatch):
+    """F2: while a listener is live it publishes itself to the hub
+    watchdog (check counter + window RMS for the mode-(c) discriminator)
+    and unpublishes on every exit path — including the AudioStallError
+    raise."""
+    det = _template_detector()
+    state = {"enters": 0, "callback": None}
+    monkeypatch.setattr(atomik, "open_native_stream", _fake_open_factory(state))
+    monkeypatch.setattr(atomik, "make_resampling_callback", lambda cb: cb)
+    invalidated = []
+    _patch_hub(monkeypatch, lambda: {"chunk_count": 0}, invalidated)
+    published = []
+    monkeypatch.setattr(module_mic, "publish_listener_diagnostics",
+                        lambda d: published.append(d))
+
+    with pytest.raises(AudioStallError):
+        det.listenForWakeWord(stall_timeout=0.1, max_recoveries=1)
+
+    assert published[0] is det            # published at listen entry
+    assert published[-1] is None          # cleared on the raise path
+    assert module_mic._active_listener is None
