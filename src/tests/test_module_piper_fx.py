@@ -389,7 +389,34 @@ class TestPiperPipelineAppliesFx(unittest.TestCase):
         self.assertTrue(popen.return_value.communicate.call_args.kwargs["input"].startswith(b"RIFF"))
 
     def test_no_voice_yields_nothing(self):
+        # "No voice available" must be established by patching
+        # _ensure_voice_loaded -> False, not just voice = None: on a machine
+        # with a real .onnx model (the robot), _ensure_voice_loaded() would
+        # RE-LOAD the model and the pipeline would proceed, yielding a chunk
+        # (robot-only suite failure).
         with mock.patch.object(module_piper, "voice", None), \
+             mock.patch.object(module_piper, "_ensure_voice_loaded",
+                               return_value=False), \
+             mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
+             mock.patch.object(module_piper, "queue_message") as qmsg:
+            chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
+        self.assertIsNone(raised)
+        self.assertEqual(chunks, [])
+        self.assertTrue(qmsg.called)
+
+    def test_ensure_voice_loaded_false_yields_nothing_even_with_model_present(self):
+        # Regression guard (robot-only failure class): the early return in
+        # text_to_speech_with_pipelining_piper is keyed on
+        # _ensure_voice_loaded(), NOT on the voice global's truthiness. A
+        # machine with a real .onnx model would otherwise re-load the model
+        # inside _ensure_voice_loaded and proceed to synthesize. Even with a
+        # fully usable voice object present, a False from
+        # _ensure_voice_loaded must yield nothing and not raise — so this
+        # test fails on ANY machine (robot or dev laptop) if the early-return
+        # path regresses or the stubbing contract drifts.
+        with mock.patch.object(module_piper, "voice", _stream_voice()), \
+             mock.patch.object(module_piper, "_ensure_voice_loaded",
+                               return_value=False), \
              mock.patch.object(module_piper, "CONFIG", _tts_cfg()), \
              mock.patch.object(module_piper, "queue_message") as qmsg:
             chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
