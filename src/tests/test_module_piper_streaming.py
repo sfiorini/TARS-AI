@@ -54,9 +54,25 @@ def _fake_module(name, **attrs):
 
 
 class _SynthesisConfig:
-    """Stub for piper-tts >= 1.3 SynthesisConfig (records the speaker_id)."""
-    def __init__(self, speaker_id=None):
+    """Stub for piper-tts >= 1.3 SynthesisConfig.
+
+    Mirrors the REAL class's full field set (dataclass defaults verified
+    against piper-tts 1.8.0). A stub carrying only `speaker_id` is unfaithful
+    and breaks as soon as a REAL PiperVoice receives it: the real
+    synthesize() reads length_scale/noise_scale/noise_w_scale and raises
+    AttributeError. That happens whenever module_piper was imported BEFORE
+    these stubs were installed (e.g. another test file imported module_tts
+    first), because module_piper then holds the real PiperVoice class.
+    """
+
+    def __init__(self, speaker_id=None, length_scale=None, noise_scale=None,
+                 noise_w_scale=None, normalize_audio=True, volume=1.0):
         self.speaker_id = speaker_id
+        self.length_scale = length_scale
+        self.noise_scale = noise_scale
+        self.noise_w_scale = noise_w_scale
+        self.normalize_audio = normalize_audio
+        self.volume = volume
 
 
 # module_piper imports sounddevice / soundfile / piper and loads libasound at
