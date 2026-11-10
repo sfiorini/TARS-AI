@@ -51,9 +51,21 @@ def _fake_module(name, **attrs):
 
 
 class _SynthesisConfig:
-    """Stub for piper-tts >= 1.3 SynthesisConfig (records the speaker_id)."""
-    def __init__(self, speaker_id=None):
+    """Faithful stand-in for piper-tts >= 1.3 SynthesisConfig.
+
+    Mirrors the real dataclass (speaker_id, length_scale, noise_scale,
+    noise_w_scale, normalize_audio, volume) because on a machine with the real
+    piper installed, module_piper may hold a real PiperVoice that reads these
+    attributes off the config we hand it.
+    """
+    def __init__(self, speaker_id=None, length_scale=None, noise_scale=None,
+                 noise_w_scale=None, normalize_audio=True, volume=1.0):
         self.speaker_id = speaker_id
+        self.length_scale = length_scale
+        self.noise_scale = noise_scale
+        self.noise_w_scale = noise_w_scale
+        self.normalize_audio = normalize_audio
+        self.volume = volume
 
 
 # module_piper imports sounddevice / soundfile / piper and loads libasound at
@@ -395,6 +407,48 @@ class TestPiperPipelineAppliesFx(unittest.TestCase):
             chunks, raised = _collect(module_piper.text_to_speech_with_pipelining_piper("Hello"))
         self.assertEqual(chunks, [])
         self.assertIsInstance(raised, AttributeError)
+
+
+class TestSynthesisConfigStubFidelity(unittest.TestCase):
+    """The stub must be a faithful stand-in for the real piper dataclass.
+
+    On a machine with real piper installed, module_piper may hold a REAL
+    PiperVoice (bound at import time before this file's stubs land in
+    sys.modules). The stub SynthesisConfig we hand it then flows into the
+    real PiperVoice.synthesize, which reads speaker_id / length_scale /
+    noise_scale / noise_w_scale (piper/voice.py) — a minimal stub raises
+    AttributeError there (robot-only suite failure). These tests pin the
+    stub's shape and defaults WITHOUT depending on the real package being
+    absent, so they fail on any machine if the stub drifts.
+    """
+
+    def test_stub_exposes_every_attribute_real_voice_reads(self):
+        cfg = _SynthesisConfig()
+        for attr in ("speaker_id", "length_scale", "noise_scale",
+                     "noise_w_scale", "normalize_audio", "volume"):
+            self.assertTrue(hasattr(cfg, attr),
+                            f"stub _SynthesisConfig missing {attr!r}")
+
+    def test_stub_constructor_accepts_real_dataclass_kwargs(self):
+        cfg = _SynthesisConfig(
+            speaker_id=3, length_scale=1.1, noise_scale=0.2,
+            noise_w_scale=1.4, normalize_audio=False, volume=0.9)
+        self.assertEqual(cfg.speaker_id, 3)
+        self.assertEqual(cfg.length_scale, 1.1)
+        self.assertEqual(cfg.noise_scale, 0.2)
+        self.assertEqual(cfg.noise_w_scale, 1.4)
+        self.assertFalse(cfg.normalize_audio)
+        self.assertEqual(cfg.volume, 0.9)
+
+    def test_stub_defaults_match_real_dataclass(self):
+        # piper/config.py SynthesisConfig defaults
+        cfg = _SynthesisConfig()
+        self.assertIsNone(cfg.speaker_id)
+        self.assertIsNone(cfg.length_scale)
+        self.assertIsNone(cfg.noise_scale)
+        self.assertIsNone(cfg.noise_w_scale)
+        self.assertTrue(cfg.normalize_audio)
+        self.assertEqual(cfg.volume, 1.0)
 
 
 class TestRobotVoiceOpsFiles(unittest.TestCase):
