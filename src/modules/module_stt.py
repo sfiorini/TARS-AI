@@ -1526,7 +1526,7 @@ class STTManager:
             time.sleep(0.05)
         while True:
             detector.listenForWakeWord()
-            audio_window = np.array(list(detector.buffer)[-int(self.MODEL_RATE * 2):], dtype=np.float32)
+            audio_window = detector.last_window(2.0)
             if self._run_wake_gates(audio_window, transcript_verify_fn=transcript_verify_fn):
                 self._handle_wake_detected()
                 return True
