@@ -617,12 +617,16 @@ def servo_status():
         }
 
 def force_servo_recovery():
-    """No-reboot recovery: clear a stuck MOVING flag, re-create the I2C/PCA9685
-    device, then gently re-apply the saved servo positions (no neutral jerk)."""
-    global MOVING
-    
+    """No-reboot recovery: re-create the I2C/PCA9685 device, then gently
+    re-apply the saved positions of ENGAGED channels only (no neutral jerk).
+    REJECTED while a movement is in progress (the /servo_reinit route maps
+    this to HTTP 409): a manual re-init mid-walk aborts the walk, so defer
+    instead — a stuck MOVING flag is the watchdog's job (30 s timeout)."""
     with _state_lock:
-        MOVING = False
+        if MOVING:
+            status = servo_status()
+            status["rejected"] = "moving"
+            return status  # do NOT clear MOVING — state is left untouched
         
         if initialize_pca9685():
             mode1, mode2 = _read_mode1(), _read_mode2()

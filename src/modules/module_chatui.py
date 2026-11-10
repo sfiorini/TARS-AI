@@ -1083,11 +1083,14 @@ def servo_status_endpoint():
 @flask_app.route('/servo_reinit', methods=['POST'])
 def servo_reinit_endpoint():
     """
-    No-reboot servo recovery: re-creates the I2C/PCA9685 device, re-applies
-    saved positions and clears a stuck MOVING flag. Returns the new status.
+    No-reboot servo recovery: re-creates the I2C/PCA9685 device and re-applies
+    the saved positions of engaged channels. Returns the new status, or 409
+    while a movement is in progress (a manual re-init mid-walk aborts the
+    walk, so it is rejected instead — the walk finishes unharmed).
     """
     try:
-        return jsonify(force_servo_recovery()), 200
+        status = force_servo_recovery()
+        return jsonify(status), (409 if status.get("rejected") else 200)
     except Exception as e:
         queue_message(f"Error forcing servo recovery: {e}")
         return jsonify({"error": str(e)}), 500
