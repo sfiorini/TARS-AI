@@ -556,6 +556,119 @@ def audio_hub_stats():
     return _hub.stats()
 
 
+# ── Hub watchdog daemon (S-M1-07) ─────────────────────────────────
+#
+# Always-on supervision for the shared input stream, covering the cases no
+# listener sees: the invalidate() hole (stream closed with live consumers)
+# and TTS-recovery deafness. Escalation ladder:
+#   L1 (hub reopen, rate-limited 1/10 s) -> 10 s still stale ->
+#   L2 (restart_sound_server, ~22 s) -> repeat L2 every 60 s.
+#
+# L1/L2 timestamps start as None sentinels so the FIRST stale tick can only
+# take the L1 branch (a 0.0 init makes `now - 0.0 >= 60.0` true on any robot
+# up >60 s, escalating straight to L2 while logging "-> L1-reopen").
+
+_wd_state = {"heartbeat": 0.0, "l1": None, "l2": None, "invalidate": time.monotonic()}
+
+
+def _hub_watchdog_tick():
+    """One supervision pass. Directly unit-testable; driven by the daemon
+    loop every 2 s. All deadlines monotonic."""
+    from modules.module_audio_recovery import restart_sound_server
+    s = _hub.stats()
+    if s["consumers"] == 0 or s["recovery_in_progress"]:
+        return                                            # rules 1-2
+    now = time.monotonic()
+    if not s["stream_open"]:
+        # rule 3: invalidate() hole — consumers alive but stream gone.
+        if now - _wd_state["invalidate"] > 2.0:           # 2 s throttle
+            _hub._ensure_stream()                        # lock-free call (S-M1-04)
+            _wd_state["invalidate"] = now                 # throttle anchor advances
+        return
+    age = s["last_chunk_age_s"]
+    stale = age is None or age > 5.0
+    nz = s["last_nonzero_age_s"]
+    digital_silence = (nz is not None and nz > 60.0)
+    if not stale and not digital_silence:
+        # Healthy: reset the ladder so every stale episode starts at a fresh
+        # cheap L1 — never an immediate ~22 s L2 after a long healthy gap.
+        _wd_state["l1"] = None
+        _wd_state["l2"] = None
+        if now - _wd_state["heartbeat"] >= 30.0:
+            _wd_state["heartbeat"] = now
+            queue_message(f"AUDIO-HUB: cb={s['consumers']}({','.join(s['callback_names'])}) "
+                          f"stream={'open' if s['stream_open'] else 'closed'}/"
+                          f"{'active' if s['stream_active'] else 'inactive'} "
+                          f"last_chunk={age if age is None else round(age, 2)}s "
+                          f"exc={s['consumer_exc_count']} "
+                          f"stalls={s['consecutive_read_stalls']} state=HEALTHY")
+        return
+    # STALE or digital silence -> discriminator + escalation ladder.
+    # Ladder bookkeeping contract (rules 4-6):
+    #   * `l1` is stamped ONLY when a fresh L1 is actually issued (`l1 is None
+    #     or now - l1 >= 10.0`). It is NEVER stamped on ordinary stale ticks —
+    #     that is what lets `now - l1` grow to 10 s so the L2 rung is reachable.
+    #   * `l1`/`l2` are cleared to None by the FIRST healthy tick (above), so
+    #     every stale episode starts at a fresh L1.
+    #   * Once `l2` is stamped the ladder is in L2 mode: repeat L2 at >= 60 s
+    #     cadence and NEVER re-issue L1 (no reopen-storm between L2s).
+    mode = ("digital-silence" if digital_silence else
+            "callbacks-stopped" if s["consumer_exc_count"] == 0 else "swallowed-exception")
+    l1 = _wd_state["l1"]
+    l2 = _wd_state["l2"]
+    if l2 is not None:
+        if now - l2 >= 60.0:                              # rule 6: repeat L2
+            queue_message(f"CRITICAL: AUDIO-HUB still stale mode={mode} 60s after L2 "
+                          "— repeating L2 restart_sound_server")
+            restart_sound_server()
+            _wd_state["l2"] = now
+        return
+    if l1 is not None and now - l1 >= 10.0:               # rule 5: 10 s after L1 -> L2
+        queue_message(f"WARNING: AUDIO-HUB still stale mode={mode} 10s after L1 "
+                      "-> L2 restart_sound_server")
+        restart_sound_server()
+        _wd_state["l2"] = now
+        return
+    if l1 is None or now - l1 >= 10.0:                   # rule 4: fresh L1
+        queue_message(f"WARNING: AUDIO-HUB STALE mode={mode} chunk_age="
+                      f"{age if age is None else round(age, 2)}s exc={s['consumer_exc_count']} "
+                      f"cb={','.join(s['callback_names'])} -> L1-reopen")
+        _wd_state["l1"] = now                            # stamp ONLY when issuing the L1
+        _hub.request_l1_recovery()                       # return value ignored — ladder anchors on the stamp
+        return
+    # else: within the 10 s L1->L2 observation window — deliberately no action
+
+
+def _hub_watchdog_loop(interval=2.0):
+    while not _hub_watchdog_stop.is_set():
+        time.sleep(interval)
+        try:
+            _hub_watchdog_tick()
+        except Exception as e:
+            queue_message(f"ERROR: audio hub watchdog tick failed: {e}")
+
+
+_hub_watchdog_stop = threading.Event()
+_hub_watchdog_thread = None
+
+
+def start_hub_watchdog(interval=2.0):
+    """Start the supervision daemon (idempotent). Consumed by boot wiring."""
+    global _hub_watchdog_thread
+    if _hub_watchdog_thread is not None and _hub_watchdog_thread.is_alive():
+        return
+    _hub_watchdog_stop.clear()
+    _hub_watchdog_thread = threading.Thread(
+        target=_hub_watchdog_loop, args=(interval,),
+        daemon=True, name="audio-hub-watchdog")
+    _hub_watchdog_thread.start()
+
+
+def stop_hub_watchdog():
+    """Signal the daemon loop to exit (thread is daemon)."""
+    _hub_watchdog_stop.set()
+
+
 # ── Public stream helpers ──────────────────────────────────────────
 
 def open_native_stream(**kwargs):
