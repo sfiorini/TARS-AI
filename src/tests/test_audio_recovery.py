@@ -7,10 +7,28 @@ recovery action; only the systemctl subprocess is platform-gated.
 """
 import sys
 import threading
+import types
+from contextlib import ExitStack
 from unittest import mock
 
 from modules import module_audio_recovery
 from modules import module_tts as tts
+
+# Fake Pi-only hardware so module_main (via module_servoctl) imports on any
+# dev machine — same pattern as test_voice_side_effect_dispatch.py.
+if "modules.module_main" not in sys.modules:
+    _board = types.ModuleType("board")
+    _board.SCL = "SCL"
+    _board.SDA = "SDA"
+    _busio = types.ModuleType("busio")
+    _busio.I2C = mock.MagicMock()
+    _pca9685 = types.ModuleType("adafruit_pca9685")
+    _pca9685.PCA9685 = mock.MagicMock()
+    for _name, _mod in (("board", _board), ("busio", _busio),
+                        ("adafruit_pca9685", _pca9685)):
+        sys.modules.setdefault(_name, _mod)
+
+import modules.module_main as module_main  # noqa: E402
 
 
 class TestRestartSoundServer:
@@ -198,3 +216,43 @@ class TestTtsDelegate:
                                side_effect=lambda: recorded.append(1)):
             tts._recover_sound_server()
         assert recorded == [1]
+
+
+class TestPostBootReprobe:
+    """S-M2-08: startup_initialization() must call reprobe_audio() once
+    after the servo-watchdog block, inside a try/except — a reprobe
+    failure must never block boot. This resets TTS output-device resolution
+    and invalidates the hub so the persistent wake stream (opened next at
+    app.py:484) opens against a freshly re-enumerated device instead of
+    hitting -9985 on first playback."""
+
+    def _patches(self):
+        return [
+            mock.patch.object(module_main, "initialize_servos"),
+            mock.patch("modules.module_servoctl.start_servo_watchdog"),
+            mock.patch("modules.module_mic.start_hub_watchdog"),
+            mock.patch("modules.module_cputemp.CPUTempModule"),
+            mock.patch("modules.module_cputemp.set_cpu_temp_instance"),
+            mock.patch("modules.module_cputemp.set_ventilate_callback"),
+            mock.patch("modules.module_cputemp.start_thermal_monitoring"),
+            mock.patch("modules.module_movements.ventilate_on"),
+            mock.patch.object(module_main, "queue_message"),
+        ]
+
+    def test_reprobe_called_at_startup(self):
+        with ExitStack() as stack:
+            for p in self._patches():
+                stack.enter_context(p)
+            reprobe = stack.enter_context(
+                mock.patch("modules.module_audio_recovery.reprobe_audio"))
+            module_main.startup_initialization()
+        reprobe.assert_called_once()
+
+    def test_reprobe_failure_never_blocks_boot(self):
+        with ExitStack() as stack:
+            for p in self._patches():
+                stack.enter_context(p)
+            stack.enter_context(mock.patch(
+                "modules.module_audio_recovery.reprobe_audio",
+                side_effect=RuntimeError("reprobe boom")))
+            module_main.startup_initialization()  # must not raise

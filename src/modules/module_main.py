@@ -606,6 +606,15 @@ def startup_initialization():
             start_servo_watchdog()
         except Exception as e:
             queue_message(f"WARNING: Servo watchdog not started: {e}")
+        # S-M2-08: post-boot audio re-probe — reset TTS output-device
+        # resolution and invalidate the hub so the persistent wake stream
+        # (opened next at app.py:484) sees a freshly re-enumerated device
+        # instead of hitting -9985 on first playback. Never blocks boot.
+        try:
+            from modules.module_audio_recovery import reprobe_audio
+            reprobe_audio()
+        except Exception as e:
+            queue_message(f"WARNING: post-boot audio reprobe failed: {e}")
         try:
             from modules.module_mic import start_hub_watchdog
             start_hub_watchdog()
