@@ -10,7 +10,18 @@ class EchoGate:
     ``min_candidates``) and "bleed" on the non-triggering above-gate frames of
     a streak.  Callers must NOT keep their own streak counter or reset
     anything on "bleed" — the return value IS the trigger signal.
+
+    Candidates ARE emitted while TTS is playing (that is the whole point of
+    barge-in).  TARS's own voice is rejected by the bleed floor: every playing
+    frame feeds an EMA that tracks the peak bleed envelope, and the threshold
+    sits ``bleed_factor`` above it.  ``WARMUP_FRAMES`` playing frames only
+    learn the floor — at playback onset the floor is still 0, so evaluating
+    candidates immediately would let TARS's first syllable cancel itself.
     """
+
+    #: Playing frames that only learn the bleed floor (1 s at 125 ms/frame).
+    WARMUP_FRAMES = 8
+
 
     def __init__(self, silence_threshold, rms_scale, bleed_factor=2.5,
                  min_candidates=2, ema_alpha=0.2):
@@ -23,6 +34,7 @@ class EchoGate:
         self.bleed_floor = 0.0
         self._grace_remaining = 0          # frames
         self._streak = 0
+        self._playing_frames = 0           # warm-up progress while playing
         self._backoff_until = 0.0
 
     @property
@@ -31,18 +43,36 @@ class EchoGate:
                    self.bleed_floor * self.bleed_factor)
 
     def on_frame(self, rms, tts_playing) -> str:
-        """Returns 'candidate' | 'bleed' | 'quiet' | 'grace'."""
+        """Returns 'candidate' | 'bleed' | 'quiet' | 'grace'.
+
+        While ``tts_playing`` the gate both learns the bleed floor and judges
+        the frame against the floor learned BEFORE it (so the first frame of an
+        over-talk is not swallowed by its own EMA update).  The verdict is
+        suppressed during the warm-up frames only.
+        """
         if tts_playing:
+            warm = self._playing_frames >= self.WARMUP_FRAMES
+            kind = self._judge(rms, self.threshold) if warm else "bleed"
+            if kind == "quiet":
+                # while playing, below-threshold is still TARS's own voice
+                # bleeding into the mic — never report it as silence
+                kind = "bleed"
+            if not warm:
+                self._playing_frames += 1
+                self._streak = 0
             self.bleed_floor = ((1 - self.ema_alpha) * self.bleed_floor
                                 + self.ema_alpha * max(rms, self.bleed_floor))
             self._grace_remaining = 2       # 2 frames = 250 ms echo grace
-            self._streak = 0
-            return "bleed"
+            return kind
         if self._grace_remaining > 0:
             self._grace_remaining -= 1
             self._streak = 0
             return "grace"
-        if rms > self.threshold:
+        return self._judge(rms, self.threshold)
+
+    def _judge(self, rms, threshold) -> str:
+        """Streak logic shared by the playing and non-playing paths."""
+        if rms > threshold:
             self._streak += 1
             if self._streak >= self.min_candidates:
                 self._streak = 0

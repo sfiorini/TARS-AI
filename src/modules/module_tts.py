@@ -948,11 +948,10 @@ async def play_audio_chunks(text, config, is_wakeword=False, emotion=None):
                             # loop (module_stt) then collected the robot's own voice
                             # and cancelled playback mid-sentence. Clear only once the
                             # utterance's audio has actually drained.
-                            # Trade-off: mic-based barge-in is no longer available
-                            # mid-utterance while a stream is continuously fed — it
-                            # becomes available once audio drains. Wake-word
-                            # interruption uses a separate path (stop_tts_playback)
-                            # and is unaffected.
+                            # NOTE: holding the flag does NOT disable mid-utterance
+                            # barge-in — the echo gate judges every frame while the
+                            # flag is set and rejects TARS's own voice with its bleed
+                            # floor (it only needs ~8 warm-up frames at onset).
                             # Pinned by test_flag_held_while_pending_cleared_when_drained_documented_residual
                             # and test_flag_does_not_flicker_between_streamed_slices
                             # (src/tests/test_tts_playback_recovery.py).

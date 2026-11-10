@@ -136,6 +136,33 @@ class BargeinMonitorTestCase(unittest.TestCase):
 
 
 class TestBargeinFrameLoop(BargeinMonitorTestCase):
+    def test_trigger_fires_while_tts_playing(self):
+        """THE regression test for dead barge-in.
+
+        The robot streams TTS continuously, so ``is_tts_playing()`` is True
+        for ~90% of an utterance.  The loop used to discard every frame while
+        playing (``continue``), and the gate always returned "bleed" for
+        ``tts_playing=True`` — together that made interrupting TARS mid-sentence
+        impossible; only the ~1 s of gaps between sentences could trigger.
+
+        Here the floor learns quiet playback (amplitude 10), then the user
+        talks over TARS (amplitude 3000) WHILE TTS is still playing: the
+        monitor must stop playback exactly once and capture the utterance.
+        """
+        self.tts_playing = True
+        self.mic_frames = (
+            [frame(10)] * 12                              # playback warm-up: learn the floor
+            + [frame(3000), frame(3001)]                  # user talks over TARS -> trigger
+            + [frame(3002)]                               # post-trigger speech
+            + [frame(11)] * 8)                            # ~1 s silence -> end of utterance
+        self.run_loop(veto_fn=lambda u: True)
+        self.assertEqual([1], self.stop_calls,
+                         "barge-in never fired while TTS was playing — the "
+                         "mid-utterance interruption path is dead")
+        self.assertEqual(["barge-in"], self.cancel_calls)
+        self.assertIsNotNone(self.mgr._bargein_captured)
+        self.assertTrue(self.mgr._bargein_captured_ready.is_set())
+
     def test_bleed_frames_never_trigger(self):
         """Above-gate frames while TTS is playing are bleed — never a trigger."""
         self.tts_playing = True

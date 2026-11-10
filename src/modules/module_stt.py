@@ -2077,14 +2077,15 @@ class STTManager:
                     rms = self._compute_rms_fast(data)
                     rms = rms if rms is not None else 0.0
 
-                    if is_tts_playing():
-                        # Never a candidate while playing: the gate only
-                        # tracks the bleed-floor EMA and arms echo grace.
-                        gate.on_frame(rms, tts_playing=True)
-                        pre_roll.append(data)
-                        continue
-
-                    kind = gate.on_frame(rms, tts_playing=False)
+                    # Every frame is judged — INCLUDING while TTS plays.
+                    # The old `if is_tts_playing(): ... continue` discard (and
+                    # the gate's matching "never emit candidate while playing")
+                    # made mid-utterance barge-in structurally impossible: the
+                    # robot streams audio continuously, so the flag is set for
+                    # ~90% of an utterance and only the gaps between sentences
+                    # could ever trigger.  The gate rejects TARS's own voice
+                    # with its bleed floor instead of by discarding frames.
+                    kind = gate.on_frame(rms, tts_playing=is_tts_playing())
                     if kind == "candidate":
                         # "candidate" is returned ONLY on the triggering
                         # frame — it IS the trigger.  No loop-level streak,

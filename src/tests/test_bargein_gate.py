@@ -58,11 +58,67 @@ class TestEchoGate(unittest.TestCase):
         gate = make_gate()
         self.assertEqual(gate.on_frame(0.0, tts_playing=False), "quiet")
 
-    def test_playing_never_emits_candidate(self):
-        """While tts_playing the gate NEVER returns 'candidate'."""
+    def test_playing_bleed_level_never_triggers(self):
+        """TARS's OWN voice must never trigger barge-in.
+
+        Frames at the bleed level (the level the floor has learned) stay
+        below threshold* — the floor tracks the peak envelope and the
+        threshold is bleed_factor above it, so steady bleed can never
+        produce a candidate.
+
+        *(This replaces the old ``test_playing_never_emits_candidate``
+        invariant, which said playing frames can NEVER be candidates.
+        That invariant made barge-in structurally impossible: the robot
+        streams audio continuously, so ``is_tts_playing()`` is True for
+        ~90% of an utterance and the user could only ever interrupt in
+        the gaps.  The correct invariant is the one asserted here.)"""
+        gate = make_gate(min_candidates=1)
+        for _ in range(40):
+            self.assertNotEqual(gate.on_frame(0.05, tts_playing=True), "candidate")
+
+    def test_playing_warmup_never_emits_candidate(self):
+        """Playback-onset warm-up: the first playing frames only LEARN the
+        bleed floor.  Without this, the floor starts at 0, the threshold
+        collapses to silence_threshold*rms_scale, and TARS's own first
+        syllable would cancel its own utterance."""
+        gate = make_gate(min_candidates=1)
+        for _ in range(EchoGate.WARMUP_FRAMES):
+            self.assertEqual(gate.on_frame(10.0, tts_playing=True), "bleed")
+
+    def test_playing_emits_candidate_when_user_talks_over_bleed(self):
+        """THE core barge-in contract: while TARS is playing, a frame well
+        above the learned bleed floor IS a candidate."""
         gate = make_gate(min_candidates=1)
         for _ in range(20):
-            self.assertEqual(gate.on_frame(10.0, tts_playing=True), "bleed")
+            gate.on_frame(0.05, tts_playing=True)      # learn the bleed floor
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "candidate")
+
+    def test_playing_candidate_requires_streak(self):
+        """The candidate streak accumulates across PLAYING frames too."""
+        gate = make_gate(min_candidates=2)
+        for _ in range(20):
+            gate.on_frame(0.05, tts_playing=True)
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "bleed")
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "candidate")
+
+    def test_playing_first_loud_frame_uses_pre_update_floor(self):
+        """The frame that jumps to the user's volume must be judged against
+        the floor learned BEFORE it — otherwise its own EMA update raises
+        the threshold above itself and swallows the trigger."""
+        gate = make_gate(min_candidates=1)
+        for _ in range(20):
+            gate.on_frame(0.05, tts_playing=True)
+        # a single frame, 100x the floor: must trigger on THIS frame
+        self.assertEqual(gate.on_frame(5.0, tts_playing=True), "candidate")
+
+    def test_playing_returns_to_bleed_after_trigger(self):
+        """After a trigger the streak resets, so the immediately following
+        bleed-level frame does not double-fire."""
+        gate = make_gate(min_candidates=1)
+        for _ in range(20):
+            gate.on_frame(0.05, tts_playing=True)
+        self.assertEqual(gate.on_frame(1.0, tts_playing=True), "candidate")
+        self.assertNotEqual(gate.on_frame(0.05, tts_playing=True), "candidate")
 
     def test_grace_after_playback(self):
         """Two grace frames after playback stops — no candidates (residual echo)."""
