@@ -758,7 +758,12 @@ class STTManager:
                 backoff = 0.5
             except Exception as e:
                 queue_message(f"ERROR: STT loop iteration failed ({e}) — retrying in {backoff:.1f}s")
-                time.sleep(backoff)
+                # Interruptible backoff: stop() joins this thread with a 3 s
+                # timeout, so a blind time.sleep(backoff) (up to 5 s) would let
+                # the thread outlive stop(). wait() returns True as soon as the
+                # shutdown event is set, so shutdown is never delayed.
+                if self.shutdown_event.wait(backoff):
+                    break
                 backoff = min(backoff * 2, 5.0)
         queue_message("INFO: STT Manager stopped.")
 

@@ -57,7 +57,10 @@ class TestSttLoopFailSafe:
             return False
 
         monkeypatch.setattr(mgr, "_detect_wake_word", fake_detect)
-        monkeypatch.setattr(module_stt.time, "sleep", lambda s: sleeps.append(s))
+        # Backoff is observed via the interruptible wait, not time.sleep
+        # (M2/F4: the loop must not sleep blind through shutdown).
+        monkeypatch.setattr(mgr.shutdown_event, "wait",
+                            lambda timeout: (sleeps.append(timeout), False)[1])
         with mock.patch.object(module_stt, "queue_message") as qmsg:
             t = threading.Thread(target=mgr._stt_processing_loop, daemon=True)
             t.start()
@@ -84,7 +87,10 @@ class TestSttLoopFailSafe:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(mgr, "_detect_wake_word", fake_detect)
-        monkeypatch.setattr(module_stt.time, "sleep", lambda s: sleeps.append(s))
+        # Backoff is observed via the interruptible wait, not time.sleep
+        # (M2/F4: the loop must not sleep blind through shutdown).
+        monkeypatch.setattr(mgr.shutdown_event, "wait",
+                            lambda timeout: (sleeps.append(timeout), False)[1])
         with mock.patch.object(module_stt, "queue_message"):
             mgr._stt_processing_loop()          # run inline; loop must terminate
 
@@ -212,10 +218,43 @@ class TestBackoffResetsOnCleanIteration:
             return False        # clean iteration, no wake word detected
 
         monkeypatch.setattr(mgr, "_detect_wake_word", fake_detect)
-        monkeypatch.setattr(module_stt.time, "sleep", lambda s: sleeps.append(s))
+        # Backoff is observed via the interruptible wait, not time.sleep
+        # (M2/F4: the loop must not sleep blind through shutdown).
+        monkeypatch.setattr(mgr.shutdown_event, "wait",
+                            lambda timeout: (sleeps.append(timeout), False)[1])
         with mock.patch.object(module_stt, "queue_message"):
             mgr._stt_processing_loop()      # run inline; loop must terminate
 
         assert sleeps == [0.5, 0.5], (
             "backoff must reset after the clean iteration (second sleep 0.5, "
             "not 1.0), got %s" % sleeps)
+
+
+class TestSttBackoffInterruptible:
+    """M2 review F4: the backoff sleep must not delay shutdown by up to 5 s.
+    `_stt_processing_loop` runs on a daemon thread that `stop()` joins with a
+    3 s timeout — an uninterruptible 5 s sleep means the join times out and
+    the thread outlives stop()."""
+
+    def test_backoff_breaks_on_shutdown_event(self):
+        mgr = _minimal_manager()
+        calls = {"n": 0}
+
+        def fake_detect():
+            calls["n"] += 1
+            mgr.running = False        # bound the loop: one iteration only
+            raise RuntimeError("boom")  # force the backoff path
+
+        def fake_wait(timeout):
+            mgr.shutdown_event.set()
+            return True                 # "the event became set"
+
+        with mock.patch.object(mgr, "_detect_wake_word", fake_detect), \
+             mock.patch.object(mgr.shutdown_event, "wait", fake_wait), \
+             mock.patch.object(module_stt.time, "sleep") as sleep_mock:
+            mgr._stt_processing_loop()
+
+        assert calls["n"] == 1, "must not retry after shutdown was signalled"
+        # RED before the fix: the loop used time.sleep(backoff), a blind wait
+        # that ignores shutdown_event entirely.
+        sleep_mock.assert_not_called()
