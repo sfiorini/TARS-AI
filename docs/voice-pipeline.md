@@ -75,7 +75,7 @@ Related: `vad_method` (end-of-speech; `smart-turn` default on Pi5), `speechdelay
 `module_llm.py` POSTs to **your own endpoint from the Pi**: `[LLM] llm_backend = other`, `base_url` (e.g. `https://api.mistral.ai`), `other_model` (e.g. **`zai-glm-5-3-flash`**), key from `OTHER_API_KEY` as `Authorization: Bearer …`, to `{base_url}/v1/chat/completions` (deepinfra uses `/v1/openai/chat/completions`). The prompt is assembled from the character card + `systemprompt` + RAG memories + skill definitions; `json_mode = True` requests the structured `{"reply", "function_calls", "new_memories"}` reply that the router then executes.
 
 !!! note "Fork fix: GLM/Mistral list-block content"
-    Mistral's GLM models stream `delta.content` as a **list of blocks** (`[{"type":"thinking",…},{"type":"text","text":…}]`). Upstream joined the blocks as strings → `TypeError` → the reply was silently discarded (empty answers in `tars-ai.log`). This fork normalizes it in `_delta_text()` (`module_llm.py`), keeping only `type == "text"` blocks; the same fix is applied to vision reads in `module_vision.py`. Regression tests: `src/tests/test_module_llm_delta.py` (8), `test_module_vision_glm.py` (2).
+    Mistral's GLM models stream `delta.content` as a **list of blocks** (`[{"type":"thinking",…},{"type":"text","text":…}]`). Upstream joined the blocks as strings → `TypeError` → the reply was silently discarded (empty answers in `tars-ai.log`). This fork normalizes it in `content_text()` (`module_llm.py`), keeping only `type == "text"` blocks; the same fix is applied to vision reads in `module_vision.py`. Regression tests: `src/tests/test_module_llm_delta.py` (8), `test_module_vision_glm.py` (2).
 
 ## Deferred reply loop (D1)
 
@@ -164,7 +164,7 @@ mic ──► wake word (atomik, sensitivity 1-10) ──► record until EOS (v
                                                             │
                                           + RAG memories + vision caption + emotion + speaker id
                                                             │
-                                          LLM: {base_url}/v1/chat/completions (streamed SSE, _delta_text fix)
+                                          LLM: {base_url}/v1/chat/completions (streamed SSE, content_text fix)
                                                             │
                                           reply text ──► TTS chain: ttsoption ──► tts_fallback_list ──► … ──► espeak
                                           (robot: fishaudio ──► speechify ──► elevenlabs ──► external /tts/generate ──► piper ──► espeak)

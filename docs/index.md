@@ -18,7 +18,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | MCP client: external tool servers (stdio + Streamable HTTP, legacy era) exposed as `mcp_<server>_<tool>`, restart backoff + degraded state, one shipped example server enabled out of the box | `src/modules/module_mcp.py`, `src/mcp_example_server.py`, [mcp.md](mcp.md) |
 | ElevenLabs Scribe `scribe_v2` cloud STT with external-server fallback (30 s timeout) | `src/modules/module_stt.py`, [voice-pipeline.md](voice-pipeline.md) |
 | Configurable ordered TTS provider chain — Fish.audio → Speechify → ElevenLabs → external Piper → local Piper → espeak — with typed-error failover (quota / rate-limit / auth / timeout) and per-request timeouts | `src/modules/module_tts.py`, `module_fishaudio.py`, `module_speechify.py`, [voice-pipeline.md](voice-pipeline.md) |
-| `_delta_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
+| `content_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
 | `App-Stop.py` TERM→KILL escalation (pygame/SDL swallows the first SIGTERM) | `App-Stop.py`, [running.md](running.md) |
 | Piper `./voices` bind mount in the server's docker-compose (voice weights are not in the repo) | `TARS-AI_Server/docker-compose.yml`, [server-mode.md](server-mode.md) |
 

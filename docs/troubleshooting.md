@@ -4,7 +4,7 @@ Known symptoms on the V3 fork, their cause, and the fix. Logs first: `tail -f sr
 
 ## TARS answers with empty replies
 
-**Fixed in this fork.** Mistral's GLM models (`zai-glm-5-3-flash` via `[LLM] llm_backend = other`, `base_url = https://api.mistral.ai`) stream `delta.content` as a **list of content blocks**; upstream code joined the blocks as strings → `TypeError` → the reply was discarded (repeated in `tars-ai.log`). V3 normalizes it in `_delta_text()` (`module_llm.py`; also applied to vision reads in `module_vision.py`; tests `test_module_llm_delta.py`, `test_module_vision_glm.py`). If you still see empty replies: confirm you're on `V3` (`git branch`), check the key in `.env` (`OTHER_API_KEY`), and that `base_url` + `other_model` name a chat-completions endpoint. If `json_mode = True` is rejected by your backend, set it to `False`.
+**Fixed in this fork.** Mistral's GLM models (`zai-glm-5-3-flash` via `[LLM] llm_backend = other`, `base_url = https://api.mistral.ai`) stream `delta.content` as a **list of content blocks**; upstream code joined the blocks as strings → `TypeError` → the reply was discarded (repeated in `tars-ai.log`). V3 normalizes it in `content_text()` (private `_delta_text` alias kept) (`module_llm.py`; also applied to vision reads in `module_vision.py`; tests `test_module_llm_delta.py`, `test_module_vision_glm.py`). If you still see empty replies: confirm you're on `V3` (`git branch`), check the key in `.env` (`OTHER_API_KEY`), and that `base_url` + `other_model` name a chat-completions endpoint. If `json_mode = True` is rejected by your backend, set it to `False`.
 
 ## STT is slow or hears nothing
 
