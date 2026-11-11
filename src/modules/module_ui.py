@@ -36,6 +36,7 @@ import cv2
 import time as _time
 
 from module_config import load_config
+from modules.module_messageQue import queue_message
 from UI.module_ui_particles import ParticleSystem
 from UI.module_ui_starfield import StarfieldSystem
 from UI.module_ui_tesseract import TesseractSystem
