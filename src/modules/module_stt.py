@@ -618,6 +618,8 @@ class STTManager:
                 # Abort recording if TTS just started — don't pick up TARS's own voice
                 if is_tts_playing():
                     set_tars_state(TarsState.STANDBY)
+                    _, clear_bar = self._get_progress_bar()
+                    clear_bar()
                     return None, 0
 
                 is_silence, detected_speech, silent_frames = vad_func(data, detected_speech, silent_frames)
@@ -1299,7 +1301,9 @@ class STTManager:
                 # Abort recording if TTS just started — don't pick up TARS's own voice
                 if is_tts_playing():
                     set_tars_state(TarsState.STANDBY)
-                    return None, 0
+                    _, clear_bar = self._get_progress_bar()
+                    clear_bar()
+                    return None
 
                 is_silence, detected_speech, silent_frames = vad_func(data, detected_speech, silent_frames)
 
