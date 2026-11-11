@@ -12,9 +12,11 @@ but two non-streaming consumers called ``.strip()`` on the raw value:
 
 These tests pin the extractor's contract and the two call sites.
 """
+import re
 import sys
 import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 import modules.module_llm as module_llm
@@ -146,3 +148,31 @@ class TestRadioDjIntroUsesExtractor(unittest.TestCase):
         self._run_dj_intro([{"type": "text", "text": "answer long enough"}], captured)
         self.assertTrue(captured, "no request payload captured")
         self.assertGreaterEqual(captured[0]["max_tokens"], 500)
+
+
+_ANTIPATTERN = re.compile(
+    r"\[\s*['\"]message['\"]\s*\]\s*\[\s*['\"]content['\"]\s*\]\s*\.\s*strip\s*\("
+)
+
+
+class TestNoRawContentStrip(unittest.TestCase):
+    """Source-scan guard: raw ['message']['content'].strip() is the GLM bug."""
+
+    def test_no_raw_message_content_strip_in_src(self):
+        src_root = Path(__file__).resolve().parents[1]
+        offenders = []
+        for py in sorted(src_root.rglob("*.py")):
+            if py.relative_to(src_root).parts[0] == "tests":
+                continue
+            for lineno, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+                if _ANTIPATTERN.search(line):
+                    offenders.append(f"{py.relative_to(src_root.parent)}:{lineno}")
+        self.assertEqual(
+            offenders, [],
+            "raw `['message']['content'].strip()` — GLM models return a block list; "
+            "use `modules.module_llm.content_text()` first",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()
