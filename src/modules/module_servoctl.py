@@ -684,14 +684,15 @@ def initialize_servos():
 
     time.sleep(0.1)
 
-    # Gently re-engage servos at their saved positions before moving to neutral
+    # Gently re-engage servos at their saved positions before moving to
+    # neutral (0.1 s per channel — soft-start, one channel at a time)
     if servo_positions:
         for channel, value in servo_positions.items():
             set_servo_pwm(int(channel), value)
-            time.sleep(0.02)
+            time.sleep(0.1)
         time.sleep(0.3)
 
-    reset_positions()
+    reset_positions(soft=True)
     print("All servos initialized")
 
 def disable_all_servos():
@@ -743,40 +744,91 @@ def _reapply_engaged_positions():
             set_servo_pwm(int(channel), value)
             time.sleep(0.02)
 
-def reset_positions():
+def _start_boot_current_sampler():
+    """Informational INA260 logging during the boot movement (S-M2-06):
+    a daemon thread samples the battery module's current every 0.5 s until
+    the returned stop-Event is set. INA260 is NOT a health signal — idle
+    servos are deliberately de-energized and draw ~0 either way — so this
+    gates nothing; a read failure is swallowed and never breaks the boot
+    path. Returns None when no battery module is present (no thread)."""
+    if battery_module is None:
+        return None
+    done = threading.Event()
+
+    def _sample():
+        while not done.wait(0.5):
+            try:
+                current = battery_module.current
+                queue_message(f"INFO: boot current={current:.2f}A")
+            except Exception:
+                pass  # logging only — never gate the boot path on INA260
+
+    thread = threading.Thread(target=_sample, daemon=True,
+                              name="ina260-boot-sampler")
+    thread.start()
+    return done
+
+
+def reset_positions(soft=False):
+    """Move all servos to neutral. soft=True (the boot path) energizes one
+    servo group at a time — leg pairs, then LEFT arm only, then RIGHT arm
+    only, 0.3 s settles between phases — halving peak simultaneous inrush
+    vs the single 6-servo move_arm. The hard path (default) is unchanged
+    for every non-boot caller."""
     global servo_positions
 
-    move_legs(20, 20, None, None, 0.6)
+    # BOOT-ONLY instrumentation: sample INA260 current during the soft
+    # (boot) movement. The hard path is byte-identical to pre-M2 for
+    # non-boot callers — no sampler thread, no log lines.
+    stop_sampler = _start_boot_current_sampler() if soft else None
+    try:
+        move_legs(20, 20, None, None, 0.6)
 
-    # Use saved positions as starting points (don't overwrite them)
-    # This ensures smooth movement from last known position to neutral
-    neutral_defaults = {
-        0: leftNeutralHeight,
-        1: rightNeutralHeight,
-        2: neutralLeftLeg,
-        3: neutralRightLeg,
-        4: leftMainMin,
-        5: leftForarmMin,
-        6: leftHandMin,
-        7: rightMainMin,
-        8: rightForarmMin,
-        9: rightHandMin,
-    }
-    for ch, val in neutral_defaults.items():
-        if ch not in servo_positions:
-            servo_positions[ch] = val
+        # Use saved positions as starting points (don't overwrite them)
+        # This ensures smooth movement from last known position to neutral
+        neutral_defaults = {
+            0: leftNeutralHeight,
+            1: rightNeutralHeight,
+            2: neutralLeftLeg,
+            3: neutralRightLeg,
+            4: leftMainMin,
+            5: leftForarmMin,
+            6: leftHandMin,
+            7: rightMainMin,
+            8: rightForarmMin,
+            9: rightHandMin,
+        }
+        for ch, val in neutral_defaults.items():
+            if ch not in servo_positions:
+                servo_positions[ch] = val
 
-    disable_all_servos()
+        disable_all_servos()
 
-    move_legs(30, 30, 50, 50, 0.5)
-    time.sleep(0.2)
-    move_legs(50, 50, 50, 50, 0.5)
-    time.sleep(0.3)
+        if soft:
+            # Boot soft-start: one servo group at a time, 0.3 s settles
+            move_legs(30, 30, 50, 50, 0.5)
+            time.sleep(0.3)
+            move_legs(50, 50, 50, 50, 0.5)
+            time.sleep(0.3)
+            move_arm(left_main=1, left_forearm=1, left_hand=1,
+                     speed_factor=0.3)
+            time.sleep(0.3)
+            move_arm(right_main=1, right_forearm=1, right_hand=1,
+                     speed_factor=0.3)
+            time.sleep(0.3)
+        else:
+            move_legs(30, 30, 50, 50, 0.5)
+            time.sleep(0.2)
+            move_legs(50, 50, 50, 50, 0.5)
+            time.sleep(0.3)
 
-    move_arm(1, 1, 1, 1, 1, 1, 0.3)
-    time.sleep(0.5)
+            move_arm(1, 1, 1, 1, 1, 1, 0.3)
+            time.sleep(0.5)
 
-    disable_all_servos()
+        disable_all_servos()
+    finally:
+        if stop_sampler is not None:
+            stop_sampler.set()
 
 def move_servos_synchronized(movements, speed_factor, easing_strength=None):
     """
