@@ -54,9 +54,11 @@ class _FakeRunner:
     def __init__(self, started):
         self.started = started
         self.start_turn_calls = []
+        self.last_callbacks = None
 
     def start_turn(self, parsed, user_text, source, callbacks):
-        self.start_turn_calls.append((parsed, user_text, source))
+        self.start_turn_calls.append((parsed, user_text, source, callbacks))
+        self.last_callbacks = callbacks
         return self.started
 
 
@@ -305,3 +307,180 @@ class TestFollowupRestoreTarget(unittest.TestCase):
         from modules.module_state import TarsState
         self.assertEqual(module_main._followup_restore_target(TarsState.THINKING),
                          TarsState.STANDBY)
+
+
+class TestFollowupCleanupExceptionSafe(unittest.TestCase):
+    """G4: `_speak_followup` cleanup must be exception-safe.
+
+    Deliberately does NOT inherit _VoiceTurnTestCase — its setUp patches
+    module_main.set_tars_state, which would make every CAS assertion
+    meaningless. These tests run against the REAL state machine (reset
+    per test, like test_module_state_restore.py).
+    """
+
+    _PARSED = {"reply": "On it.", "function_calls": [], "new_memories": []}
+
+    def setUp(self):
+        from modules.module_state import TarsState, set_tars_state
+        set_tars_state(TarsState.STANDBY)
+        self.addCleanup(set_tars_state, TarsState.STANDBY)
+
+        # module-level globals other tests may have touched
+        for name in ("ui_manager", "stt_manager", "memory_manager"):
+            saved = getattr(module_main, name)
+            setattr(module_main, name, None)
+            self.addCleanup(setattr, module_main, name, saved)
+
+        self.stt = mock.MagicMock()
+        module_main.stt_manager = self.stt
+        module_main.ui_manager = mock.MagicMock()
+
+        # speed profiler
+        for attr in ("mark_utterance_start", "start", "stop", "log_tool"):
+            p = mock.patch.object(module_speed, attr)
+            p.start()
+            self.addCleanup(p.stop)
+        p = mock.patch.object(module_speed, "enabled", False)
+        p.start()
+        self.addCleanup(p.stop)
+
+        p = mock.patch.object(module_toolloop, "bump_epoch")
+        p.start()
+        self.addCleanup(p.stop)
+
+        p = mock.patch.object(module_llm, "llm_execute_side_effects")
+        p.start()
+        self.addCleanup(p.stop)
+        p = mock.patch.object(module_llm, "write_turn_memories")
+        p.start()
+        self.addCleanup(p.stop)
+
+        for attr in ("detect_emotion", "detect_emotion_from_llm"):
+            p = mock.patch.object(module_main, attr,
+                                  return_value=(None, None, {}))
+            p.start()
+            self.addCleanup(p.stop)
+
+        p = mock.patch.object(module_main, "SentenceTTSPipeline")
+        p.start()
+        self.addCleanup(p.stop)
+
+        self.play_mock = mock.AsyncMock(return_value=False)
+        p = mock.patch.object(module_main, "play_audio_chunks",
+                              new=self.play_mock)
+        p.start()
+        self.addCleanup(p.stop)
+
+        self.queued = []
+        p = mock.patch.object(module_main, "queue_message",
+                              side_effect=self.queued.append)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _run_voice_turn(self, parsed, runner, preemptive=True):
+        p = mock.patch.object(module_toolloop, "get_loop_runner",
+                              return_value=runner)
+        p.start()
+        self.addCleanup(p.stop)
+        if preemptive:
+            message = json.dumps({"text": "check the weather",
+                                 "preemptive_llm_result": parsed})
+        else:
+            message = json.dumps({"text": "check the weather"})
+        module_main.utterance_callback(message)
+
+    def test_followup_tts_exception_restores_standby_and_stops_monitor(self):
+        from modules.module_state import (TarsState, get_tars_state,
+                                          set_tars_state)
+        self.play_mock.side_effect = RuntimeError("tts boom")
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(self._PARSED, runner)
+        self.assertIsNotNone(runner.last_callbacks)
+        set_tars_state(TarsState.STANDBY)
+        self.stt.reset_mock()
+        with self.assertRaises(RuntimeError):
+            runner.last_callbacks.speak("It is sunny in Rome.")
+        self.assertEqual(TarsState.STANDBY, get_tars_state())
+        self.stt.start_bargein_monitor.assert_called_once()
+        self.stt.stop_bargein_monitor.assert_called_once()
+
+    def test_followup_tts_exception_restores_listening_when_round_live(self):
+        from modules.module_state import (TarsState, get_tars_state,
+                                          set_tars_state)
+        self.play_mock.side_effect = RuntimeError("tts boom")
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(self._PARSED, runner)
+        set_tars_state(TarsState.LISTENING)
+        self.stt.reset_mock()
+        with self.assertRaises(RuntimeError):
+            runner.last_callbacks.speak("It is sunny in Rome.")
+        self.assertEqual(TarsState.LISTENING, get_tars_state())
+        self.stt.start_bargein_monitor.assert_called_once()
+        self.stt.stop_bargein_monitor.assert_called_once()
+
+    def test_followup_tts_exception_yields_when_state_stolen_during_playback(self):
+        from modules.module_state import (TarsState, get_tars_state,
+                                          set_tars_state)
+
+        def _steal_then_raise(*args, **kwargs):
+            set_tars_state(TarsState.STANDBY)   # STT thread parks mid-playback
+            raise RuntimeError("tts boom")
+
+        self.play_mock.side_effect = _steal_then_raise
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(self._PARSED, runner)
+        set_tars_state(TarsState.LISTENING)     # round live when follow-up starts
+        self.stt.reset_mock()
+        with self.assertRaises(RuntimeError):
+            runner.last_callbacks.speak("It is sunny in Rome.")
+        # CAS yields: the STT thread's STANDBY wins — no clobber to LISTENING
+        self.assertEqual(TarsState.STANDBY, get_tars_state())
+        self.stt.stop_bargein_monitor.assert_called_once()
+
+    def test_followup_happy_path_stops_monitor_once(self):
+        from modules.module_state import (TarsState, get_tars_state,
+                                          set_tars_state)
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(self._PARSED, runner)
+        set_tars_state(TarsState.STANDBY)
+        self.stt.reset_mock()
+        runner.last_callbacks.speak("It is sunny in Rome.")
+        self.assertEqual(TarsState.STANDBY, get_tars_state())
+        self.stt.start_bargein_monitor.assert_called_once()
+        self.stt.stop_bargein_monitor.assert_called_once()
+
+    def test_preemptive_tts_exception_stops_monitor_and_sets_gate(self):
+        from modules.module_state import TarsState, get_tars_state
+        self.play_mock.side_effect = RuntimeError("tts boom")
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(self._PARSED, runner)
+        # utterance_callback's function-wide except swallows the error and
+        # queues it (the robot-visible channel) — assert it got that far:
+        errors = [m for m in self.queued
+                  if isinstance(m, str) and m.startswith("ERROR:")]
+        self.assertTrue(any("tts boom" in m for m in errors),
+                        f"expected the TTS exception on the queue, "
+                        f"got {self.queued!r}")
+        self.stt.stop_bargein_monitor.assert_called_once()
+        self.assertTrue(runner.last_callbacks.wait_for_reply0.is_set())
+        self.assertEqual(TarsState.LISTENING, get_tars_state())
+
+    def test_streaming_join_exception_stops_monitor_and_sets_gate(self):
+        parsed = {"reply": "Hello there.", "function_calls": [],
+                  "new_memories": []}
+        pipeline_mock = module_main.SentenceTTSPipeline.return_value
+        pipeline_mock.remainder = ""
+        pipeline_mock.join.side_effect = RuntimeError("join boom")
+        p = mock.patch.object(module_main, "process_completion",
+                              return_value=parsed)
+        p.start()
+        self.addCleanup(p.stop)
+        runner = _FakeRunner(started=False)
+        self._run_voice_turn(parsed, runner, preemptive=False)
+        errors = [m for m in self.queued
+                  if isinstance(m, str) and m.startswith("ERROR:")]
+        self.assertTrue(any("join boom" in m for m in errors),
+                        f"expected the join exception on the queue, "
+                        f"got {self.queued!r}")
+        self.stt.stop_bargein_monitor.assert_called_once()
+        self.assertTrue(runner.last_callbacks.wait_for_reply0.is_set())

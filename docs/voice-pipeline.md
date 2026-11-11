@@ -96,6 +96,7 @@ IDLE ──start_turn──► CLASSIFY
 - **Hop bound**: `[LLM] tool_loop_max_hops` (default 2) — a follow-up that itself asks for more tools loops at most this many times; at the limit with work still pending, TARS speaks `"I hit a snag finishing that — check the logs."`
 - **Timeouts**: per-tool `tool_call_timeout` (default 60 s), per-LLM-request `request_timeout` (default 120 s); overall turn deadline = `max_hops × (tool_call_timeout + request_timeout)`. A timed-out tool is fed to the model as `ERROR: timeout` so it can recover.
 - **Cancellation**: every new utterance bumps a per-source epoch; a stale turn goes `CANCELLED` and its results are discarded — they are never injected into the new turn's context. If you speak again while a tool is running, the running turn is abandoned and the new utterance is processed fresh.
+- **Failure safety**: a deferred follow-up only borrows TALKING while it speaks; its cleanup — stopping the barge-in monitor and handing the state back — runs in a `try/finally`, so a TTS crash mid-follow-up cannot leave the robot stuck on TALKING with the barge-in mic still open.
 - **Rollback**: set `[LLM] deferred_loop_enabled = false` and restart — result-bearing builtin tools fall back to the old inline blocking behavior for one release.
 
 ## 4. Text-to-speech — configurable ordered provider chain

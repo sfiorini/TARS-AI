@@ -395,27 +395,32 @@ def utterance_callback(message):
                 # state while it speaks and must hand it back afterwards.
                 prev_state = get_tars_state()
                 set_tars_state(TarsState.TALKING)
-                if ui_manager:
-                    ui_manager.update_streaming_data(text)
-                if stt_manager:
-                    stt_manager.start_bargein_monitor(tts_text=followup_clean)
-                speed.start('followup_tts')
-                asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
-                speed.log_tool('followup_tts', speed.stop('followup_tts'))
-                if stt_manager:
-                    stt_manager.stop_bargein_monitor()
-                # Hand the state back — do NOT force LISTENING. This thread does
-                # not own the listening session: it may already have ended.
-                # Observed on the robot: a 7.1 s web_search meant the STT thread
-                # had run its round, timed out, published STANDBY and parked in
-                # the wake detector before this follow-up even started. The old
-                # unconditional LISTENING was then the last write in the process,
-                # leaving the UI on LISTENING forever with no round behind it
-                # (wake word worked, plain speech did not). restore_state_if_owned
-                # also yields if the STT thread (or a wake word) wrote during
-                # playback, so a live round still ends up LISTENING.
-                restore_state_if_owned(_followup_restore_target(prev_state),
-                                       TarsState.TALKING)
+                try:
+                    if ui_manager:
+                        ui_manager.update_streaming_data(text)
+                    if stt_manager:
+                        stt_manager.start_bargein_monitor(tts_text=followup_clean)
+                    speed.start('followup_tts')
+                    asyncio.run(play_audio_chunks(followup_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
+                    speed.log_tool('followup_tts', speed.stop('followup_tts'))
+                finally:
+                    # RESTORE FIRST: if stop_bargein_monitor itself raises (e.g.
+                    # joining a monitor thread that never started), the state
+                    # must already be handed back — never mask the restore.
+                    # Hand the state back — do NOT force LISTENING. This thread does
+                    # not own the listening session: it may already have ended.
+                    # Observed on the robot: a 7.1 s web_search meant the STT thread
+                    # had run its round, timed out, published STANDBY and parked in
+                    # the wake detector before this follow-up even started. The old
+                    # unconditional LISTENING was then the last write in the process,
+                    # leaving the UI on LISTENING forever with no round behind it
+                    # (wake word worked, plain speech did not). restore_state_if_owned
+                    # also yields if the STT thread (or a wake word) wrote during
+                    # playback, so a live round still ends up LISTENING.
+                    restore_state_if_owned(_followup_restore_target(prev_state),
+                                           TarsState.TALKING)
+                    if stt_manager:
+                        stt_manager.stop_bargein_monitor()
                 try:
                     from modules.module_chatui import socketio
                     socketio.emit('bot_message', {'message': text, 'audio_streamed': True})
@@ -468,20 +473,25 @@ def utterance_callback(message):
                 speed.start('tts')
                 was_interrupted = asyncio.run(play_audio_chunks(reply_clean, CONFIG['TTS']['ttsoption'], emotion=emotion))
                 pipeline._duration = speed.stop('tts')
-                if stt_manager:
-                    stt_manager.stop_bargein_monitor()
             else:
                 # Wait for the sentence-pipeline TTS to finish
                 pipeline.join(timeout=120)
+                was_interrupted = pipeline.interrupted
+        finally:
+            # Stop the barge-in monitor BEFORE opening the reply-0 gate: a
+            # follow-up parked at the gate wakes the instant it opens and
+            # starts its own monitor — a stop running AFTER the gate would
+            # kill or duplicate it (two concurrent monitors, the exact bug
+            # family G4 prevents). Stop-before-gate is also timing-identical
+            # to HEAD on the happy path.
+            try:
                 if stt_manager:
                     stt_manager.stop_bargein_monitor()
-                was_interrupted = pipeline.interrupted
-
-        finally:
-            # Reply-0 TTS has drained (or failed) — deferred follow-ups may
-            # now speak; ALWAYS set so a TTS exception can't leave the
-            # follow-up waiting the full REPLY0_GATE_TIMEOUT
-            _reply0_drained.set()
+            finally:
+                # Reply-0 TTS has drained (or failed) — deferred follow-ups may
+                # now speak; ALWAYS set so a TTS exception can't leave the
+                # follow-up waiting the full REPLY0_GATE_TIMEOUT
+                _reply0_drained.set()
 
         # Deferred follow-ups now arrive via _speak_followup on the tool
         # loop's turn thread (D1) — no inline follow-up speaking here
