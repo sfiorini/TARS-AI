@@ -156,7 +156,15 @@ _ANTIPATTERN = re.compile(
 
 
 class TestNoRawContentStrip(unittest.TestCase):
-    """Source-scan guard: raw ['message']['content'].strip() is the GLM bug."""
+    """Source-scan guard: raw ['message']['content'].strip() is the GLM bug.
+
+    Intentionally narrow: this matches only the direct single-line
+    ``['message']['content'].strip()`` form, which is exactly what broke.
+    It will NOT catch the anti-pattern hoisted into a local variable first
+    (``c = ...['content']; c.strip()``) or split across lines — do not weaken
+    or broaden the regex to chase those; the behavioural regression tests in
+    this file are what pin the real behaviour.
+    """
 
     def test_no_raw_message_content_strip_in_src(self):
         src_root = Path(__file__).resolve().parents[1]
