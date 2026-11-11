@@ -276,3 +276,32 @@ class TestSideEffectImportOrderGuard(unittest.TestCase):
                     "call — an import below it makes the name local for "
                     "the whole function and later branches read it "
                     "before assignment (UnboundLocalError)")
+
+
+class TestFollowupRestoreTarget(unittest.TestCase):
+    """Where a deferred follow-up hands the state back to.
+
+    TALKING is a real capture value: the follow-up wakes on the reply-0 drain,
+    which is set BEFORE the main thread writes LISTENING, so prev_state can
+    legitimately be TALKING when the follow-up starts.
+    """
+
+    def test_standby_stays_standby(self):
+        from modules.module_state import TarsState
+        self.assertEqual(module_main._followup_restore_target(TarsState.STANDBY),
+                         TarsState.STANDBY)
+
+    def test_listening_stays_listening(self):
+        from modules.module_state import TarsState
+        self.assertEqual(module_main._followup_restore_target(TarsState.LISTENING),
+                         TarsState.LISTENING)
+
+    def test_talking_falls_back_to_standby(self):
+        from modules.module_state import TarsState
+        self.assertEqual(module_main._followup_restore_target(TarsState.TALKING),
+                         TarsState.STANDBY)
+
+    def test_thinking_falls_back_to_standby(self):
+        from modules.module_state import TarsState
+        self.assertEqual(module_main._followup_restore_target(TarsState.THINKING),
+                         TarsState.STANDBY)

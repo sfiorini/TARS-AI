@@ -35,15 +35,26 @@ def get_tars_state() -> TarsState:
         return _state
 
 
-def set_tars_state(new_state: TarsState) -> None:
-    """Set TARS state. Notifies all registered listeners. Thread-safe."""
+def _swap_state_locked(new_state: TarsState):
+    """Set the state. Caller MUST hold `_lock`.
+
+    Returns (old_state, listeners) when the state actually changed, or None
+    when it was already `new_state`. Kept separate so callers that need the
+    check and the write to be atomic (e.g. restore_state_if_owned) can do
+    both under a single lock acquisition — set_tars_state re-acquires `_lock`
+    and `_lock` is a plain non-reentrant Lock, so calling it while holding the
+    lock would deadlock.
+    """
     global _state
-    with _lock:
-        old = _state
-        if old == new_state:
-            return
-        _state = new_state
-        listeners = _listeners.copy()
+    old = _state
+    if old == new_state:
+        return None
+    _state = new_state
+    return old, _listeners.copy()
+
+
+def _announce_state_change(old: TarsState, new_state: TarsState, listeners) -> None:
+    """Log and notify listeners. MUST be called OUTSIDE `_lock`."""
     # Log state change in debug mode
     try:
         if load_config().get('STT', {}).get('debug', False):
@@ -58,6 +69,41 @@ def set_tars_state(new_state: TarsState) -> None:
             fn(old, new_state)
         except Exception:
             pass
+
+
+def set_tars_state(new_state: TarsState) -> None:
+    """Set TARS state. Notifies all registered listeners. Thread-safe."""
+    with _lock:
+        changed = _swap_state_locked(new_state)
+    if changed is None:
+        return
+    _announce_state_change(changed[0], new_state, changed[1])
+
+
+def restore_state_if_owned(prev_state: TarsState, owned: TarsState) -> bool:
+    """Put the state back to `prev_state`, but only if it is still `owned`.
+
+    For work that temporarily takes the state and must give it back — e.g. a
+    deferred follow-up speaking on the tool-loop thread. If another thread
+    wrote a transition while that work ran, that write wins: the borrower no
+    longer owns the state and must not clobber it.
+
+    The check and the write happen under ONE acquisition of `_lock`, so no
+    competing writer can slip a transition in between them (a plain
+    get-then-set would leave exactly that window open).
+
+    Returns True when the caller still owned the state (including the
+    degenerate prev_state == owned case, which is a no-op and announces
+    nothing), and False when another thread had taken it — in which case
+    nothing is written and no listener fires.
+    """
+    with _lock:
+        if _state != owned:
+            return False
+        changed = _swap_state_locked(prev_state)
+    if changed is not None:
+        _announce_state_change(changed[0], prev_state, changed[1])
+    return True
 
 
 def on_state_change(callback: Callable[[TarsState, TarsState], None]) -> None:

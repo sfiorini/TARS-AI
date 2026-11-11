@@ -19,7 +19,8 @@ from modules.module_llm import process_completion, detect_emotion, detect_emotio
 from modules.module_tts import play_audio_chunks, SentenceTTSPipeline
 from modules.module_messageQue import queue_message
 from modules.module_servoctl import initialize_servos
-from modules.module_state import set_tars_state, TarsState
+from modules.module_state import (set_tars_state, get_tars_state,
+                                  restore_state_if_owned, TarsState)
 
 CONFIG = load_config()
 CAPABILITIES = get_capabilities()
@@ -103,6 +104,21 @@ def wake_word_callback(wake_response):
     asyncio.run(play_audio_chunks(wake_response, CONFIG['TTS']['ttsoption'], True))
 
     set_tars_state(TarsState.LISTENING)
+
+def _followup_restore_target(prev_state: TarsState) -> TarsState:
+    """Where a deferred follow-up should hand the state back to.
+
+    Only an idle robot (STANDBY) or a live listening session (LISTENING) is a
+    meaningful place to return to. Anything else — TALKING (the follow-up woke
+    on the reply-0 drain, which fires before the main thread writes LISTENING),
+    THINKING, BOOTING — resolves to STANDBY, which is where the robot waits for
+    its wake word. Returning a transient state would leave the UI showing
+    something no thread is backing.
+    """
+    if prev_state in (TarsState.LISTENING, TarsState.STANDBY):
+        return prev_state
+    return TarsState.STANDBY
+
 
 def utterance_callback(message):
     """
@@ -375,6 +391,9 @@ def utterance_callback(message):
                 # the tool loop's turn thread (a new utterance bumps the
                 # epoch and cancels a stale follow-up before it speaks)
                 followup_clean = re.sub(r'[^a-zA-Z0-9\s.,?!;:"\'<->]', '', text)
+                # Remember what we interrupted: the follow-up only BORROWS the
+                # state while it speaks and must hand it back afterwards.
+                prev_state = get_tars_state()
                 set_tars_state(TarsState.TALKING)
                 if ui_manager:
                     ui_manager.update_streaming_data(text)
@@ -385,7 +404,18 @@ def utterance_callback(message):
                 speed.log_tool('followup_tts', speed.stop('followup_tts'))
                 if stt_manager:
                     stt_manager.stop_bargein_monitor()
-                set_tars_state(TarsState.LISTENING)
+                # Hand the state back — do NOT force LISTENING. This thread does
+                # not own the listening session: it may already have ended.
+                # Observed on the robot: a 7.1 s web_search meant the STT thread
+                # had run its round, timed out, published STANDBY and parked in
+                # the wake detector before this follow-up even started. The old
+                # unconditional LISTENING was then the last write in the process,
+                # leaving the UI on LISTENING forever with no round behind it
+                # (wake word worked, plain speech did not). restore_state_if_owned
+                # also yields if the STT thread (or a wake word) wrote during
+                # playback, so a live round still ends up LISTENING.
+                restore_state_if_owned(_followup_restore_target(prev_state),
+                                       TarsState.TALKING)
                 try:
                     from modules.module_chatui import socketio
                     socketio.emit('bot_message', {'message': text, 'audio_streamed': True})
