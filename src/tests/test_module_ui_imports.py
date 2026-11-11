@@ -74,3 +74,25 @@ class TestModuleUiImports(unittest.TestCase):
             set(), undefined,
             "module_ui.py references undefined names — an unimported name "
             "here is a latent UI-thread killer (G3)")
+
+    def test_queue_message_is_bound_at_module_scope(self):
+        # The generic scan unions bound names across ALL scopes, so a
+        # function-local `from modules.module_messageQue import queue_message`
+        # (or a local `queue_message = ...`) would still satisfy it while
+        # leaving the module-scope Load at the overlay handler a live
+        # NameError. Pin the specific name this guard exists to protect to
+        # a top-level ImportFrom from modules.module_messageQue.
+        with open(_MODULE_UI, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read(), filename="module_ui.py")
+        for stmt in tree.body:
+            if not isinstance(stmt, ast.ImportFrom):
+                continue
+            if stmt.module != "modules.module_messageQue":
+                continue
+            for alias in stmt.names:
+                if (alias.asname or alias.name) == "queue_message":
+                    return
+        self.fail(
+            "queue_message is not bound at module scope in module_ui.py — "
+            "a function-local import cannot fix the overlay handler's "
+            "NameError")
