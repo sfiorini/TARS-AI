@@ -5,6 +5,7 @@
 - bulletproof movement notifications
 - servo_status / force_servo_recovery
 """
+import inspect
 import os
 import sys
 import threading
@@ -197,15 +198,52 @@ class TestIsMovingStuck(ServoctlSelfHealingTestCase):
         now = 1000.0
         # not moving -> never stuck
         self.assertFalse(servoctl._is_moving_stuck(False, now - 999, now))
-        # moving, exactly at timeout -> not stuck yet
-        self.assertFalse(servoctl._is_moving_stuck(True, now - 180, now))
-        # moving, past timeout -> stuck
-        self.assertTrue(servoctl._is_moving_stuck(True, now - 181, now))
+        # moving, exactly at the default timeout (30s) -> not stuck yet
+        self.assertFalse(servoctl._is_moving_stuck(True, now - 30, now))
+        # moving, past the default timeout -> stuck
+        self.assertTrue(servoctl._is_moving_stuck(True, now - 31, now))
         # moving, but no PWM activity ever recorded -> stuck
         self.assertTrue(servoctl._is_moving_stuck(True, 0.0, now))
         # custom timeout
         self.assertTrue(servoctl._is_moving_stuck(True, now - 11, now, timeout=10))
         self.assertFalse(servoctl._is_moving_stuck(True, now - 10, now, timeout=10))
+
+
+class TestWatchdogTiming(ServoctlSelfHealingTestCase):
+    """S-M2-02: 2 s tick, 2 s pwm-recency gate, 30 s stuck timeout.
+    Detection lag: 2 consecutive reads x 2 s = 2-4 s (jump magnitude is
+    proportional to sag time — this is the core gracefulness change)."""
+
+    def test_is_moving_stuck_boundary_at_30s(self):
+        now = 1000.0
+        self.assertTrue(servoctl._is_moving_stuck(True, now - 31, now, timeout=30))
+        self.assertFalse(servoctl._is_moving_stuck(True, now - 29, now, timeout=30))
+
+    def test_stuck_timeout_default_is_30(self):
+        self.assertEqual(
+            inspect.signature(servoctl._is_moving_stuck).parameters["timeout"].default,
+            30,
+        )
+
+    def test_watchdog_interval_default_is_2(self):
+        self.assertEqual(servoctl._watchdog_interval, 2)
+        self.assertEqual(
+            inspect.signature(servoctl.start_servo_watchdog).parameters["interval"].default,
+            2,
+        )
+
+    def test_pwm_recency_gate_is_2s(self):
+        # PWM 3 s ago: OUTSIDE the new 2 s gate -> idle, repair must proceed
+        # after two consecutive unhealthy reads (under the old 5 s gate the
+        # chip read as 'recently driven' and the repair was skipped).
+        servoctl.pca = _FakeMode1Pca(0x01)
+        servoctl.MOVING = False
+        servoctl._last_pwm_time = time.time() - 3
+        servoctl._unhealthy_chip_reads = 0
+        with mock.patch.object(servoctl, "initialize_pca9685", return_value=True) as init:
+            servoctl._watchdog_tick()
+            servoctl._watchdog_tick()
+        init.assert_called_once()
 
 
 class TestBulletproofNotifications(ServoctlSelfHealingTestCase):
