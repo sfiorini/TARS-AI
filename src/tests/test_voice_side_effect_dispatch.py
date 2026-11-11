@@ -484,3 +484,41 @@ class TestFollowupCleanupExceptionSafe(unittest.TestCase):
                         f"got {self.queued!r}")
         self.stt.stop_bargein_monitor.assert_called_once()
         self.assertTrue(runner.last_callbacks.wait_for_reply0.is_set())
+
+    def test_gate_still_sets_when_monitor_stop_raises(self):
+        """The preemptive finally is a NESTED try/finally so the reply-0
+        gate is ALWAYS set — even when stop_bargein_monitor() itself
+        raises (e.g. .join() on a monitor thread that never started).
+
+        Nothing else pins the nesting: tests 5/6 raise from
+        play_audio_chunks / pipeline.join, and stop_bargein_monitor is a
+        plain MagicMock that never raises, so a flattening back to a
+        bare stop-then-set would pass those silently and skip
+        _reply0_drained.set() on the raise.
+        """
+        # On the preemptive path stop_bargein_monitor is called exactly
+        # once — in the finally under test (test 5 pins
+        # assert_called_once) — so a plain side_effect scopes the raise
+        # to that call.
+        self.stt.stop_bargein_monitor.side_effect = RuntimeError("join boom")
+        # utterance_callback's function-wide except swallows the stop's
+        # RuntimeError and queues it as "ERROR: join boom". Re-raise it
+        # from the queue mock so the turn visibly raises: the
+        # assertRaises proves the stop's exception escaped the preemptive
+        # finally (replacing any in-flight exception), while the gate
+        # assertion below proves the inner finally still ran.
+        def _reraise_stop_error(msg):
+            if isinstance(msg, str) and "join boom" in msg:
+                raise RuntimeError("join boom")
+            self.queued.append(msg)
+
+        module_main.queue_message.side_effect = _reraise_stop_error
+        runner = _FakeRunner(started=False)
+        with self.assertRaises(RuntimeError):
+            self._run_voice_turn(self._PARSED, runner)
+        # THE pin: the gate was set DESPITE the stop raising. A flattened
+        # finally skips _reply0_drained.set() when the stop raises — this
+        # is the assertion that fails on that regression. State is not
+        # asserted here: the exception propagates past the restore, so
+        # state is not this test's point.
+        self.assertTrue(runner.last_callbacks.wait_for_reply0.is_set())
