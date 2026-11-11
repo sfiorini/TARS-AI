@@ -8,7 +8,7 @@ Known symptoms on the V3 fork, their cause, and the fix. Logs first: `tail -f sr
 
 ## STT is slow or hears nothing
 
-- If configured, primary STT is **ElevenLabs Scribe `scribe_v2`** (`stt_processor = elevenlabs`, model `elevenlabs_stt_model`, `ELEVENLABS_API_KEY`; template default is `sherpa-onnx`); on failure/empty text it falls back to the external server (`POST {external_url}/save_audio`, Bearer `EXTERNAL_API_KEY`, **30 s timeout** — whisper on a shared-CPU x86_64 server measured ~14 s). Cloud Scribe is usually the fastest; local `sherpa-onnx` avoids network latency entirely.
+- If configured, primary STT is **ElevenLabs Scribe `scribe_v2`** (`stt_processor = elevenlabs`, model `elevenlabs_stt_model`, `ELEVENLABS_API_KEY`; template default is `sherpa-onnx`); on provider failure (missing key, HTTP error, request error) it falls back to the external server (`POST {external_url}/save_audio`, Bearer `EXTERNAL_API_KEY`, **30 s timeout** — whisper on a shared-CPU x86_64 server measured ~14 s). An empty Scribe transcript means no speech was detected — the turn simply ends, logged `INFO: ElevenLabs STT returned empty text — treating turn as no speech` (no fallback re-record). Cloud Scribe is usually the fastest; local `sherpa-onnx` avoids network latency entirely.
 - Server mode: `curl -s http://<server-host>:5678/health` must answer, and `.env` `EXTERNAL_API_KEY` must equal the server host's `config-server.ini` `api_key`.
 - Mic: raise `mic_amp_gain` if too quiet; lower `silence_margin` for more sensitivity; check `speechdelay` isn't cutting you off; `use_indicators = True` gives audible beeps when listening starts/stops.
 

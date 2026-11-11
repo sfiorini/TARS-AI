@@ -1059,10 +1059,11 @@ class STTManager:
     def _transcribe_with_elevenlabs(self):
         """Transcribe audio using ElevenLabs Scribe (cloud STT).
 
-        Primary STT on the robot. On ANY failure (missing key, HTTP error,
-        empty text, request exception) it falls back to the external server
-        path (_transcribe_with_server) — same total-failure philosophy as the
-        TTS chain.
+        Primary STT on the robot. On provider failure (missing key, HTTP
+        error, request exception) it falls back to the external server
+        path (_transcribe_with_server). An HTTP-200 empty transcript is the
+        expected no-speech outcome — it returns None (the turn ends),
+        never a re-record.
         """
         api_key = os.environ.get('ELEVENLABS_API_KEY', '')
         if not api_key:
@@ -1109,7 +1110,12 @@ class STTManager:
             else:
                 raw_text = (response.json().get("text") or "").strip()
                 if not raw_text:
-                    fallback_warning = "WARNING: ElevenLabs STT returned empty text, falling back to external STT"
+                    # HTTP-200 with empty text is the EXPECTED no-speech outcome
+                    # (a VAD false positive) — not a provider failure. The fallback
+                    # re-records a FRESH utterance, which is never what the user
+                    # said, so end the turn instead.
+                    queue_message("INFO: ElevenLabs STT returned empty text — treating turn as no speech")
+                    return None
                 else:
                     if self.DEBUG:
                         queue_message(f"DEBUG STT: ElevenLabs transcribed: '{raw_text}'")

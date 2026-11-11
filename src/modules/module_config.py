@@ -904,7 +904,7 @@ CONFIG_METADATA = {
             'group': 'stt', 'group_label': 'Speech Recognition',
             'label': 'STT Engine',
             'options': ['sherpa-onnx', 'fastrtc', 'openai', 'external', 'elevenlabs', 'silero'],
-            'description': 'How TARS converts your speech to text after the wake word triggers. "sherpa-onnx" is fast and offline (Pi5/Pi4, recommended). "fastrtc" is cloud-based, very accurate. "openai" uses OpenAI Whisper (best for non-English, requires API key). "silero" runs on-device (Pi5 only). "external" forwards audio to your own STT server. "elevenlabs" is cloud-based ElevenLabs Scribe — fast and accurate, requires ELEVENLABS_API_KEY; falls back to the external server on failure.'
+            'description': 'How TARS converts your speech to text after the wake word triggers. "sherpa-onnx" is fast and offline (Pi5/Pi4, recommended). "fastrtc" is cloud-based, very accurate. "openai" uses OpenAI Whisper (best for non-English, requires API key). "silero" runs on-device (Pi5 only). "external" forwards audio to your own STT server. "elevenlabs" is cloud-based ElevenLabs Scribe — fast and accurate, requires ELEVENLABS_API_KEY; falls back to the external server on provider failure (an empty transcript ends the turn as no speech).'
         },
         'language': {
             'group': 'stt',

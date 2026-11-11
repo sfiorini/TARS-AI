@@ -114,16 +114,39 @@ class TestElevenlabsStt(unittest.TestCase):
         warnings = [c for c in qmsg.call_args_list if "WARNING" in c.args[0]]
         self.assertTrue(any("falling back to external STT" in c.args[0] for c in warnings))
 
-    def test_empty_text_falls_back(self):
+    def test_empty_text_ends_turn_without_fallback(self):
         fake = _make_self()
         response = _FakeResponse(200, {"language_code": "eng", "text": "   "})
         result, post, qmsg = _run(fake, response=response)
 
-        self.assertEqual(result, {"text": "fallback-result"})
-        fake._transcribe_with_server.assert_called_once()
+        self.assertIsNone(result)
+        fake._transcribe_with_server.assert_not_called()
         fake._emit_result.assert_not_called()
+        infos = [c for c in qmsg.call_args_list
+                 if str(c.args[0]).startswith("INFO:")]
+        self.assertEqual(1, len(infos))
+        self.assertEqual(
+            "INFO: ElevenLabs STT returned empty text — treating turn as no speech",
+            infos[0].args[0])
         warnings = [c for c in qmsg.call_args_list if "WARNING" in c.args[0]]
-        self.assertTrue(any("falling back to external STT" in c.args[0] for c in warnings))
+        self.assertEqual([], warnings)
+
+    def test_missing_text_key_ends_turn_without_fallback(self):
+        fake = _make_self()
+        response = _FakeResponse(200, {})
+        result, post, qmsg = _run(fake, response=response)
+
+        self.assertIsNone(result)
+        fake._transcribe_with_server.assert_not_called()
+        fake._emit_result.assert_not_called()
+        infos = [c for c in qmsg.call_args_list
+                 if str(c.args[0]).startswith("INFO:")]
+        self.assertEqual(1, len(infos))
+        self.assertEqual(
+            "INFO: ElevenLabs STT returned empty text — treating turn as no speech",
+            infos[0].args[0])
+        warnings = [c for c in qmsg.call_args_list if "WARNING" in c.args[0]]
+        self.assertEqual([], warnings)
 
     def test_request_exception_falls_back(self):
         fake = _make_self()
