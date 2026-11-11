@@ -90,6 +90,7 @@ IDLE ──start_turn──► CLASSIFY
   FOLLOWUP_LLM ──done──► SPEAK_FOLLOWUP ──► IDLE
   any state ──epoch mismatch──► CANCELLED
   any state ──overall deadline──► TIMEOUT (speak fallback, IDLE)
+  FOLLOWUP_LLM ──completion failed──► TIMEOUT (speak speakable tool data, or fallback, IDLE)
 ```
 
 - **Holding line**: reply-0 doubles as the natural holding line (the model already says "let me check that") — the loop never repeats it. When reply-0 is empty, the character pack's `thinking_responses` play, and if that mechanism is disabled/empty the loop speaks the hardcoded `"On it — I'll report back."`
@@ -97,6 +98,7 @@ IDLE ──start_turn──► CLASSIFY
 - **Timeouts**: per-tool `tool_call_timeout` (default 60 s), per-LLM-request `request_timeout` (default 120 s); overall turn deadline = `max_hops × (tool_call_timeout + request_timeout)`. A timed-out tool is fed to the model as `ERROR: timeout` so it can recover.
 - **Cancellation**: every new utterance bumps a per-source epoch; a stale turn goes `CANCELLED` and its results are discarded — they are never injected into the new turn's context. If you speak again while a tool is running, the running turn is abandoned and the new utterance is processed fresh.
 - **Failure safety**: a deferred follow-up only borrows TALKING while it speaks; its cleanup — stopping the barge-in monitor and handing the state back — runs in a `try/finally`, so a TTS crash mid-follow-up cannot leave the robot stuck on TALKING with the barge-in mic still open.
+- **Follow-up failure**: if the follow-up completion fails (after its one retry), TARS speaks the tool results rather than a canned apology — but only for tools flagged `speakable` (`web_search`, `tars_radio`, `capture_camera_view`, `example`). The text is trimmed — the loop's `name: ` prefix stripped, error and empty entries dropped — and capped at 500 characters at a sentence boundary. Raw-data tools keep the canned `"I hit a snag finishing that — check the logs."`: `sandbox_exec` output, `take_photo` filenames, MCP JSON and agent-skill scripts must never be read aloud. `network_camera` is excluded for the same reason — its fetch-failure paths return the tried camera URLs, which may embed credentials.
 - **Rollback**: set `[LLM] deferred_loop_enabled = false` and restart — result-bearing builtin tools fall back to the old inline blocking behavior for one release.
 
 ## 4. Text-to-speech — configurable ordered provider chain
