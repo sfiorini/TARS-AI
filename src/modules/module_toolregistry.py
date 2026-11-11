@@ -37,6 +37,10 @@ class ToolDescriptor:
     timeout_s: Optional[float]  # per-call override; None = pool default
                                  # ([LLM] tool_call_timeout for builtins)
     execute: Callable[[dict, "ToolContext"], "ToolResult"]
+    speakable: bool = False  # G9: content may be spoken verbatim on the
+                             # followup-None rescue path; default False —
+                             # MCP JSON, SKILL.md bodies, script stdout and
+                             # filenames must never be read aloud
 
 
 @dataclass

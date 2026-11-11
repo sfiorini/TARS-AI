@@ -223,6 +223,34 @@ class TestBuiltinAdapter(unittest.TestCase):
             self.assertIsNone(d.timeout_s,
                                f"{d.name} must defer to the config default")
 
+    def test_builtin_speakable_flags(self):
+        # G9: exactly the frozenset members are speakable; a typo'd name
+        # would have no skill file, and a speakable non-result-bearing
+        # skill would be a dead flag (the loop never runs it)
+        from modules.module_skills import _SPEAKABLE_BUILTIN_SKILLS
+        manager = self._real_manager()
+        manager._disabled.clear()
+        descriptors = {d.name: d for d in manager.iter_descriptors()}
+        self.assertTrue(descriptors)
+        for name, d in descriptors.items():
+            self.assertEqual(
+                d.speakable, name in _SPEAKABLE_BUILTIN_SKILLS,
+                f"{name}'s speakable flag drifted")
+        for name in sorted(_SPEAKABLE_BUILTIN_SKILLS):
+            # not loadable here (tars_radio needs py3.10+, skill_discord
+            # needs the discord lib) -> the skill FILE must still exist
+            # (typo guard)
+            self.assertTrue(
+                name in descriptors
+                or os.path.exists(os.path.join(
+                    _SRC, "skills", f"skill_{name}.py")),
+                f"{name} is in _SPEAKABLE_BUILTIN_SKILLS but no skill "
+                f"exists")
+            if name in descriptors:  # dead-flag guard
+                self.assertTrue(
+                    descriptors[name].result_bearing,
+                    f"{name} is speakable but not result_bearing")
+
     def test_disabled_skills_yield_no_descriptor(self):
         manager = self._real_manager()
         manager._disabled.add("web_search")

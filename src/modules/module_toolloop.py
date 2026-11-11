@@ -39,6 +39,32 @@ HOLDING_LINE = "On it — I'll report back."
 LEGACY_UNAVAILABLE_LINE = "That tool isn't available in legacy mode."
 TOOL_RESULT_CHAR_LIMIT = 10000  # result text truncated before the follow-up
 REPLY0_GATE_TIMEOUT = 120  # bounded wait on the reply-0 gate (seconds)
+SPEAKABLE_CHAR_LIMIT = 500  # spoken tool-data cap (house precedent: the
+                             # web_search degraded path and _timeout's log)
+
+
+def _trim_speakable(parts, speakable_parts):
+    """Join the speakable parts entries (name prefix stripped) into one
+    spoken string, capped at SPEAKABLE_CHAR_LIMIT and cut at the last
+    sentence boundary. Returns None when nothing qualifies."""
+    texts = []
+    for entry, ok in zip(parts, speakable_parts):
+        if not ok:
+            continue
+        _, _, text = entry.partition(": ")  # strip the toolloop's prefix
+        text = text.strip()
+        if text:
+            texts.append(text)
+    if not texts:
+        return None
+    joined = " ".join(texts)
+    if len(joined) <= SPEAKABLE_CHAR_LIMIT:
+        return joined
+    head = joined[:SPEAKABLE_CHAR_LIMIT]
+    cut = max(head.rfind(". "), head.rfind("! "), head.rfind("? "))
+    if cut > 0:
+        return head[:cut + 1]  # keep the terminator, drop the space
+    return head.rstrip()  # no boundary within the cap — hard cut
 
 
 @dataclass
@@ -237,6 +263,7 @@ class ToolLoopRunner:
         t0 = time.monotonic()
 
         parts = []
+        speakable_parts = []  # index-aligned with parts (G9)
         pending = initial_calls
         hops_used = 0
         while True:
@@ -256,6 +283,7 @@ class ToolLoopRunner:
                 text = (result.content if not result.is_error
                         else f"ERROR: {result.content}")
                 parts.append(f"{name}: {text}")
+                speakable_parts.append(self._speakable_entry(name, result))
             if not self._epoch_ok(source, epoch):
                 return self._cancel(callbacks, source)
             if time.monotonic() > deadline:
@@ -269,10 +297,12 @@ class ToolLoopRunner:
             if not self._epoch_ok(source, epoch):
                 return self._cancel(callbacks, source)
             if followup is None:
-                # request failure -> timeout fallback
+                # request failure -> speak the tool data when any entry is
+                # speakable (G9), else the timeout fallback
                 queue_message(f"TOOLLOOP: hop {hops_used} follow-up "
                               f"FAILED — speaking fallback")
-                return self._timeout(callbacks, parts)
+                return self._speak_tool_data(callbacks, source, epoch,
+                                              parts, speakable_parts)
             if isinstance(followup, dict):
                 new_calls = self._result_bearing_calls(
                     followup.get("function_calls"))
@@ -390,6 +420,44 @@ class ToolLoopRunner:
         callbacks.on_state("SPEAK_FOLLOWUP")
         try:
             callbacks.speak(reply)
+        except Exception as exc:  # noqa: BLE001
+            queue_message(f"TOOLLOOP: speak callback failed: {exc}")
+        callbacks.on_state("IDLE")
+        return None
+
+    @staticmethod
+    def _speakable_entry(name, result):
+        """True iff this parts entry may be SPOKEN on the followup-None
+        rescue path (G9): the tool is marked speakable, the call did not
+        error, and the content is non-empty."""
+        descriptor = get_registry().get(name)
+        return bool(descriptor is not None
+                    and descriptor.speakable
+                    and not result.is_error
+                    and result.content.strip())
+
+    @staticmethod
+    def _speak_tool_data(callbacks, source, epoch, parts, speakable_parts):
+        """G9 rescue: the follow-up LLM call failed but the tool data is
+        real — speak the trimmed speakable entries instead of discarding
+        them. Nothing speakable -> _timeout (FALLBACK_LINE, today's exact
+        behavior). Mirrors _speak's contract (epoch re-check + reply-0
+        gate, F2) — _timeout has neither, so the data path must not route
+        through it."""
+        data = _trim_speakable(parts, speakable_parts)
+        if data is None:
+            return ToolLoopRunner._timeout(callbacks, parts)
+        if _current_epoch(source) != epoch:
+            return ToolLoopRunner._cancel(callbacks, source)
+        _wait_for_reply0(callbacks)
+        callbacks.on_state("TIMEOUT")
+        if parts:
+            queue_message(f"TOOLLOOP: raw tool text: "
+                          f"{''.join(parts)[:500]}")
+        queue_message(f"TOOLLOOP: speaking tool data ({len(data)} chars) "
+                      f"— follow-up failed")
+        try:
+            callbacks.speak(data)
         except Exception as exc:  # noqa: BLE001
             queue_message(f"TOOLLOOP: speak callback failed: {exc}")
         callbacks.on_state("IDLE")

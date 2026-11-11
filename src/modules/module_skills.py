@@ -46,6 +46,19 @@ def _get_config_path():
     )
 
 
+# G9: builtin skills whose result content is natural to SPEAK verbatim
+# when the follow-up LLM call fails (descriptor.speakable). Everything
+# else keeps the canned fallback — raw stdout (sandbox_exec), filenames
+# (take_photo), SKILL.md bodies and MCP JSON must never be read aloud.
+_SPEAKABLE_BUILTIN_SKILLS = frozenset({
+    "capture_camera_view",
+    "example",
+    "network_camera",
+    "tars_radio",
+    "web_search",
+})
+
+
 class SkillManager:
     """Discovers, loads, and dispatches skill plugins."""
 
@@ -429,7 +442,8 @@ class SkillManager:
                 result_bearing=bool(meta.get("followup", False)),
                 # None = defer to [LLM] tool_call_timeout (single source of
                 # truth, review F3 — the docs' advice must be actionable)
-                timeout_s=None, execute=_make_exec(name, meta))
+                timeout_s=None, execute=_make_exec(name, meta),
+                speakable=name in _SPEAKABLE_BUILTIN_SKILLS)
 
     def reload_config(self):
         """Reload config from disk. Call after external changes."""

@@ -97,10 +97,11 @@ from modules.module_toolloop import (  # noqa: E402
 
 
 def _descriptor(name, result_bearing=True, execute=None, timeout_s=5.0,
-                kind="builtin"):
+                kind="builtin", speakable=False):
     return ToolDescriptor(
         name=name, kind=kind, description="", parameters=None,
         result_bearing=result_bearing, timeout_s=timeout_s,
+        speakable=speakable,
         execute=execute or (lambda params, ctx: "tool result"))
 
 
@@ -260,6 +261,8 @@ class TestToolLoopRunner(_LoopTestCase):
             self._wait_turn()
         # never raised, and a speak happened for every garbage turn
         self.assertEqual(len(self.spoken), 3)
+        # G9: the None iteration routes through the followup-None rescue,
+        # but the descriptor is unspeakable by default -> FALLBACK_LINE
         # non-dict/non-str garbage is NEVER spoken verbatim (review F5):
         # 42 must not become the spoken answer "42"
         self.assertEqual(self.spoken, [FALLBACK_LINE, FALLBACK_LINE,
@@ -381,6 +384,192 @@ class TestSuccessLogging(_LoopTestCase):
 
 
 HOLDING_LINE = "On it — I'll report back."
+
+
+class TestDataSpeak(_LoopTestCase):
+    """G9: the followup-None rescue — speak trimmed speakable tool data
+    (fake followup_fn returning None; no module_llm involved)."""
+
+    def test_trim_speakable_unit(self):
+        from modules.module_toolloop import _trim_speakable
+        # prefix strip
+        self.assertEqual(
+            _trim_speakable(["weather: sunny, 21C"], [True]),
+            "sunny, 21C")
+        # flag filtering (and space-join of the survivors)
+        self.assertEqual(
+            _trim_speakable(["a: one", "b: two", "c: three"],
+                            [True, False, True]),
+            "one three")
+        # None when nothing qualifies
+        self.assertIsNone(_trim_speakable(["a: x", "b: "],
+                                          [False, True]))
+        # sentence-boundary cap
+        content = "word. " * 100  # 600 chars
+        result = _trim_speakable([f"search: {content}"], [True])
+        self.assertLessEqual(len(result), 500)
+        self.assertTrue(result.endswith("."))
+        self.assertTrue(content.startswith(result))
+        # hard cut when no boundary within the cap (fixture must have no
+        # trailing whitespace at char 500 or rstrip shortens it)
+        self.assertEqual(_trim_speakable([f"search: {'x' * 600}"], [True]),
+                         "x" * 500)
+
+    def test_data_speak_epoch_recheck_cancels(self):
+        # DIRECT call — deliberate: the in-loop race (a bump between the
+        # follow-up and the speak) is not deterministically testable
+        epoch = bump_epoch("voice")
+        bump_epoch("voice")  # stale the first value
+        ToolLoopRunner._speak_tool_data(
+            self.callbacks, "voice", epoch,
+            ["search: found it"], [True])
+        self.assertEqual(self.spoken, [])
+        self.assertIn("CANCELLED", self.states)
+
+    def test_data_speak_waits_for_reply0_gate(self):
+        gate = threading.Event()
+        callbacks = TurnCallbacks(speak=self.spoken.append,
+                                  on_state=self._on_state,
+                                  wait_for_reply0=gate)
+        epoch = bump_epoch("voice")
+        thread = threading.Thread(
+            target=ToolLoopRunner._speak_tool_data,
+            args=(callbacks, "voice", epoch,
+                  ["search: found it"], [True]),
+            daemon=True)
+        thread.start()
+        thread.join(0.3)
+        # blocked on the unset gate — nothing spoken yet
+        self.assertTrue(thread.is_alive(),
+                        "data speak must block on the reply-0 gate")
+        self.assertEqual(self.spoken, [])
+        gate.set()
+        thread.join(5.0)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(self.spoken, ["found it"])
+
+    def _none_followup_runner(self):
+        return ToolLoopRunner(lambda *a: None)
+
+    def test_followup_none_speaks_speakable_data(self):
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: "sunny, 21C"))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, ["sunny, 21C"])  # prefix stripped
+        self.assertNotIn(FALLBACK_LINE, self.spoken)
+        self.assertIn("TIMEOUT", self.states)
+        self.assertEqual(self.states[-1], "IDLE")
+
+    def test_followup_none_unspeakable_keeps_fallback(self):
+        # speakable omitted -> default False -> FALLBACK_LINE (pins the
+        # default; byte-identical to today's behavior)
+        self.registry.register(_descriptor("web_search"))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, [FALLBACK_LINE])
+
+    def test_followup_none_error_entry_not_spoken(self):
+        def boom(params, ctx):
+            raise ValueError("tool exploded")
+        self.registry.register(_descriptor(
+            "web_search", speakable=True, execute=boom))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, [FALLBACK_LINE])
+
+    def test_followup_none_empty_content_not_spoken(self):
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: ""))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, [FALLBACK_LINE])
+
+    def test_data_speak_capped_at_sentence_boundary(self):
+        content = "word. " * 100  # 600 chars
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: content))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(len(self.spoken), 1)
+        self.assertLessEqual(len(self.spoken[0]), 500)
+        self.assertTrue(self.spoken[0].endswith("."))
+        self.assertTrue(content.startswith(self.spoken[0]))
+
+    def test_data_speak_hard_cut_without_boundary(self):
+        # no ". "/"! "/"? " anywhere and no trailing whitespace at the
+        # cut point (rstrip would otherwise shorten it below 500)
+        content = "x" * 600
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: content))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, ["x" * 500])
+
+    def test_data_speak_joins_multiple_tools(self):
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: "first text"))
+        self.registry.register(_descriptor(
+            "other", speakable=True,
+            execute=lambda p, c: "second text"))
+        self.registry.register(_descriptor(
+            "search", execute=lambda p, c: "private data"))
+        self._none_followup_runner().start_turn(
+            self._parsed([{"function": "web_search",
+                           "parameters": {}},
+                          {"function": "other", "parameters": {}},
+                          {"function": "search", "parameters": {}}]),
+            "hello", "voice", self.callbacks)
+        self._wait_turn()
+        self.assertEqual(self.spoken, ["first text second text"])
+
+    def test_data_speak_logs_lines(self):
+        import modules.module_toolloop as toolloop
+        self.registry.register(_descriptor(
+            "web_search", speakable=True,
+            execute=lambda p, c: "found it"))
+        with mock.patch.object(toolloop, "queue_message") as qm:
+            self._none_followup_runner().start_turn(
+                self._parsed([{"function": "web_search",
+                               "parameters": {}}]),
+                "hello", "voice", self.callbacks)
+            self._wait_turn()
+        lines = [call.args[0] for call in qm.call_args_list
+                 if call.args and isinstance(call.args[0], str)]
+        # the pinned failure line stays VERBATIM
+        self.assertIn(
+            "TOOLLOOP: hop 1 follow-up FAILED — speaking fallback", lines)
+        self.assertTrue(
+            any(line.startswith("TOOLLOOP: speaking tool data (")
+                for line in lines),
+            "speaking-tool-data line missing")
+        self.assertTrue(
+            any(line.startswith("TOOLLOOP: raw tool text: ")
+                for line in lines),
+            "raw tool text line missing")
 
 
 class TestHoldingLine(_LoopTestCase):
