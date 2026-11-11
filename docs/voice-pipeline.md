@@ -114,6 +114,8 @@ chain = dedup([ttsoption] + [TTS] tts_fallback_list) + ["espeak"]   # espeak alw
 
 The first provider that yields ≥ 1 audio chunk wins and its chunks are streamed; the chain then stops. Failures are **typed** (hierarchy defined in `module_fishaudio.py`, shared by all providers): `QuotaExhausted` (no credit), `RateLimited`, `AuthFailed`, `TransientError`. Every failover is logged with the reason, e.g. `WARNING: TTS provider 'fishaudio' failed (QuotaExhausted: …) — failing over to 'speechify'`. 429 / 5xx / timeout get exactly **one backoff retry** inside the provider, then fail over — no infinite loops — and a per-utterance deadline (`tts_timeout` × chain length) bounds the whole chain so TARS never hangs. A provider that already yielded audio and then dies mid-stream keeps what was spoken (no voice switch mid-utterance). A missing API key skips the provider **before any HTTP request** (the key is never logged); empty text short-circuits the whole chain.
 
+The LLM layer adopts the same one-retry pattern for its non-streaming calls: `raw_complete_llm` (the deferred tool loop's follow-up and the vision skills) retries a 429 or 5xx exactly once after a 1 s backoff, then gives up — auth failures (401/402/403/404) and connection errors are never retried.
+
 ### Providers
 
 | Provider | Module | Request | Error classification |

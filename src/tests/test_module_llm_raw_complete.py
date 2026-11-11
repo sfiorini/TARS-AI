@@ -94,6 +94,21 @@ class _QueueCapture:
         self.messages.append(str(message))
 
 
+def _http_error_response(status_code):
+    """Fake requests response whose raise_for_status raises a REAL
+    requests.HTTPError carrying the status (the retry gate reads
+    e.response.status_code)."""
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+
+    def _raise():
+        raise requests.exceptions.HTTPError(
+            f"{status_code} error", response=resp)
+
+    resp.raise_for_status = _raise
+    return resp
+
+
 class TestRawCompleteStreaming(unittest.TestCase):
     """[P1] raw_complete_llm must ask the backend for a NON-streaming reply."""
 
@@ -147,6 +162,91 @@ class TestRawCompleteStreaming(unittest.TestCase):
         joined = "\n".join(capture.messages)
         self.assertIn("200", joined)
         self.assertIn("data: {oops", joined)
+
+
+class TestRawCompleteRetry(unittest.TestCase):
+    """[G9] raw_complete_llm retries 429/5xx exactly once (house TTS
+    pattern), never auth/client errors, connection errors or non-JSON
+    bodies. Every retry test patches the sleep — nothing waits 1 s."""
+
+    def _run(self, session):
+        capture = _QueueCapture()
+        with mock.patch.object(module_llm, "_http_session", session), \
+             mock.patch.object(module_llm, "queue_message", capture), \
+             mock.patch.object(module_llm.time, "sleep") as sleep:
+            result = raw_complete_llm("say hi")
+        return result, capture, sleep
+
+    def test_429_retried_once_then_success(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            _http_error_response(429),
+            _json_response(_completion_json("recovered")),
+        ]
+        result, capture, sleep = self._run(session)
+        self.assertEqual(result, "recovered")
+        self.assertEqual(session.post.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
+        self.assertEqual(sleep.call_args[0][0], 1.0)
+        for call in session.post.call_args_list:
+            self.assertIs(call[1]["json"]["stream"], False)
+
+    def test_429_twice_returns_none(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            _http_error_response(429), _http_error_response(429)]
+        result, capture, sleep = self._run(session)
+        self.assertIsNone(result)
+        self.assertEqual(session.post.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_503_retried_once_then_success(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [
+            _http_error_response(503),
+            _json_response(_completion_json("recovered")),
+        ]
+        result, capture, sleep = self._run(session)
+        self.assertEqual(result, "recovered")
+        self.assertEqual(session.post.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_401_not_retried(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [_http_error_response(401)]
+        result, capture, sleep = self._run(session)
+        self.assertIsNone(result)
+        self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
+
+    def test_404_not_retried(self):
+        session = mock.MagicMock()
+        session.post.side_effect = [_http_error_response(404)]
+        result, capture, sleep = self._run(session)
+        self.assertIsNone(result)
+        self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
+
+    def test_connection_error_not_retried(self):
+        session = mock.MagicMock()
+        session.post.side_effect = requests.exceptions.ConnectionError(
+            "boom")
+        result, capture, sleep = self._run(session)
+        self.assertIsNone(result)
+        self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
+
+    def test_non_json_body_not_retried(self):
+        # Clause-order trap guard: requests' JSONDecodeError MRO is
+        # JSONDecodeError -> InvalidJSONError -> RequestException ->
+        # OSError — NOT an HTTPError, so it must hit the OUTER
+        # json.JSONDecodeError handler with exactly one POST.
+        session = mock.MagicMock()
+        session.post.return_value = _sse_response("data: {oops")
+        result, capture, sleep = self._run(session)
+        self.assertIsNone(result)
+        self.assertEqual(session.post.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
 
 
 class TestFollowupCompletion(unittest.TestCase):

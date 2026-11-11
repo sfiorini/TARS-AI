@@ -37,6 +37,9 @@ memory_manager = None
 # saving ~100-200ms per call (especially on Pi where TLS handshake is slow).
 _http_session = requests.Session()
 
+_MAX_ATTEMPTS = 2  # initial try + exactly one retry (house pattern)
+_RETRY_BACKOFF_SECONDS = 1.0
+
 process_camera_image = None
 try:
     from modules.module_vision import process_camera_image as _pci
@@ -876,11 +879,26 @@ def raw_complete_llm(user_prompt, istext=True):
 
     response = None
     try:
-        response = _http_session.post(url, headers=headers, json=data,
-                                timeout=CONFIG['LLM'].get('request_timeout', 120))
-        response.raise_for_status()
-        bot_reply = _extract_text(response.json(), istext)
-        return bot_reply
+        for attempt in range(_MAX_ATTEMPTS):
+            try:
+                response = _http_session.post(
+                    url, headers=headers, json=data,
+                    timeout=CONFIG['LLM'].get('request_timeout', 120))
+                response.raise_for_status()
+                return _extract_text(response.json(), istext)
+            except requests.HTTPError as e:
+                # House retry policy (docs/voice-pipeline.md): 429/5xx get
+                # exactly one backoff retry; auth/client errors (401/402/
+                # 403/404) and errors with no HTTP status are never retried.
+                status = getattr(e.response, 'status_code', None)
+                retryable = status == 429 or (
+                    isinstance(status, int) and 500 <= status < 600)
+                if not retryable or attempt == _MAX_ATTEMPTS - 1:
+                    raise
+                queue_message(f"WARNING: LLM request failed "
+                              f"(HTTP {status}) — retrying in "
+                              f"{_RETRY_BACKOFF_SECONDS}s")
+                time.sleep(_RETRY_BACKOFF_SECONDS)
 
     except json.JSONDecodeError:
         # Body was not JSON (e.g. an SSE stream despite stream=False): log
