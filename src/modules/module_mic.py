@@ -112,6 +112,40 @@ def get_device_idx():
     return get_device_info()[0]
 
 
+def _invalidate_device_info():
+    """Drop the cached (idx, rate) so the next get_device_info() re-enumerates.
+
+    Needed when a USB device disappears: the cached PortAudio index then points
+    at a device PortAudio no longer knows about.
+    """
+    global _device_info, _last_device_probe
+    with _device_lock:
+        _device_info = None
+        _last_device_probe = None
+
+
+def _device_index_present(idx):
+    """True if PortAudio still enumerates `idx` as an INPUT device.
+
+    Opening a stale index makes PortAudio hit a C assertion and ABORT the whole
+    process (pa_linux_alsa.c:2178, `Assertion 'self->capture.nfds ||
+    self->playback.nfds' failed`) — uncatchable from Python, so the watchdog
+    never gets to recover. Observed on the robot: a transient USB drop killed
+    the app outright. Never call sd.InputStream() for a device that is gone.
+    """
+    try:
+        devices = sd.query_devices()
+    except Exception:
+        return False
+    for d in devices:
+        try:
+            if int(d.get("index", -1)) == int(idx) and int(d.get("max_input_channels", 0)) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 # ── Resampling helpers ─────────────────────────────────────────────
 
 def resample(data, orig_sr, target_sr):
@@ -283,6 +317,15 @@ class _AudioHub:
                 idx, rate = get_device_info()   # device may have re-enumerated
                 kwargs = dict(samplerate=rate, channels=1, callback=self._on_audio)
                 if idx is not None and idx >= 0:
+                    # M5 robot finding: a stale index makes PortAudio abort the
+                    # PROCESS (C assertion), so verify enumeration first. On a
+                    # miss, drop the cache so the next attempt re-resolves and
+                    # fail this attempt cleanly — the watchdog ladder escalates.
+                    if not _device_index_present(idx):
+                        _invalidate_device_info()
+                        raise RuntimeError(
+                            f"mic device index {idx} is no longer enumerated "
+                            "(device gone) — refusing to open (PortAudio would abort)")
                     kwargs["device"] = idx
                 stream = sd.InputStream(**kwargs)
                 stream.start()

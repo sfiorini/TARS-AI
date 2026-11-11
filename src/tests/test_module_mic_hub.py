@@ -38,6 +38,9 @@ class TestAudioHubInvalidate(unittest.TestCase):
     def test_stream_lazily_recreated_after_invalidate(self):
         hub, old_stream = self._hub_with_stream()
         with mock.patch.object(module_mic, "get_device_info", return_value=(0, 48000)), \
+             mock.patch.object(module_mic.sd, "query_devices",
+                               return_value=[{"index": 0, "name": "usb",
+                                              "max_input_channels": 2}]), \
              mock.patch.object(module_mic.sd, "InputStream", return_value=mock.MagicMock()):
             hub.invalidate()
             self.assertIsNone(hub._stream)

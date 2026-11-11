@@ -17,6 +17,7 @@ from pathlib import Path
 from unittest import mock
 
 import numpy as np
+import pytest
 
 from modules import module_mic
 from modules.module_mic import _AudioHub
@@ -211,6 +212,9 @@ class TestEnsureStreamHealthRetry:
         hub._stream = dead
         _FakeInputStream.instances = []
         with mock.patch.object(module_mic, "get_device_info", return_value=(0, 16000)), \
+             mock.patch.object(module_mic.sd, "query_devices",
+                               return_value=[{"index": 0, "name": "usb",
+                                              "max_input_channels": 2}]), \
              mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream), \
              mock.patch.object(module_mic.time, "sleep"):
             hub._ensure_stream()
@@ -336,6 +340,9 @@ class TestEnsureStreamCounterAwareHealth:
         hub._last_chunk_mono = time.monotonic() - 3600.0   # long-stalled
         _FakeInputStream.instances = []
         with mock.patch.object(module_mic, "get_device_info", return_value=(0, 16000)), \
+             mock.patch.object(module_mic.sd, "query_devices",
+                               return_value=[{"index": 0, "name": "usb",
+                                              "max_input_channels": 2}]), \
              mock.patch.object(module_mic.sd, "InputStream", _FakeInputStream), \
              mock.patch.object(module_mic.time, "sleep"):
             hub._ensure_stream()
@@ -1083,6 +1090,41 @@ class TestDocsQuoteEmittedShapes:
         assert "-> L2 restart_sound_server" in src
         assert "still stale mode={mode} 60s after L2 " in src
         assert "\u2014 repeating L2 restart_sound_server" in src
+
+
+class TestDeviceGoneGuard:
+    """M5 robot finding (P0): opening a device index PortAudio no longer
+    enumerates makes PortAudio hit a C assertion and ABORT the process
+    (pa_linux_alsa.c:2178) — uncatchable from Python, so the watchdog never
+    gets to recover. A transient USB drop killed the whole app on the robot."""
+
+    def test_stale_device_index_never_reaches_portaudio(self):
+        hub = _AudioHub()
+        hub._ensure_stream.__func__  # sanity: real method
+        with mock.patch.object(module_mic, "get_device_info",
+                               return_value=(2, 48000)), \
+             mock.patch.object(module_mic.sd, "query_devices",
+                               return_value=[{"index": 0, "name": "other",
+                                              "max_input_channels": 2}]), \
+             mock.patch.object(module_mic.sd, "InputStream") as stream_ctor:
+            with pytest.raises(Exception):
+                hub._ensure_stream()
+        stream_ctor.assert_not_called()
+
+    def test_present_device_index_opens_normally(self):
+        hub = _AudioHub()
+        fake_stream = mock.MagicMock()
+        with mock.patch.object(module_mic, "get_device_info",
+                               return_value=(0, 48000)), \
+             mock.patch.object(module_mic.sd, "query_devices",
+                               return_value=[{"index": 0, "name": "usb",
+                                              "max_input_channels": 2}]), \
+             mock.patch.object(module_mic.sd, "InputStream",
+                               return_value=fake_stream) as stream_ctor:
+            hub._ensure_stream()
+        stream_ctor.assert_called_once()
+        assert stream_ctor.call_args.kwargs["device"] == 0
+        fake_stream.start.assert_called_once()
 
 
 class TestAuditFixes:
