@@ -70,6 +70,22 @@ def set_tars_state(new_state: TarsState) -> None:
             pass
 
 
+def restore_state_if_owned(prev_state: TarsState, owned: TarsState) -> bool:
+    """Put the state back to `prev_state`, but only if it is still `owned`.
+
+    For work that temporarily takes the state and must give it back — e.g. a
+    deferred follow-up speaking on the tool-loop thread. If another thread
+    wrote a transition while that work ran, that write wins: the borrower no
+    longer owns the state and must not clobber it.
+
+    Returns True if the state was restored, False if it was left alone.
+    """
+    if get_tars_state() != owned:
+        return False
+    set_tars_state(prev_state)
+    return True
+
+
 def on_state_change(callback: Callable[[TarsState, TarsState], None]) -> None:
     """Register a listener called on state changes: callback(old_state, new_state)."""
     with _lock:
