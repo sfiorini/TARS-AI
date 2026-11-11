@@ -12,6 +12,7 @@ but two non-streaming consumers called ``.strip()`` on the raw value:
 
 These tests pin the extractor's contract and the two call sites.
 """
+import sys
 import types
 import unittest
 from unittest import mock
@@ -100,3 +101,48 @@ class TestWebSearchSummarizeUsesExtractor(unittest.TestCase):
         self._run_summarize([{"type": "text", "text": "answer long enough"}], captured)
         self.assertTrue(captured, "no request payload captured")
         self.assertGreaterEqual(captured[0]["max_tokens"], 600)
+
+
+@unittest.skipIf(sys.version_info < (3, 10), "skill_tars_radio uses py3.10+ syntax")
+class TestRadioDjIntroUsesExtractor(unittest.TestCase):
+    """Same regression in the radio DJ intro path (fallback masked it)."""
+
+    def _run_dj_intro(self, content, payload_capture=None):
+        from skills import skill_tars_radio
+
+        response = mock.MagicMock()
+        response.ok = True
+        response.json.return_value = {"choices": [{"message": {"content": content}}]}
+
+        def _post(url, headers=None, json=None, timeout=None):
+            if payload_capture is not None:
+                payload_capture.append(json)
+            return response
+
+        fake_cfg = {
+            "LLM": {"api_key": "k", "llm_backend": "other", "base_url": "https://x",
+                    "other_model": "m", "openai_model": "gpt-4o-mini",
+                    "grok_model": "grok-3-mini", "temperature": 0.9},
+        }
+        # `_generate_dj_intro` does `import requests as req` INSIDE the function,
+        # which binds the same module object, so patching requests.post works.
+        with mock.patch("requests.post", _post), \
+             mock.patch("modules.module_config.load_config", return_value=fake_cfg):
+            return skill_tars_radio._generate_dj_intro("Test Song")
+
+    def test_block_list_content_is_summarised(self):
+        out = self._run_dj_intro([
+            {"type": "thinking", "thinking": "reasoning"},
+            {"type": "text", "text": "\"Up next on the cosmic frequency: Test Song.\""},
+        ])
+        self.assertEqual(out, "Up next on the cosmic frequency: Test Song.")
+
+    def test_plain_string_content_still_works(self):
+        out = self._run_dj_intro("You are tuning in to TARS Radio.")
+        self.assertEqual(out, "You are tuning in to TARS Radio.")
+
+    def test_token_budget_leaves_room_for_reasoning(self):
+        captured = []
+        self._run_dj_intro([{"type": "text", "text": "answer long enough"}], captured)
+        self.assertTrue(captured, "no request payload captured")
+        self.assertGreaterEqual(captured[0]["max_tokens"], 500)
