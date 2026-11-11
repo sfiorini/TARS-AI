@@ -1012,6 +1012,21 @@ class UIManager(threading.Thread):
 
                 pygame.display.flip()
 
+                # PROBE P6: proves the render loop is still alive during an
+                # episode, and reports what the UI *thinks* the state is.
+                # Rate-limited to once per 5 s. NOTE: queue_message is not
+                # imported at module scope in this file, hence the lazy import.
+                try:
+                    if _time.monotonic() - getattr(self, "_probe_last", 0.0) > 5.0:
+                        self._probe_last = _time.monotonic()
+                        from module_messageQue import queue_message as _qm
+                        _ts = self.terminal_system
+                        _qm(f"PROBE-UI alive paused={self.paused} "
+                            f"status={getattr(_ts, 'tars_status', '?')} "
+                            f"prog={getattr(_ts, '_silence_progress', '?')}")
+                except Exception:
+                    pass
+
                 clock.tick(self.target_fps)
 
         except Exception as e:

@@ -44,6 +44,16 @@ def set_tars_state(new_state: TarsState) -> None:
             return
         _state = new_state
         listeners = _listeners.copy()
+    # PROBE P1 (temporary instrumentation — stuck-LISTENING investigation).
+    # Records EVERY accepted transition with the writing thread, so the log
+    # shows which thread wrote the last state before a stall. Remove after use.
+    try:
+        from modules.module_messageQue import queue_message as _qm
+        import time as _t
+        _qm(f"PROBE-STATE {old.value}->{new_state.value} "
+            f"thread={threading.current_thread().name} t={_t.monotonic():.3f}")
+    except Exception:
+        pass
     # Log state change in debug mode
     try:
         if load_config().get('STT', {}).get('debug', False):

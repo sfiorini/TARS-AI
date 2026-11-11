@@ -617,6 +617,12 @@ class STTManager:
 
                 # Abort recording if TTS just started — don't pick up TARS's own voice
                 if is_tts_playing():
+                    # PROBE P3: round aborted on its first frame because TTS was
+                    # still playing. Note this exit does NOT call clear_bar().
+                    try:
+                        queue_message(f"PROBE-ROUND abort-tts frame={_} t={time.monotonic():.3f}")
+                    except Exception:
+                        pass
                     set_tars_state(TarsState.STANDBY)
                     return None, 0
 
@@ -781,6 +787,12 @@ class STTManager:
         try:
             if self.is_paused():
                 return None
+            # PROBE P2: did a recording round actually start, and in what state?
+            try:
+                queue_message(f"PROBE-STT enter state={get_tars_state().value} "
+                              f"tts={is_tts_playing()} t={time.monotonic():.3f}")
+            except Exception:
+                pass
 
             processors = {
                 "fastrtc": self._transcribe_with_fastrtc,
@@ -1298,6 +1310,11 @@ class STTManager:
 
                 # Abort recording if TTS just started — don't pick up TARS's own voice
                 if is_tts_playing():
+                    # PROBE P4: sherpa path equivalent of P3.
+                    try:
+                        queue_message(f"PROBE-ROUND abort-tts sherpa frame={_} t={time.monotonic():.3f}")
+                    except Exception:
+                        pass
                     set_tars_state(TarsState.STANDBY)
                     return None, 0
 
@@ -1548,6 +1565,16 @@ class STTManager:
 
         detector = WakeWordSystem(self.WAKE_WORD, self.MODEL_RATE, threshold, debug=self.DEBUG, mode=mode)
         detector.createModel()
+        # PROBE P5 — the decisive line. Stamps the instant the STT thread
+        # commits to parking in the wake detector, and whether follow-up TTS
+        # is still running. If the last PROBE-STATE before a stall is
+        # 'STANDBY->LISTENING thread=toolloop-voice' and this shows tts=True,
+        # the deferred-follow-up race is confirmed.
+        try:
+            queue_message(f"PROBE-PARK tts={is_tts_playing()} "
+                          f"state={get_tars_state().value} t={time.monotonic():.3f}")
+        except Exception:
+            pass
         # Wait for TTS to finish before entering blocking wake word listener
         while is_tts_playing():
             time.sleep(0.05)
