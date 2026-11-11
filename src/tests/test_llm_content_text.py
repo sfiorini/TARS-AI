@@ -182,5 +182,71 @@ class TestNoRawContentStrip(unittest.TestCase):
         )
 
 
+
+# module_websearch imports `from ddgs import DDGS` at module scope, but ddgs is
+# not a test dependency (it is not installed in the test environment). Stub it
+# the same way the TTS tests stub their optional SDKs (see
+# test_module_tts_elevenlabs.py) so the patch target
+# modules.module_websearch.search_google can be imported. search_google itself
+# is patched in every test below, so the stub is never exercised.
+if "ddgs" not in sys.modules:
+    _ddgs = types.ModuleType("ddgs")
+
+    class _DDGS:  # pragma: no cover - never instantiated, search_google is patched
+        pass
+
+    _ddgs.DDGS = _DDGS
+    sys.modules["ddgs"] = _ddgs
+
+
+class TestWebSearchNeverDiscardsResults(unittest.TestCase):
+    """A failed SUMMARY must not throw away a successful SEARCH.
+
+    The follow-up LLM is told "web_search: " (empty) when execute() returns
+    None, and then says the search returned empty — even though the search
+    data was fetched successfully.  Reachable whenever the summarizer call
+    fails (provider error, timeout, or the reasoning model exhausting its
+    token budget) and the reply-0 was a paraphrase the placeholder heuristic
+    does not recognise — which is exactly what the skill's own prompt teaches
+    the model to say ("On it, let me pull up the latest for you.").
+    """
+
+    def test_summary_failure_with_paraphrased_reply_still_returns_results(self):
+        from skills import skill_web_search
+
+        ctx = {
+            "bot_response": {"reply": "On it, let me pull up the latest for you."},
+            "user_input": "what's the weather in Rome",
+        }
+        # search_google is imported INSIDE execute(), so patch it at its source.
+        with mock.patch("modules.module_websearch.search_google",
+                        return_value="Right now in Rome it's 27 degrees and sunny."), \
+             mock.patch.object(skill_web_search, "_summarize_search_results", return_value=None):
+            out = skill_web_search.execute({"query": "weather Rome"}, ctx)
+
+        self.assertIsNotNone(
+            out,
+            "valid search data was discarded -> the follow-up LLM is told the "
+            "tool returned nothing and says 'the search returned empty'",
+        )
+        self.assertIn("27 degrees", out)
+
+    def test_summary_failure_with_short_placeholder_still_returns_results(self):
+        """The pre-existing branch for a recognised placeholder must keep working."""
+        from skills import skill_web_search
+
+        ctx = {
+            "bot_response": {"reply": "Let me check that for you."},
+            "user_input": "what's the weather in Rome",
+        }
+        with mock.patch("modules.module_websearch.search_google",
+                        return_value="Right now in Rome it's 27 degrees and sunny."), \
+             mock.patch.object(skill_web_search, "_summarize_search_results", return_value=None):
+            out = skill_web_search.execute({"query": "weather Rome"}, ctx)
+
+        self.assertIsNotNone(out)
+        self.assertIn("27 degrees", out)
+
+
 if __name__ == "__main__":
     unittest.main()

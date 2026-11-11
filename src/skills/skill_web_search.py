@@ -75,9 +75,10 @@ def execute(parameters, context):
     summary = _summarize_search_results(search_results, context.get("user_input", ""))
     if summary:
         return summary
-    if not has_real_reply:
-        return f"Here's what I found: {search_results[:500]}"
-    return None
+    # The summary call can fail (provider error, timeout, or the reasoning model
+    # exhausting its token budget and emitting an empty text block). The search
+    # itself succeeded, so never discard the data: hand it to the follow-up LLM.
+    return f"Here's what I found: {search_results[:500]}"
 
 
 def _summarize_search_results(search_results, user_question):
