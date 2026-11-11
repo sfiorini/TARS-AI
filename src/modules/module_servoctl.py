@@ -499,15 +499,17 @@ def _read_mode2():
     return _read_register(0x01)
 
 def _mode2_healthy(mode2):
-    """Pure helper: MODE2 must be exactly the driver-verified working output
-    state 0x04 on this board. Verified empirically on the robot: MODE2=0x04
-    drives the servos (physical movement confirmed); 0x01 leaves them silent
-    (no movement, no motor noise) while the chip still ACKs on I2C; 0x0B and
-    0x1E (seen after chip-logic glitches) put ALL PWM output pins in
-    high-impedance. Health check: OUTNE bits (0x0C) == 0x04."""
+    """Pure helper: MODE2 must be EXACTLY 0x04 — the only empirically working
+    state on this board. Verified empirically on the robot: MODE2=0x04 drives
+    the servos (physical movement confirmed); 0x01 leaves them silent (no
+    movement, no motor noise) while the chip still ACKs on I2C; 0x0B and 0x1E
+    (seen after chip-logic glitches) put ALL PWM output pins in
+    high-impedance. The old masked check (mode2 & 0x0C) == 0x04 classified
+    hi-Z glitch modes 0x06/0x07/0x16/0x17 (and silent 0x05) as healthy, so
+    they were never repaired."""
     if mode2 is None:
         return False
-    return (mode2 & 0x0C) == 0x04
+    return mode2 == 0x04
 
 def _chip_state_healthy(mode1, mode2):
     return _mode1_healthy(mode1) and _mode2_healthy(mode2)
