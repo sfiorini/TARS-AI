@@ -21,6 +21,42 @@ from unittest import mock
 
 import modules.module_llm as module_llm
 
+# module_websearch does `from ddgs import DDGS` at module scope, but ddgs is not a
+# test dependency on every machine. Install a stub ONLY when the real package is
+# genuinely unavailable, and remove it in tearDownModule so it can never shadow
+# the real package for the rest of the session (see test_module_piper_fx.py:115-117
+# and test_module_tts_elevenlabs.py:107-121 for the convention).
+_STUBBED_DDGS = False
+
+
+def setUpModule():
+    global _STUBBED_DDGS
+    _STUBBED_DDGS = False
+    try:
+        import ddgs  # noqa: F401
+        return
+    except ImportError:
+        pass
+
+    stub = types.ModuleType("ddgs")
+
+    class _DDGS:
+        """Mirrors the real DDGS surface closely enough to fail loudly if used."""
+
+        def text(self, *args, **kwargs):
+            raise RuntimeError(
+                "ddgs stub: tests must patch modules.module_websearch.search_google"
+            )
+
+    stub.DDGS = _DDGS
+    sys.modules["ddgs"] = stub
+    _STUBBED_DDGS = True
+
+
+def tearDownModule():
+    if _STUBBED_DDGS:
+        sys.modules.pop("ddgs", None)
+
 
 class TestContentText(unittest.TestCase):
     def test_plain_string_passthrough(self):
@@ -180,23 +216,6 @@ class TestNoRawContentStrip(unittest.TestCase):
             "raw `['message']['content'].strip()` — GLM models return a block list; "
             "use `modules.module_llm.content_text()` first",
         )
-
-
-
-# module_websearch imports `from ddgs import DDGS` at module scope, but ddgs is
-# not a test dependency (it is not installed in the test environment). Stub it
-# the same way the TTS tests stub their optional SDKs (see
-# test_module_tts_elevenlabs.py) so the patch target
-# modules.module_websearch.search_google can be imported. search_google itself
-# is patched in every test below, so the stub is never exercised.
-if "ddgs" not in sys.modules:
-    _ddgs = types.ModuleType("ddgs")
-
-    class _DDGS:  # pragma: no cover - never instantiated, search_google is patched
-        pass
-
-    _ddgs.DDGS = _DDGS
-    sys.modules["ddgs"] = _ddgs
 
 
 class TestWebSearchNeverDiscardsResults(unittest.TestCase):
