@@ -306,6 +306,50 @@ class TestPartialStepNormalisation(_StoreTestCase):
         self.assertIsNotNone(self.store.get("ui_full"))
 
 
+class TestHoldTimeClamp(_StoreTestCase):
+    """S-M2-07: movements.json is user-editable at runtime, so a 60 s
+    hold must not trip the 30 s stuck-MOVING watchdog — hold_time > 10.0
+    is clamped to 10.0 with a queue_message warning (30 s stuck timeout >
+    10 s max hold + margin; legit moves write PWM every <= 0.032 s)."""
+
+    def _add_with_hold(self, hold):
+        entry = _valid_entry()
+        entry["steps"][0]["hold_time"] = hold
+        self.store.load()
+        with mock.patch("modules.module_movementstore.queue_message") as qm:
+            self.store.add("hold_move", entry)
+        return qm
+
+    def test_hold_time_60_clamped_to_10(self):
+        qm = self._add_with_hold(60)
+        step = self.store.get("hold_move")["steps"][0]
+        self.assertEqual(step["hold_time"], 10.0,
+                         "hold_time 60 must load clamped to 10.0, not raise")
+        self.assertTrue(
+            any("clamped" in str(call) for call in qm.call_args_list),
+            "clamping must emit a queue_message warning")
+        # the clamp persists through a reload (movements.json on disk)
+        self.store.load()
+        self.assertEqual(
+            self.store.get("hold_move")["steps"][0]["hold_time"], 10.0,
+            "the clamped value must persist to movements.json")
+
+    def test_hold_time_5_unchanged(self):
+        qm = self._add_with_hold(5)
+        step = self.store.get("hold_move")["steps"][0]
+        self.assertEqual(step["hold_time"], 5)
+        self.assertFalse(
+            any("clamp" in str(call) for call in qm.call_args_list),
+            "a legal hold_time must not warn")
+
+    def test_hold_time_negative_still_raises(self):
+        entry = _valid_entry()
+        entry["steps"][0]["hold_time"] = -1
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.add("hold_bad", entry)
+
+
 class TestResetSemantics(_StoreTestCase):
     """D5 reset semantics: delete + re-insert from defaults (S-M1-04)."""
 

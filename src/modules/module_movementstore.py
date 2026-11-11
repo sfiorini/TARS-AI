@@ -350,6 +350,15 @@ class MovementStore:
         hold = step["hold_time"]
         if not _is_number(hold) or hold < 0:
             raise ValueError(f"{where} hold_time {hold!r} must be >= 0")
+        # S-M2-07: movements.json is user-editable at runtime — a 60 s
+        # hold must not trip the 30 s stuck-MOVING watchdog (30 s stuck
+        # timeout > 10 s max hold + margin; legit moves write PWM every
+        # <= 0.032 s). Clamp instead of reject so hand-edited files load.
+        if hold > 10.0:
+            queue_message(
+                f"WARNING: {where} hold_time {hold} clamped to 10.0 "
+                f"(max allowed)")
+            step["hold_time"] = 10.0
         ref = step["movement"]
         if ref is None:
             return
