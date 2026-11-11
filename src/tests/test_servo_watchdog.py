@@ -1155,11 +1155,15 @@ class TestIna260BootSampler(ServoctlSelfHealingTestCase):
 
     def test_raising_battery_module_does_not_break_soft_reset(self):
         # gates nothing: even a broken INA260 read must never break the
-        # boot movement sequence
-        bad = mock.MagicMock()
-        type(bad).current = mock.PropertyMock(
-            side_effect=RuntimeError("ina260 unreadable"))
-        servoctl.set_battery_module(bad)
+        # boot movement sequence. A hand-written stub is used instead of
+        # mutating the global MagicMock class (which would leak a raising
+        # `current` descriptor into every later test in the process).
+        class _RaisingBattery:
+            @property
+            def current(self):
+                raise RuntimeError("ina260 unreadable")
+
+        servoctl.set_battery_module(_RaisingBattery())
         servoctl.pca = _RecordingPca()
         servoctl.servo_positions = {}
         with mock.patch.object(servoctl, "queue_message"), \
