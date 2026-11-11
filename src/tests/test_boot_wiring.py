@@ -108,6 +108,30 @@ class TestStartupInitializationWatchdog(unittest.TestCase):
             "WARNING: Audio hub watchdog not started: boom")
 
 
+class TestStartupInitializationBatteryWiring(unittest.TestCase):
+    """S-M2-06 audit follow-up: the INA260 boot-current sampler in
+    servoctl only runs when servoctl.battery_module is set, and
+    set_battery_module was only ever called from tests — module_main has
+    its own battery_module global and nothing bridged the two, so the
+    sampler was dead code in production."""
+
+    def test_startup_initialization_wires_battery_into_servoctl(self):
+        src = _src("src/modules/module_main.py")
+        self.assertIn("set_battery_module(battery_module)", src,
+                      "startup_initialization must wire module_main's "
+                      "battery_module global into servoctl via "
+                      "set_battery_module")
+        # and it must happen BEFORE initialize_servos() in
+        # startup_initialization
+        fn_start = src.index("def startup_initialization")
+        wire_at = src.index("set_battery_module(battery_module)", fn_start)
+        init_at = src.index("initialize_servos()", fn_start)
+        self.assertLess(wire_at, init_at,
+                        "battery must be wired into servoctl BEFORE "
+                        "initialize_servos() — the boot soft-start samples "
+                        "INA260 current during servo init")
+
+
 class TestAppStartBlasEnv(unittest.TestCase):
     def _lines(self):
         return _src("App-Start.py").splitlines()

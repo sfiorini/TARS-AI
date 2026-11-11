@@ -639,6 +639,16 @@ def initialize_managers(mem_manager, char_manager, stt_mgr, ui_mgr, shutdown_evt
 def startup_initialization():
     try:
         queue_message("SYSTEM: Starting servo initialization...")
+        # Wire the battery module into servoctl so the boot soft-start can
+        # log INA260 boot current (S-M2-06). Without this the sampler is dead
+        # code in production: set_battery_module was only ever called from
+        # tests, and module_main.battery_module is a different global.
+        try:
+            if battery_module is not None:
+                from modules.module_servoctl import set_battery_module
+                set_battery_module(battery_module)
+        except Exception as e:
+            queue_message(f"WARNING: Could not wire battery module into servoctl: {e}")
         initialize_servos()
         queue_message("SYSTEM: Servo initialization complete")
         try:
