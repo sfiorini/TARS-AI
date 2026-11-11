@@ -66,6 +66,38 @@ class _RaisingChannel:
         raise self._exc
 
 
+class _RecordingChannel:
+    """Fake PCA9685 channel recording every duty_cycle write."""
+
+    def __init__(self, writes, index):
+        self._writes = writes
+        self._index = index
+        self._duty = 0
+
+    @property
+    def duty_cycle(self):
+        return self._duty
+
+    @duty_cycle.setter
+    def duty_cycle(self, value):
+        self._duty = value
+        self._writes.append((self._index, value))
+
+
+class _RecordingPca:
+    """Fake PCA9685 recording duty writes as (channel, value) pairs; channels
+    listed in fail_channels raise on write (failing-setter path)."""
+
+    def __init__(self, fail_channels=()):
+        self.writes = []
+        self.channels = {}
+        for i in range(16):
+            if i in fail_channels:
+                self.channels[i] = _RaisingChannel(ValueError("dead channel"))
+            else:
+                self.channels[i] = _RecordingChannel(self.writes, i)
+
+
 class _FakeMode1Pca:
     """Fake PCA9685 exposing readable mode1_reg/mode2_reg (value or raising)."""
 
@@ -113,6 +145,7 @@ class ServoctlSelfHealingTestCase(unittest.TestCase):
         "_last_pwm_time", "_on_movement_start", "_on_movement_end",
         "servo_positions", "_is_ventilate_operation",
         "_watchdog_running", "_watchdog_thread", "_watchdog_interval",
+        "_engaged_channels",
         "battery_module", "_i2c", "_unhealthy_chip_reads", "_last_pca_none_log",
         "_last_chip_repair_attempt", "_last_chip_repair_log",
     )
@@ -299,9 +332,14 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         self.assertIsInstance(status["watchdog_running"], bool)
 
     def test_force_servo_recovery_reapplies_saved_positions(self):
-        servoctl.MOVING = True
+        # S-M2-04 engaged-only contract: recovery re-applies ONLY the engaged
+        # channels (not every saved position — that would re-energize servos
+        # deliberately disabled after a movement). S-M2-05: MOVING must be
+        # False here — a recovery while MOVING is rejected, not executed.
+        servoctl.MOVING = False
         servoctl.pca = None
-        servoctl.servo_positions = {0: 350, 3: 300}
+        servoctl.servo_positions = {0: 350, 3: 300, 12: 400}
+        servoctl._engaged_channels = {0, 3}
 
         def fake_init():
             servoctl.pca = mock.MagicMock()
@@ -315,6 +353,59 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         self.assertTrue(status["pca_alive"])
         ssp.assert_any_call(0, 350)
         ssp.assert_any_call(3, 300)
+        for call in ssp.call_args_list:
+            self.assertIn(call.args[0], {0, 3},
+                          "recovery must not re-apply non-engaged channels")
+
+
+class TestReapplyEngagedPositions(ServoctlSelfHealingTestCase):
+    """S-M2-04: repair/recovery re-applies ONLY engaged channels from
+    servo_positions, legs (0-3) first. An empty engaged set (the common path:
+    disable_all_servos runs after every movement via the movement-store and
+    playback paths, so idle means deliberately de-energized) must write ZERO
+    PWM registers — that is the jump fix."""
+
+    def test_reapply_engaged_only_legs_first(self):
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 100, 4: 300, 8: 310}
+        servoctl._engaged_channels = {8, 4, 0}
+
+        with mock.patch("time.sleep"):
+            servoctl._reapply_engaged_positions()
+
+        written = [channel for channel, _value in servoctl.pca.writes]
+        self.assertEqual(written, [0, 4, 8])  # legs first, then others sorted
+        expected = [
+            (0, servoctl.pulse_to_duty_cycle(100)),
+            (4, servoctl.pulse_to_duty_cycle(300)),
+            (8, servoctl.pulse_to_duty_cycle(310)),
+        ]
+        self.assertEqual(servoctl.pca.writes, expected)
+
+    def test_idle_reapply_zero_writes(self):
+        # THE jump fix: idle (engaged set empty after disable_all_servos)
+        # repair must touch ZERO PWM registers — deliberately de-energized
+        # servos stay de-energized even though servo_positions is non-empty.
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 350, 3: 300, 12: 400}
+        servoctl._engaged_channels = set()
+
+        servoctl._reapply_engaged_positions()
+
+        self.assertEqual(servoctl.pca.writes, [])
+
+    def test_engaged_channel_missing_position_skipped(self):
+        # never write an unknown value: an engaged channel with no saved
+        # position is skipped, not defaulted.
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 350}
+        servoctl._engaged_channels = {0, 5}
+
+        with mock.patch("time.sleep"):
+            servoctl._reapply_engaged_positions()
+
+        written = [channel for channel, _value in servoctl.pca.writes]
+        self.assertEqual(written, [0])
 
 
 class TestMode1Health(ServoctlSelfHealingTestCase):
@@ -451,6 +542,39 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
             init.assert_not_called()
             servoctl._watchdog_tick()
             init.assert_called_once()
+
+
+class TestEngagedChannels(ServoctlSelfHealingTestCase):
+    """S-M2-03: track which channels hold a live PWM command — the repair
+    path (S-M2-04) re-applies ONLY these; a failed write must never mark a
+    channel engaged."""
+
+    def test_engaged_set_lifecycle(self):
+        servoctl.pca = _RecordingPca()
+        servoctl._engaged_channels = set()
+        self.assertTrue(servoctl.set_servo_pwm(4, 300))
+        self.assertEqual(servoctl._engaged_channels, {4})
+        servoctl.disable_all_servos()
+        self.assertEqual(servoctl._engaged_channels, set())
+
+    def test_disable_clears_engaged_set_when_pca_none(self):
+        # F1: the caller's intent is always "de-energize everything" — the
+        # engaged set must clear even when the PCA handle was invalidated,
+        # or the next repair/recovery re-energizes channels that the caller
+        # just tried to disable (phantom-engaged-channel jump).
+        servoctl.pca = None
+        servoctl._engaged_channels = {0, 4, 9}
+        servoctl.disable_all_servos()
+        self.assertEqual(servoctl._engaged_channels, set())
+
+    def test_failed_write_not_engaged(self):
+        servoctl.pca = _RecordingPca(fail_channels={4})
+        servoctl._engaged_channels = set()
+        self.assertFalse(servoctl.set_servo_pwm(4, 300))
+        self.assertEqual(servoctl._engaged_channels, set())
+        # a good write on another channel still engages it
+        self.assertTrue(servoctl.set_servo_pwm(5, 300))
+        self.assertEqual(servoctl._engaged_channels, {5})
 
 
 class TestWatchdog(ServoctlSelfHealingTestCase):
