@@ -190,6 +190,12 @@ _ANTIPATTERN = re.compile(
     r"\[\s*['\"]message['\"]\s*\]\s*\[\s*['\"]content['\"]\s*\]\s*\.\s*strip\s*\("
 )
 
+# Directories under src/ that are never our source: the virtualenv (23k files on
+# the robot), bytecode caches, vendored packages, and the tests themselves.
+_SCAN_SKIP_DIRS = {
+    "tests", "__pycache__", ".venv", "venv", "site-packages", "node_modules", ".git",
+}
+
 
 class TestNoRawContentStrip(unittest.TestCase):
     """Source-scan guard: raw ['message']['content'].strip() is the GLM bug.
@@ -206,9 +212,13 @@ class TestNoRawContentStrip(unittest.TestCase):
         src_root = Path(__file__).resolve().parents[1]
         offenders = []
         for py in sorted(src_root.rglob("*.py")):
-            if py.relative_to(src_root).parts[0] == "tests":
+            rel = py.relative_to(src_root)
+            if any(part in _SCAN_SKIP_DIRS for part in rel.parts):
                 continue
-            for lineno, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+            # errors="replace": a vendored/legacy file must never make the guard
+            # crash — and our own sources are ASCII-only for this pattern anyway.
+            text = py.read_text(encoding="utf-8", errors="replace")
+            for lineno, line in enumerate(text.splitlines(), 1):
                 if _ANTIPATTERN.search(line):
                     offenders.append(f"{py.relative_to(src_root.parent)}:{lineno}")
         self.assertEqual(
