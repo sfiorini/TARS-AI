@@ -237,12 +237,27 @@ class TestRawCompleteRetry(unittest.TestCase):
         self.assertEqual(sleep.call_count, 0)
 
     def test_non_json_body_not_retried(self):
-        # Clause-order trap guard: requests' JSONDecodeError MRO is
-        # JSONDecodeError -> InvalidJSONError -> RequestException ->
-        # OSError — NOT an HTTPError, so it must hit the OUTER
-        # json.JSONDecodeError handler with exactly one POST.
+        # Clause-order trap guard: requests' JSONDecodeError IS a
+        # RequestException but NOT an HTTPError, so the inner retry clause
+        # must stay `except requests.HTTPError` — if it were widened to
+        # RequestException, this exception would be caught by it. The
+        # JSONDecodeError therefore carries a RETRYABLE 429 response so
+        # the widened clause WOULD retry (2 posts, 1 sleep) and fail this
+        # test on call_count; a response-less exception would pass under
+        # BOTH clauses and guard nothing.
+        class _Resp:
+            status_code = 429
+            text = "data: {oops"
+
+            def raise_for_status(self):
+                pass
+
+            def json(self):
+                raise requests.exceptions.JSONDecodeError(
+                    "Expecting value", "data: {oops", 0, response=_Resp())
+
         session = mock.MagicMock()
-        session.post.return_value = _sse_response("data: {oops")
+        session.post.return_value = _Resp()
         result, capture, sleep = self._run(session)
         self.assertIsNone(result)
         self.assertEqual(session.post.call_count, 1)
