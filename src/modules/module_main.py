@@ -105,6 +105,21 @@ def wake_word_callback(wake_response):
 
     set_tars_state(TarsState.LISTENING)
 
+def _followup_restore_target(prev_state: TarsState) -> TarsState:
+    """Where a deferred follow-up should hand the state back to.
+
+    Only an idle robot (STANDBY) or a live listening session (LISTENING) is a
+    meaningful place to return to. Anything else — TALKING (the follow-up woke
+    on the reply-0 drain, which fires before the main thread writes LISTENING),
+    THINKING, BOOTING — resolves to STANDBY, which is where the robot waits for
+    its wake word. Returning a transient state would leave the UI showing
+    something no thread is backing.
+    """
+    if prev_state in (TarsState.LISTENING, TarsState.STANDBY):
+        return prev_state
+    return TarsState.STANDBY
+
+
 def utterance_callback(message):
     """
     Process the recognized message from STTManager and stream audio response to speakers.
@@ -399,10 +414,8 @@ def utterance_callback(message):
                 # (wake word worked, plain speech did not). restore_state_if_owned
                 # also yields if the STT thread (or a wake word) wrote during
                 # playback, so a live round still ends up LISTENING.
-                restore_state_if_owned(
-                    prev_state if prev_state in (TarsState.LISTENING, TarsState.STANDBY)
-                    else TarsState.STANDBY,
-                    TarsState.TALKING)
+                restore_state_if_owned(_followup_restore_target(prev_state),
+                                       TarsState.TALKING)
                 try:
                     from modules.module_chatui import socketio
                     socketio.emit('bot_message', {'message': text, 'audio_streamed': True})

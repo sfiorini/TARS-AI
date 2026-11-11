@@ -121,3 +121,57 @@ class TestFollowupUsesConditionalRestore:
             "writes LISTENING even when the STT thread has already parked "
             "and no recording round will follow"
         )
+
+
+class TestStateMachineStillNotifies:
+    """The atomic-CAS refactor split set_tars_state into a locked swap plus an
+    outside-the-lock announce. These guard that contract."""
+
+    def test_transition_notifies_listeners(self):
+        from modules.module_state import on_state_change, remove_state_change
+        seen = []
+        cb = lambda old, new: seen.append((old, new))
+        on_state_change(cb)
+        try:
+            set_tars_state(TarsState.TALKING)
+        finally:
+            remove_state_change(cb)
+        assert seen == [(TarsState.STANDBY, TarsState.TALKING)]
+
+    def test_same_state_does_not_notify(self):
+        from modules.module_state import on_state_change, remove_state_change
+        seen = []
+        cb = lambda old, new: seen.append((old, new))
+        on_state_change(cb)
+        try:
+            set_tars_state(TarsState.STANDBY)      # already STANDBY
+        finally:
+            remove_state_change(cb)
+        assert seen == []
+
+    def test_restore_notifies_listeners(self):
+        from modules.module_state import on_state_change, remove_state_change
+        set_tars_state(TarsState.STANDBY)
+        prev = get_tars_state()
+        set_tars_state(TarsState.TALKING)
+        seen = []
+        cb = lambda old, new: seen.append((old, new))
+        on_state_change(cb)
+        try:
+            assert restore_state_if_owned(prev, TarsState.TALKING) is True
+        finally:
+            remove_state_change(cb)
+        assert seen == [(TarsState.TALKING, TarsState.STANDBY)]
+
+    def test_failed_restore_does_not_notify(self):
+        from modules.module_state import on_state_change, remove_state_change
+        set_tars_state(TarsState.TALKING)
+        seen = []
+        cb = lambda old, new: seen.append((old, new))
+        on_state_change(cb)
+        try:
+            assert restore_state_if_owned(TarsState.LISTENING, TarsState.TALKING) is True
+        finally:
+            remove_state_change(cb)
+        # restored TALKING->LISTENING (we owned it)
+        assert seen == [(TarsState.TALKING, TarsState.LISTENING)]
