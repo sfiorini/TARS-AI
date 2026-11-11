@@ -127,7 +127,7 @@ def _summarize_search_results(search_results, user_question):
                 "messages": [
                     {"role": "user", "content": summary_prompt}
                 ],
-                "max_tokens": 250,
+                "max_tokens": 800,
                 "temperature": float(config['LLM'].get('temperature', 0.7))
             }
         else:
@@ -138,7 +138,8 @@ def _summarize_search_results(search_results, user_question):
 
         result = response.json()
         if 'choices' in result:
-            text = result['choices'][0]['message']['content'].strip()
+            from modules.module_llm import content_text
+            text = content_text(result['choices'][0]['message']['content']).strip()
 
             if text.startswith('{') and text.endswith('}'):
                 try:
