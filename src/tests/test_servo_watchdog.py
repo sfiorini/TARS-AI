@@ -5,6 +5,7 @@
 - bulletproof movement notifications
 - servo_status / force_servo_recovery
 """
+import ast
 import inspect
 import os
 import sys
@@ -356,6 +357,38 @@ class TestServoStatusAndRecovery(ServoctlSelfHealingTestCase):
         for call in ssp.call_args_list:
             self.assertIn(call.args[0], {0, 3},
                           "recovery must not re-apply non-engaged channels")
+
+    def test_force_recovery_rejected_when_moving(self):
+        # S-M2-05: a manual re-init mid-walk aborts the walk — defer instead.
+        # The recovery must be rejected ("rejected": "moving"), leave MOVING
+        # untouched and perform no re-init / PWM writes.
+        servoctl.MOVING = True
+        servoctl.pca = _RecordingPca()
+        servoctl.servo_positions = {0: 350}
+        servoctl._engaged_channels = {0}
+
+        with mock.patch.object(servoctl, "initialize_pca9685") as init:
+            result = servoctl.force_servo_recovery()
+
+        self.assertEqual(result.get("rejected"), "moving")
+        self.assertTrue(servoctl.MOVING)
+        init.assert_not_called()
+        self.assertEqual(servoctl.pca.writes, [])
+
+    def test_force_recovery_not_rejected_when_idle(self):
+        servoctl.MOVING = False
+        servoctl.pca = None
+
+        def fake_init():
+            servoctl.pca = mock.MagicMock()
+            return True
+
+        with mock.patch.object(servoctl, "initialize_pca9685", side_effect=fake_init):
+            result = servoctl.force_servo_recovery()
+
+        self.assertNotIn("rejected", result)
+        self.assertFalse(servoctl.MOVING)
+        self.assertTrue(result["pca_alive"])
 
 
 class TestReapplyEngagedPositions(ServoctlSelfHealingTestCase):
@@ -877,6 +910,66 @@ class TestSlopCleanup(ServoctlSelfHealingTestCase):
                                 "module_servoctl.py")).read()
         self.assertNotIn(
             "except (FileNotFoundError, json.JSONDecodeError, Exception)", src
+        )
+
+
+
+class TestServoReinitRouteMapping(unittest.TestCase):
+    """S-M2-05: the /servo_reinit route maps a rejected recovery to HTTP 409.
+    Flask is robot-only (Install.sh; `import flask` fails locally) and
+    module_chatui spawns a wifi-init thread at import, so — like
+    test_boot_wiring.py — this is a source-structural (ast) test, not a
+    Flask test-client test. ast makes it formatting-robust."""
+
+    def _route_fn(self):
+        path = os.path.join(_SRC, "modules", "module_chatui.py")
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.FunctionDef)
+                    and node.name == "servo_reinit_endpoint"):
+                return node
+        self.fail("servo_reinit_endpoint not found in module_chatui.py")
+
+    def test_rejected_recovery_maps_to_409_else_200(self):
+        fn = self._route_fn()
+        mappings = [
+            node for node in ast.walk(fn)
+            if isinstance(node, ast.IfExp)
+            and isinstance(node.body, ast.Constant) and node.body.value == 409
+            and isinstance(node.orelse, ast.Constant) and node.orelse.value == 200
+        ]
+        self.assertTrue(
+            mappings,
+            "route must return (409 if rejected else 200) — a manual re-init "
+            "mid-walk aborts the walk, so the UI must see the rejection",
+        )
+        self.assertIn("rejected", ast.unparse(mappings[0].test))
+
+    def test_route_jsonifies_captured_recovery_status(self):
+        fn = self._route_fn()
+        captured = set()
+        for node in ast.walk(fn):
+            if (isinstance(node, ast.Assign)
+                    and isinstance(node.value, ast.Call)
+                    and getattr(node.value.func, "id", "")
+                        == "force_servo_recovery"):
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        captured.add(target.id)
+        self.assertTrue(
+            captured,
+            "route must capture status = force_servo_recovery()",
+        )
+        jsonified = [
+            call for call in ast.walk(fn)
+            if isinstance(call, ast.Call)
+            and getattr(call.func, "id", "") == "jsonify"
+        ]
+        self.assertTrue(
+            any(isinstance(arg, ast.Name) and arg.id in captured
+                for call in jsonified for arg in call.args),
+            "jsonify() must receive the captured force_servo_recovery() status",
         )
 
 
