@@ -23,6 +23,12 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 
 `module_config.get_api_key()` maps the active `[LLM] llm_backend` to its env var and injects it as `CONFIG['LLM']['api_key']`, sent as `Authorization: Bearer <key>`.
 
+## Reading model output (block-list content)
+
+GLM-family models (e.g. `zai-glm-5-3-flash`) return `message.content` as a **list of blocks** — `[{"type": "thinking", ...}, {"type": "text", "text": ...}]` — rather than a string. Any code that reads a non-streaming response must go through `module_llm.content_text()`, which keeps only the `text` blocks (the private `_delta_text` alias still works for older callers). Calling `.strip()` on the raw value raises `AttributeError: 'list' object has no attribute 'strip'`; that silently broke the web-search summarizer, so every weather answer came back empty after ~12 s and the round fell through to listening.
+
+Token budgets must also leave room for the reasoning blocks: this model spends anywhere from ~70 to ~400 tokens thinking before it writes a single word. The search summarizer uses `max_tokens = 800` and the radio intro `600` for that reason — a budget of 250 produced an empty `text` block.
+
 ## `src/config.ini` sections (`src/config.ini.template`)
 
 ### `[CHAR]` — character & user
