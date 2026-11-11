@@ -164,14 +164,20 @@ class TestStateMachineStillNotifies:
         assert seen == [(TarsState.TALKING, TarsState.STANDBY)]
 
     def test_failed_restore_does_not_notify(self):
+        """When another thread has taken the state, nothing is announced.
+
+        (The previous version of this test asserted the opposite — a
+        successful restore — and was named as if it covered this path.)
+        """
         from modules.module_state import on_state_change, remove_state_change
-        set_tars_state(TarsState.TALKING)
+        set_tars_state(TarsState.STANDBY)      # someone else owns it now
         seen = []
         cb = lambda old, new: seen.append((old, new))
         on_state_change(cb)
         try:
-            assert restore_state_if_owned(TarsState.LISTENING, TarsState.TALKING) is True
+            assert restore_state_if_owned(TarsState.LISTENING,
+                                          TarsState.TALKING) is False
         finally:
             remove_state_change(cb)
-        # restored TALKING->LISTENING (we owned it)
-        assert seen == [(TarsState.TALKING, TarsState.LISTENING)]
+        assert seen == []
+        assert get_tars_state() == TarsState.STANDBY

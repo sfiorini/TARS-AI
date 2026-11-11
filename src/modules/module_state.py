@@ -102,7 +102,10 @@ def restore_state_if_owned(prev_state: TarsState, owned: TarsState) -> bool:
     competing writer can slip a transition in between them (a plain
     get-then-set would leave exactly that window open).
 
-    Returns True if the state was restored, False if it was left alone.
+    Returns True when the caller still owned the state (including the
+    degenerate prev_state == owned case, which is a no-op and announces
+    nothing), and False when another thread had taken it — in which case
+    nothing is written and no listener fires.
     """
     with _lock:
         if _state != owned:
