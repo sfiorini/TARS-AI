@@ -86,15 +86,3 @@ def restart_sound_server() -> bool:
                 _hub._recovery_in_progress = False
         finally:
             _recovery_lock.release()
-
-
-def reprobe_audio() -> None:
-    """Reset TTS output-device resolution + invalidate the mic hub. Used
-    post-boot-movement (M2) so streams open against a re-enumerated card."""
-    try:
-        from modules.module_tts import _reset_output_device_resolution
-        _reset_output_device_resolution()
-        from modules.module_mic import invalidate_audio_hub
-        invalidate_audio_hub()
-    except Exception as e:
-        queue_message(f"WARNING: audio reprobe failed: {e}")
