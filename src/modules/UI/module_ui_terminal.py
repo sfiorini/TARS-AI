@@ -114,6 +114,10 @@ class TerminalSystem:
 
         self.last_click_time = 0
         self.click_cooldown = 400
+        # Back button has its OWN stamp: last_click_time is written by every
+        # main-view tap (handle_click) and was also stamped here on misses and
+        # app-content taps, poisoning the 400 ms window for the back button.
+        self._back_click_time = 0
 
         self.scroll_up_rect = None
         self.scroll_down_rect = None
@@ -549,12 +553,11 @@ class TerminalSystem:
             self._draw_wifi_icon(surface, right_x, y, wifi_size)
 
     def handle_app_click(self, pos: Tuple[int, int]) -> bool:
-        now = pygame.time.get_ticks()
-        if now - self.last_click_time < self.click_cooldown:
-            return False
-        self.last_click_time = now
-
         if self.back_button_rect and self.back_button_rect.collidepoint(pos):
+            now = pygame.time.get_ticks()
+            if now - self._back_click_time < self.click_cooldown:
+                return False
+            self._back_click_time = now
             if self.on_app_back:
                 self.on_app_back()
             return True
