@@ -251,6 +251,15 @@ class TestBuiltinAdapter(unittest.TestCase):
                     descriptors[name].result_bearing,
                     f"{name} is speakable but not result_bearing")
 
+    def test_network_camera_is_not_speakable(self):
+        # G9 audit: network_camera's fetch-failure paths return the tried
+        # camera URLs (which may embed credentials) as ordinary content
+        # with is_error=False, so the followup-None rescue would read them
+        # aloud. It must stay out of the speakable set until the skill
+        # marks those failures as errors.
+        from modules.module_skills import _SPEAKABLE_BUILTIN_SKILLS
+        self.assertNotIn("network_camera", _SPEAKABLE_BUILTIN_SKILLS)
+
     def test_disabled_skills_yield_no_descriptor(self):
         manager = self._real_manager()
         manager._disabled.add("web_search")
