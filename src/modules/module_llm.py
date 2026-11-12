@@ -337,7 +337,7 @@ def _extract_text(response_json, istext):
     except (KeyError, IndexError, TypeError) as error:
         return f"Text extraction failed: {str(error)}"
 
-def process_completion(prompt, image_b64=None):
+def process_completion(prompt, image_b64=None, source="voice"):
     """Run LLM completion and return parsed dict with reply + side effects deferred.
 
     Returns a dict with 'reply', 'function_calls', 'new_memories' fields,

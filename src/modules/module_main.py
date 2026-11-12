@@ -283,7 +283,7 @@ def utterance_callback(message):
             try:
                 stt_to_llm_dur = speed.stop('stt_to_llm')
                 speed.start('llm_total')
-                parsed = process_completion(user_text)
+                parsed = process_completion(user_text, source='voice')
                 llm_total_dur = speed.stop('llm_total')
                 # Refresh UI display name now that speaker ID has resolved
                 try:

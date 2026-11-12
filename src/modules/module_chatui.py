@@ -766,7 +766,11 @@ def _process_chat_message(msg, img_b64):
 
         _llm_mod._reply_chunk_callback = _on_chunk
         try:
-            parsed = process_completion(msg, image_b64=img_b64)
+            from modules.module_toolloop import bump_epoch
+            bump_epoch('webui')  # new message — cancel any in-flight webui
+                                  # turn BEFORE the LLM call, so the pre-LLM
+                                  # filler and the toolloop see the SAME epoch
+            parsed = process_completion(msg, image_b64=img_b64, source='webui')
         finally:
             _llm_mod._reply_chunk_callback = None
             # Flush remaining text to pipeline
@@ -780,11 +784,10 @@ def _process_chat_message(msg, img_b64):
             reply = parsed.get("reply", "") or ""
             # Side effects: result-bearing tools → deferred loop (D1);
             # otherwise today's synchronous side-effect path
-            from modules.module_toolloop import (bump_epoch, get_loop_runner,
+            from modules.module_toolloop import (get_loop_runner,
                                                  TurnCallbacks)
             from modules.module_llm import (llm_execute_side_effects,
                                             write_turn_memories)
-            bump_epoch('webui')
             started = get_loop_runner().start_turn(
                 parsed, msg, 'webui',
                 TurnCallbacks(speak=lambda text: socketio.emit(

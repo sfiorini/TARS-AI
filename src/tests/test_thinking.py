@@ -1,5 +1,6 @@
 """Milestone 1 tests: module_thinking — categories, bank, sanitizer,
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
+import os
 import unittest
 from unittest import mock
 
@@ -319,6 +320,44 @@ class TestPerTurnDedup(unittest.TestCase):
                                "thinking_responses": "[]"}}
         self.assertFalse(llm._maybe_play_thinking_response(source="voice"))
         self.assertFalse(mt.already_played_this_turn("voice"))
+
+
+_SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+
+
+class TestProcessCompletionSource(unittest.TestCase):
+    """S-M2-03: process_completion takes a source, and the webui/discord
+    epoch bumps move BEFORE the completion call (source-order pins in the
+    house style of test_tool_loop.py)."""
+
+    def test_process_completion_accepts_source(self):
+        import inspect
+        sig = inspect.signature(llm.process_completion)
+        self.assertEqual(sig.parameters["source"].default, "voice")
+
+    def test_webui_bumps_before_completion(self):
+        with open(os.path.join(_SRC, "modules", "module_chatui.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        i_call = src.index("process_completion(msg")
+        i_bump = src.index("bump_epoch('webui')")
+        self.assertLess(i_bump, i_call,
+                       "webui epoch must bump BEFORE process_completion")
+
+    def test_webui_bump_appears_exactly_once(self):
+        with open(os.path.join(_SRC, "modules", "module_chatui.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertEqual(src.count("bump_epoch('webui')"), 1)
+
+    def test_discord_bumps_before_completion(self):
+        with open(os.path.join(_SRC, "skills", "skill_discord.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        i_call = src.index("process_completion(user_message")
+        i_bump = src.index("bump_epoch('discord')")
+        self.assertLess(i_bump, i_call)
+        self.assertEqual(src.count("bump_epoch('discord')"), 1)
 
 
 if __name__ == "__main__":

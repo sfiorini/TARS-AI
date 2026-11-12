@@ -56,8 +56,13 @@ bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 def _process_message(user_message, image_b64=None):
     """Process a Discord message through the LLM pipeline."""
     try:
+        from modules.module_toolloop import bump_epoch
         from modules.module_llm import process_completion
-        return process_completion(user_message, image_b64=image_b64)
+        bump_epoch('discord')  # moved from the side-effect handler: the
+                               # epoch must identify THIS message at the
+                               # pre-LLM filler site too
+        return process_completion(user_message, image_b64=image_b64,
+                                  source='discord')
     except Exception as e:
         queue_message(f"ERROR: Discord LLM processing: {e}")
         return "Sorry, I encountered an error processing your message."
@@ -153,10 +158,8 @@ def _run_side_effects_sync(reply, user_message, send_followup=None):
         try:
             from modules.module_llm import (llm_execute_side_effects,
                                             write_turn_memories)
-            from modules.module_toolloop import (bump_epoch,
-                                                 get_loop_runner,
+            from modules.module_toolloop import (get_loop_runner,
                                                  TurnCallbacks)
-            bump_epoch('discord')
             started = get_loop_runner().start_turn(
                 reply, user_message, 'discord',
                 TurnCallbacks(speak=send_followup or (lambda text: None)))
