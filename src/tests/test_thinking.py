@@ -2,6 +2,7 @@
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
 import ast
 import os
+import types
 import unittest
 from unittest import mock
 
@@ -397,7 +398,17 @@ class TestPerTurnDedup(unittest.TestCase):
 
         p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
         p.start(); self.addCleanup(p.stop)
-        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        # [F8] NARROW SEAM: patching "modules.module_llm.threading.Thread"
+        # resolves module_llm.threading to the GLOBAL threading module,
+        # so the patch hits every thread created in the process while the
+        # test runs (a background thread from an earlier test that starts
+        # a thread in this window gets the synchronous stub — the observed
+        # 1-in-22 flake). Replace module_llm's OWN `threading` NAME with a
+        # bare namespace whose Thread is the synchronous stub: only the
+        # code under test (module_llm) sees it, the global threading
+        # module is untouched.
+        t = mock.patch.object(llm, "threading",
+                             types.SimpleNamespace(Thread=_ImmediateThread))
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -407,6 +418,10 @@ class TestPerTurnDedup(unittest.TestCase):
         mt._refreshed.clear()
 
     def test_second_fire_same_turn_suppressed(self):
+        # [F8] hermetic: the per-source dedup state is module-global —
+        # reset it EXPLICITLY here, not just in setUp, so this test does
+        # not depend on setUp/tearDown ordering for its outcome
+        mt.reset_dedup()
         self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
         self.assertEqual(len(self._played), 1)
         # same turn again -> True (handled) but NO second playback
