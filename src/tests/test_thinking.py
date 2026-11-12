@@ -360,5 +360,72 @@ class TestProcessCompletionSource(unittest.TestCase):
         self.assertEqual(src.count("bump_epoch('discord')"), 1)
 
 
+class TestPreLlmSuppression(unittest.TestCase):
+    """S-M3-01: the two pre-LLM call sites pass user_text + source — a
+    likely tool turn (keyword hit, no tool_names yet) stays silent so the
+    model's own reply-0 holding line can speak; general text still fires
+    a filler (covers TTFT)."""
+
+    def setUp(self):
+        mt.reset_dedup()
+        mt._refreshed.clear()
+        self._cfg = llm.CONFIG
+        # "TTS" key required — see TestHotPathSelection.setUp
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "[]"},
+                      "TTS": {"ttsoption": "piper"}}
+        self._mt_cfg = mt.CONFIG
+        # the config floor reads mt.CONFIG — never the repo's config.ini
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        self._played = []
+
+        async def _fake_play(text, *a, **k):
+            # coroutine stub — see TestHotPathSelection.setUp
+            self._played.append(text)
+
+        p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
+        p.start(); self.addCleanup(p.stop)
+        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        t.start(); self.addCleanup(t.stop)
+
+    def tearDown(self):
+        mt.reset_dedup()
+        llm.CONFIG = self._cfg
+        mt.CONFIG = self._mt_cfg
+        mt._refreshed.clear()
+
+    def test_tool_category_text_suppressed_at_pre_llm(self):
+        ok = llm._maybe_play_thinking_response(
+            user_text="search for the weather in Rome", source="voice")
+        self.assertFalse(ok)
+        self.assertEqual(self._played, [])
+
+    def test_general_text_fires_at_pre_llm(self):
+        ok = llm._maybe_play_thinking_response(
+            user_text="tell me about turtles", source="voice")
+        self.assertTrue(ok)
+        self.assertIn(self._played[0], mt.PHRASE_BANK["general"])
+
+    def test_tool_names_override_suppression(self):
+        ok = llm._maybe_play_thinking_response(
+            user_text="search for the weather in Rome",
+            tool_names=["web_search"], source="voice")
+        self.assertTrue(ok)
+
+    def test_get_completion_and_get_parsed_pass_signals(self):
+        # source-scan: the two pre-LLM sites must forward user_text and
+        # source (Path("modules/...") breaks — module_llm's import chain
+        # chdirs the process; _SRC is the house convention)
+        with open(os.path.join(_SRC, "modules", "module_llm.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn(
+            "_maybe_play_thinking_response(user_text=user_prompt, source=source)",
+            src)
+        self.assertIn(
+            "_maybe_play_thinking_response(user_text=prompt, source=source)",
+            src)
+
+
 if __name__ == "__main__":
     unittest.main()

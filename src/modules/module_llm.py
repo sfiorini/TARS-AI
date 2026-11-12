@@ -223,7 +223,7 @@ def get_completion(user_prompt, istext=True, image_b64=None, source="voice"):
     if memory_manager is None or character_manager is None:
         raise ValueError("MemoryManager and CharacterManager must be initialized before generating completions.")
 
-    _maybe_play_thinking_response()
+    _maybe_play_thinking_response(user_text=user_prompt, source=source)
 
     prompt = build_prompt(user_prompt, character_manager, memory_manager, CONFIG, debug=False)
     headers = {
@@ -347,7 +347,7 @@ def process_completion(prompt, image_b64=None, source="voice"):
         if memory_manager is None or character_manager is None:
             raise ValueError("Managers must be initialized")
 
-        _maybe_play_thinking_response()
+        _maybe_play_thinking_response(user_text=prompt, source=source)
 
         import modules.module_speed as speed
         _t0 = time.perf_counter()
