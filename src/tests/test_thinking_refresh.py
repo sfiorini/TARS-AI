@@ -17,6 +17,7 @@ The LLM HTTP layer is always stubbed — no network, no real client.
 """
 import sys
 import threading
+import time
 import types
 import unittest
 from pathlib import Path
@@ -421,6 +422,56 @@ class TestBootWiring(unittest.TestCase):
         self.assertLess(i_try, i_call)
         self.assertLess(i_call, i_except)
         self.assertIn("thinking_refresh_enabled", src[i_try:i_except])
+
+
+class TestManualRefresh(unittest.TestCase):
+    """S-M5-01: the manual (web-UI) trigger — idempotent (a second
+    request while running never queues a second sweep), runs in a
+    daemon thread, and a failure sets state/last_error while keeping
+    the pools intact."""
+
+    def test_manual_returns_starting_then_done(self):
+        done = threading.Event()
+        release = threading.Event()
+
+        def _slow_refresh():
+            # Hold 'running' until the idempotency check below has run —
+            # an instant mock lets the bg thread finish first and the
+            # second call would see a terminal state, not 'running'.
+            release.wait(5)
+            return done.set() or True
+
+        with mock.patch.object(mt, "_refresh_all_categories",
+                               side_effect=_slow_refresh):
+            self.assertEqual(mt.request_manual_refresh()["state"], "starting")
+            self.assertEqual(mt.request_manual_refresh()["state"], "running")
+            release.set()
+            done.wait(5)
+            # _bg sets 'done' asynchronously; poll briefly
+            for _ in range(50):
+                if mt.refresh_status()["state"] == "done":
+                    break
+                time.sleep(0.02)
+            self.assertEqual(mt.refresh_status()["state"], "done")
+
+    def test_manual_failure_sets_error_keeps_pools(self):
+        before = dict(mt._refreshed)
+        with mock.patch.object(mt, "_refresh_all_categories",
+                               side_effect=RuntimeError("boom")):
+            self.assertEqual(mt.request_manual_refresh()["state"], "starting")
+            for _ in range(50):
+                if mt.refresh_status()["state"] == "error":
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "error")
+        self.assertEqual(info["last_error"], "boom")
+        self.assertEqual(mt._refreshed, before)  # pools intact on failure
+
+    def test_status_shape(self):
+        info = mt.refresh_status()
+        self.assertIn("state", info)
+        self.assertIn("generated", info)
 
 
 if __name__ == "__main__":

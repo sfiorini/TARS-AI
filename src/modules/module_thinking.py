@@ -462,3 +462,38 @@ def stop():
 def generated_phrase_count():
     with _pool_lock:
         return sum(len(v) for v in _refreshed.values())
+
+_manual_lock = threading.Lock()
+_refresh_state = {"state": "idle", "last_error": None}
+
+def request_manual_refresh():
+    """Manual (web-UI) trigger — copies the /api/tunnel/start pattern:
+    idempotent, daemon thread, returns immediately. Bypasses the idle
+    and interval gates (explicit user intent) but never blocks a turn."""
+    with _manual_lock:
+        if _refresh_state["state"] == "running":
+            return {"state": "running"}
+        _refresh_state["state"] = "running"
+        _refresh_state["last_error"] = None
+
+    def _bg():
+        try:
+            ok = _refresh_all_categories()
+            with _manual_lock:
+                _refresh_state["state"] = "done" if ok else "error"
+                if not ok:
+                    _refresh_state["last_error"] = "no category refreshed"
+        except Exception as e:
+            with _manual_lock:
+                _refresh_state["state"] = "error"
+                _refresh_state["last_error"] = str(e)
+
+    threading.Thread(target=_bg, daemon=True,
+                     name="ThinkingRefreshManual").start()
+    return {"state": "starting"}
+
+def refresh_status():
+    with _manual_lock:
+        info = dict(_refresh_state)
+    info["generated"] = generated_phrase_count()
+    return info
