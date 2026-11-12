@@ -656,6 +656,26 @@ class TestDedupSuppressesHoldingLine(_LoopTestCase):
         self.assertNotIn(HOLDING_LINE, self.spoken)
 
 
+class TestToolloopCategoryPass(_LoopTestCase):
+    """S-M3-02: start_turn forwards tool_names + source to the thinking
+    mechanism — the hybrid resolver's strongest signal exists at exactly
+    this site."""
+
+    def test_start_turn_passes_tool_names_and_source(self):
+        self.registry.register(_descriptor("search"))
+        with mock.patch("modules.module_llm._maybe_play_thinking_response",
+                        return_value=True) as think:
+            self._runner().start_turn(
+                self._parsed([{"function": "search", "parameters": {}}],
+                             reply=""),
+                "find the weather", "voice", self.callbacks)
+        think.assert_called_once()
+        kwargs = think.call_args.kwargs
+        self.assertEqual(kwargs["tool_names"], ["search"])
+        self.assertEqual(kwargs["source"], "voice")
+        self._wait_turn()
+
+
 class TestFollowupCompletion(unittest.TestCase):
     """followup_completion prompt shape (S-M4-05) — the model's behavior
     depends on the augmentation format, so it is pinned exactly."""

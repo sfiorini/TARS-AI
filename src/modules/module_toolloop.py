@@ -175,7 +175,10 @@ class ToolLoopRunner:
             played = False
             try:
                 from modules.module_llm import _maybe_play_thinking_response
-                played = bool(_maybe_play_thinking_response())
+                played = bool(_maybe_play_thinking_response(
+                    tool_names=[str(call.get("function", ""))
+                                 for call in calls],
+                    source=source))
             except Exception:  # noqa: BLE001 — holding line must never fail a turn
                 played = False
             if not played:
