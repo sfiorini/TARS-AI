@@ -25,6 +25,34 @@ class _ImmediateThread:
             self._t()
 
 
+# [F3] THE NARROWED THREAD SEAM — the single namespace that replaces
+# module_llm's OWN `threading` NAME in the hot-path test classes
+# (mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)).
+# module_llm uses ONLY threading.Thread and threading.Event
+# (module_llm.py:185,701,715,719,849) — the seam must expose both,
+# or any test reaching the tool-dispatch shim (threading.Event at
+# module_llm.py:849) raises AttributeError.
+_LLM_THREADING_SEAM = types.SimpleNamespace(Thread=_ImmediateThread,
+                                           Event=threading.Event)
+
+
+class TestLLMThreadingSeam(unittest.TestCase):
+    """[F3] seam coverage: module_llm calls BOTH threading.Thread and
+    threading.Event (module_llm.py:849 — the tool-dispatch shim). A
+    namespace exposing only Thread makes every future test that
+    reaches the shim raise AttributeError on Event."""
+
+    def test_seam_exposes_thread_and_event(self):
+        self.assertIs(_LLM_THREADING_SEAM.Thread, _ImmediateThread,
+                      "the seam must keep the synchronous Thread stub")
+        self.assertTrue(hasattr(_LLM_THREADING_SEAM, "Event"),
+                        "module_llm.py:849 calls threading.Event() — "
+                        "the seam must expose Event")
+        self.assertIs(_LLM_THREADING_SEAM.Event, threading.Event,
+                      "Event must be the REAL constructor (tests never "
+                      "reach the shim today; nothing to stub)")
+
+
 class TestPhraseBank(unittest.TestCase):
     def test_all_13_categories_present(self):
         self.assertEqual(len(CATEGORIES), 13)
@@ -328,8 +356,7 @@ class TestHotPathSelection(unittest.TestCase):
         # so the patch hit every thread in the process while the test
         # ran. Replace module_llm's OWN `threading` NAME instead (same
         # fix as TestPerTurnDedup.setUp's [F8]).
-        t = mock.patch.object(llm, "threading",
-                              types.SimpleNamespace(Thread=_ImmediateThread))
+        t = mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -415,8 +442,7 @@ class TestPerTurnDedup(unittest.TestCase):
         # bare namespace whose Thread is the synchronous stub: only the
         # code under test (module_llm) sees it, the global threading
         # module is untouched.
-        t = mock.patch.object(llm, "threading",
-                             types.SimpleNamespace(Thread=_ImmediateThread))
+        t = mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -563,8 +589,7 @@ class TestPreLlmSuppression(unittest.TestCase):
         # [F2] NARROW SEAM — see TestPerTurnDedup.setUp's [F8]: the
         # global-threading patch hit every thread in the process;
         # patch only module_llm's OWN `threading` NAME.
-        t = mock.patch.object(llm, "threading",
-                              types.SimpleNamespace(Thread=_ImmediateThread))
+        t = mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -748,8 +773,7 @@ class TestSuppressionPrecision(unittest.TestCase):
         # [F2] NARROW SEAM — see TestPerTurnDedup.setUp's [F8]: the
         # global-threading patch hit every thread in the process;
         # patch only module_llm's OWN `threading` NAME.
-        t = mock.patch.object(llm, "threading",
-                              types.SimpleNamespace(Thread=_ImmediateThread))
+        t = mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
