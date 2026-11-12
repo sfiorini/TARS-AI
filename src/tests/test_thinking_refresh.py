@@ -462,15 +462,27 @@ class TestRefreshDaemon(_RefreshStateTestCase):
             mt._refresh_loop()
 
     def test_loop_waits_when_disabled(self):
+        # DISCRIMINATION (mutation-tested): with the REAL _is_idle()
+        # (False on any machine that cannot prove idle), the loop
+        # stops at the idle gate anyway — the test used to stay green
+        # with the enabled gate deleted. Pin the gate DIRECTLY: hold
+        # every OTHER gate open (idle True, interval elapsed), so the
+        # enabled flag is the ONLY thing that can stop the refresh.
+        mt._last_refresh = 0.0
         cfg = mock.patch.object(mt, "load_config", return_value={
-            "CHAR": {"thinking_refresh_enabled": False}})
+            "CHAR": {"thinking_refresh_enabled": False,
+                     "thinking_refresh_minutes": 120}})
         cfg.start()
         self.addCleanup(cfg.stop)
         refresh = mock.patch.object(mt, "_refresh_all_categories")
         stub = refresh.start()
         self.addCleanup(refresh.stop)
-        self._run_one_tick()
+        with mock.patch.object(mt, "_is_idle", return_value=True):
+            self._run_one_tick()
         stub.assert_not_called()
+        self.assertEqual(stub.call_count, 0,
+                         "the disabled gate must stop the refresh even "
+                         "when idle and past the interval")
 
     def test_loop_fires_when_gates_open(self):
         mt._last_refresh = 0.0
