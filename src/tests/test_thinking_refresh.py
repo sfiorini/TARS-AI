@@ -178,6 +178,34 @@ class TestRefreshOnce(_RefreshStateTestCase):
         mt._refresh_once("search")
         self.assertEqual(stub.call_args.kwargs.get("timeout"), 60)
 
+    def test_lock_not_held_during_generation(self):
+        """The pool lock must NOT be held while raw_complete_llm runs.
+        A refresh call can take up to 60 s of network time — if the
+        call were ever moved inside `with _pool_lock:`, every reader of
+        the phrase bank (the mid-turn filler) would stall behind it.
+        The stub asserts the lock state at call time, so a regression
+        that moves the call under the lock fails HERE, not in prod."""
+        observed = {}
+
+        def _fake_llm(prompt, timeout=None):
+            observed['locked'] = mt._pool_lock.locked()
+            return '{"phrases": ["Thinking it through."]}'
+
+        # _refresh_once imports raw_complete_llm function-locally from
+        # modules.module_llm, so patch it at its source module.
+        patcher = mock.patch.object(llm, "raw_complete_llm", _fake_llm)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        quiet = mock.patch.object(mt, "queue_message")
+        quiet.start()
+        self.addCleanup(quiet.stop)
+
+        self.assertTrue(mt._refresh_once("general"))
+        self.assertIn("locked", observed,
+                      "the stubbed LLM call was never reached")
+        self.assertFalse(observed["locked"],
+                         "pool lock must NOT be held during generation")
+
     def test_swap_is_locked_not_in_place(self):
         old = mt._refreshed["search"] = ["Old one."]
         self._stub_llm('{"phrases": ["Fresh one."]}')
@@ -191,7 +219,7 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
     """S-M4-03: the cycle survives a raising category and advances
     _last_refresh after EVERY cycle (no hammering on failure)."""
 
-    def test_loop_survives_failure_and_waits(self):
+    def test_loop_survives_failure_and_advances_last_refresh(self):
         mt._last_refresh = 100.0
 
         def _flaky(category):
