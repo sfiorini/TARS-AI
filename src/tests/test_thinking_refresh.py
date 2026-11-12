@@ -62,6 +62,13 @@ class _RefreshStateTestCase(unittest.TestCase):
     def setUp(self):
         self._cfg = mt.CONFIG
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # F3: the fallback floor is read via load_config() — stub it to
+        # return the same dict, never the repo's config.ini (dynamic
+        # side_effect: mid-test mt.CONFIG reassignments count)
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
         self._saved_refreshed = dict(mt._refreshed)
         mt._refreshed.clear()
         self._had_last = hasattr(mt, "_last_refresh")
@@ -235,6 +242,34 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
         self.assertGreater(mt._last_refresh, 100.0,
                            "_last_refresh must advance after every cycle")
 
+    def test_cycle_aborts_between_categories_when_stopped(self):
+        """F1: a full cycle can take minutes (13 categories x 60 s), so
+        stop()'s 5 s join routinely times out mid-cycle. The cycle must
+        check the stop event BETWEEN categories and abort promptly —
+        otherwise a stopping daemon keeps making LLM calls for minutes.
+        A partial cycle still advances _last_refresh (no hammering)."""
+        mt._last_refresh = 100.0
+        calls = []
+
+        def _recording(category):
+            calls.append(category)
+            if len(calls) == 2:
+                mt._stop_event.set()
+            return True
+
+        saved_event = mt._stop_event
+        mt._stop_event = threading.Event()
+        self.addCleanup(setattr, mt, "_stop_event", saved_event)
+
+        with mock.patch.object(mt, "_refresh_once", side_effect=_recording):
+            ok = mt._refresh_all_categories()
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 2,
+                        "the cycle must abort once the stop event is set")
+        self.assertGreater(mt._last_refresh, 100.0,
+                           "a partial cycle must still advance "
+                           "_last_refresh (no hammering)")
+
 
 # --- S-M4-04: idle gate, daemon loop, start/stop, boot wiring -----------
 
@@ -392,6 +427,121 @@ class TestRefreshDaemon(_RefreshStateTestCase):
         mt.stop()
         mt.stop()  # idempotent: a second stop() must not raise
         self.assertTrue(mt._stop_event.is_set())
+
+
+class TestStopStartNoDuplicateDaemon(unittest.TestCase):
+    """F1: stop() joins for only 5 s while one refresh cycle can take
+    minutes (13 categories x 60 s), so the join routinely times out
+    mid-cycle. stop() must NOT null _thread while it is still alive, and
+    a later start() must refuse to double-spawn — otherwise TWO
+    permanent daemons run and the first, having watched _stop_event
+    get cleared, never exits (duplicate LLM calls forever).
+
+    Real threads, not mocks: the stub blocks past the 5 s join timeout,
+    exactly like a mid-cycle LLM call."""
+
+    def setUp(self):
+        self._saved_thread = mt._thread
+        self._saved_event = mt._stop_event
+        mt._thread = None
+        mt._stop_event = threading.Event()
+        self._release = threading.Event()
+        self._entered = threading.Event()
+        self._cycles = []
+
+        def _slow_loop():
+            self._cycles.append(1)          # one entry == one refresh loop
+            self._entered.set()
+            # model a cycle in progress; outlives stop()'s 5 s join
+            self._release.wait(30)
+
+        self._loop_patch = mock.patch.object(mt, "_refresh_loop", _slow_loop)
+        self._loop_patch.start()
+
+    def tearDown(self):
+        self._release.set()
+        # join every daemon this test may have spawned (a RED run
+        # leaves two) so no thread leaks into the rest of the suite
+        for t in threading.enumerate():
+            if t.name == "ThinkingRefresh" and t.is_alive():
+                t.join(5)
+        self._loop_patch.stop()
+        mt._thread = self._saved_thread
+        mt._stop_event = self._saved_event
+
+    @staticmethod
+    def _daemon_count():
+        return sum(1 for t in threading.enumerate()
+                   if t.name == "ThinkingRefresh" and t.is_alive())
+
+    def test_stop_then_start_never_two_live_daemons(self):
+        mt.start()
+        self.assertTrue(self._entered.wait(5),
+                        "the first daemon never entered its loop")
+        self.assertEqual(self._daemon_count(), 1)
+        mt.stop()  # the 5 s join times out: the cycle is still running
+        mt.start()  # must REFUSE: the first daemon is still alive
+        self.assertEqual(self._daemon_count(), 1,
+                         "stop()+start() must never leave two live "
+                         "daemons")
+        self.assertEqual(len(self._cycles), 1,
+                         "a second start() must not run a second loop")
+        self.assertTrue(mt._thread is not None and mt._thread.is_alive(),
+                        "stop() must keep _thread while the thread lives, "
+                        "so start() can see it and refuse")
+
+
+class TestLastRefreshLocking(_RefreshStateTestCase):
+    """F2: _last_refresh is written by every refresh cycle (daemon AND
+    the manual-refresh bg thread) and read by the daemon loop — all
+    accesses must go through the module-level _meta_lock."""
+
+    def test_read_and_write_both_take_meta_lock(self):
+        lock = getattr(mt, "_meta_lock", None)
+        self.assertIsNotNone(lock, "module-level _meta_lock must exist")
+
+        class _RecordingLock:
+            def __init__(self, inner):
+                self._inner = inner
+                self.count = 0
+            def __enter__(self):
+                self.count += 1
+                return self._inner.__enter__()
+            def __exit__(self, *exc):
+                return self._inner.__exit__(*exc)
+
+        real = mt._meta_lock
+        rec = _RecordingLock(real)
+        mt._meta_lock = rec
+        self.addCleanup(setattr, mt, "_meta_lock", real)
+
+        # read path: one daemon tick (gates open past the interval check;
+        # the idle gate then blocks the refresh itself)
+        mt._last_refresh = 0.0
+        cfg = mock.patch.object(mt, "load_config", return_value={
+            "CHAR": {"thinking_refresh_enabled": True,
+                     "thinking_refresh_minutes": 120}})
+        cfg.start()
+        self.addCleanup(cfg.stop)
+        ev = mock.MagicMock()
+        ev.is_set.side_effect = [False, False, True]
+        ev.wait.return_value = False
+        # the refresh stub is scoped to the tick ONLY — the write path
+        # below must call the REAL _refresh_all_categories
+        with mock.patch.object(mt, "_refresh_all_categories"), \
+             mock.patch.object(mt, "_stop_event", ev):
+            mt._refresh_loop()
+        reads = rec.count
+        self.assertGreaterEqual(
+            reads, 1,
+            "the daemon loop's _last_refresh read must take _meta_lock")
+
+        # write path: one full cycle
+        with mock.patch.object(mt, "_refresh_once", return_value=True):
+            mt._refresh_all_categories()
+        self.assertGreaterEqual(
+            rec.count, reads + 1,
+            "the cycle's _last_refresh write must take the SAME lock")
 
 
 class TestBootWiring(unittest.TestCase):

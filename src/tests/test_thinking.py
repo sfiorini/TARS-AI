@@ -149,6 +149,13 @@ class TestFallbackChain(unittest.TestCase):
     def setUp(self):
         self._cfg = mt.CONFIG
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # F3: the floor is read via load_config() (web-UI-editable), so
+        # stub it to return the same dict — NEVER the repo's config.ini
+        # (dynamic side_effect: mid-test mt.CONFIG reassignments count)
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
 
     def tearDown(self):
         mt.CONFIG = self._cfg
@@ -184,6 +191,28 @@ class TestFallbackChain(unittest.TestCase):
         with mock.patch.dict(mt.PHRASE_BANK, clear=True):
             self.assertIsNone(mt.get_filler_phrase("search"))
 
+    def test_config_floor_reads_live_config_not_snapshot(self):
+        """F3: the fallback floor must be read via load_config() (the
+        web-UI edit path), NOT the module-level CONFIG snapshot taken at
+        import time — otherwise a web-UI edit is picked up by the daemon
+        but ignored by the fallback chain until restart."""
+        with mock.patch.dict(mt.PHRASE_BANK, clear=True):
+            live = mock.patch.object(mt, "load_config", return_value={
+                "CHAR": {"thinking_responses": '["Live floor phrase."]'}})
+            live.start()
+            self.addCleanup(live.stop)
+            self.assertEqual(mt.get_filler_phrase("search"),
+                             "Live floor phrase.")
+
+    def test_config_read_failure_falls_through_to_none(self):
+        # F3 guard: the fresh load_config() call must never raise into
+        # the voice turn — a config failure falls through to None
+        # (the caller then speaks HOLDING_LINE)
+        with mock.patch.dict(mt.PHRASE_BANK, clear=True):
+            with mock.patch.object(mt, "load_config",
+                                   side_effect=RuntimeError("config gone")):
+                self.assertIsNone(mt.get_filler_phrase("search"))
+
 
 class TestHotPathSelection(unittest.TestCase):
     """S-M2-01: the hot path resolves a category and walks the verified
@@ -203,6 +232,12 @@ class TestHotPathSelection(unittest.TestCase):
         # the fallback chain's config floor reads mt.CONFIG — stub it too,
         # NEVER the repo's config.ini (it ships a non-empty floor list)
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # F3: the floor is now read via load_config() — stub it to return
+        # the same dict (dynamic: mid-test mt.CONFIG reassignments count)
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
         mt._refreshed.clear()
         self._played = []
 
@@ -277,6 +312,11 @@ class TestPerTurnDedup(unittest.TestCase):
                       "TTS": {"ttsoption": "piper"}}
         self._mt_cfg = mt.CONFIG
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # F3: the floor is read via load_config() — same stub as above
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
         self._played = []
 
         async def _fake_play(text, *a, **k):
@@ -377,6 +417,11 @@ class TestPreLlmSuppression(unittest.TestCase):
         self._mt_cfg = mt.CONFIG
         # the config floor reads mt.CONFIG — never the repo's config.ini
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # F3: the floor is read via load_config() — same stub as above
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
         self._played = []
 
         async def _fake_play(text, *a, **k):

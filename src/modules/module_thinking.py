@@ -208,7 +208,8 @@ def get_filler_phrase(category):
        successful refresh — generated set wins while it exists)
     2. curated PHRASE_BANK[category]
     3. curated PHRASE_BANK['general']
-    4. CONFIG['CHAR']['thinking_responses'] (web-UI-editable floor,
+    4. load_config()['CHAR']['thinking_responses'] (web-UI-editable
+       floor, read FRESH so a web-UI edit is picked up without restart;
        existing json.loads + isinstance(list) guard)
     5. None -> the caller speaks HOLDING_LINE (module_toolloop.py:38)
     """
@@ -222,7 +223,11 @@ def get_filler_phrase(category):
     general = PHRASE_BANK.get("general") or ()
     if general:
         return random.choice(general)
-    raw = CONFIG["CHAR"].get("thinking_responses", "[]")
+    try:
+        raw = load_config().get("CHAR", {}).get(
+            "thinking_responses", "[]")
+    except Exception:
+        raw = "[]"  # a config failure never raises into the voice turn
     try:
         cfg = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
@@ -370,16 +375,23 @@ def _refresh_once(category):
 def _refresh_all_categories():
     """One full refresh cycle over every category. Survives a raising
     category; advances _last_refresh after EVERY cycle (success or not —
-    no hammering on persistent failure)."""
+    no hammering on persistent failure). Checks the stop event BETWEEN
+    categories: a full cycle can take minutes (13 x 60 s), so a stop()
+    whose 5 s join timed out must not leave the daemon making LLM calls
+    for the rest of the cycle. A partial cycle still advances
+    _last_refresh (correct: don't hammer)."""
     global _last_refresh
     ok_any = False
     for category in CATEGORIES:
+        if _stop_event.is_set():
+            break
         try:
             if _refresh_once(category):
                 ok_any = True
         except Exception as e:
             queue_message(f"WARNING: thinking refresh error ({category}): {e}")
-    _last_refresh = time.time()
+    with _meta_lock:
+        _last_refresh = time.time()
     return ok_any
 
 
@@ -388,6 +400,7 @@ def _refresh_all_categories():
 _stop_event = threading.Event()
 _thread = None
 _start_lock = threading.Lock()
+_meta_lock = threading.Lock()  # guards _last_refresh (daemon + manual)
 _last_refresh = 0.0
 _IDLE_TEMP_C = 70.0
 
@@ -432,7 +445,9 @@ def _refresh_loop():
             if not load_config().get("CHAR", {}).get(
                     "thinking_refresh_enabled", False):
                 continue
-            if time.time() - _last_refresh < _refresh_interval_s():
+            with _meta_lock:
+                last = _last_refresh
+            if time.time() - last < _refresh_interval_s():
                 continue
             if not _is_idle():
                 continue
@@ -453,11 +468,16 @@ def start():
         _thread.start()
 
 def stop():
+    """Stop the daemon. The 5 s join routinely times out mid-cycle (one
+    cycle can take minutes), so _thread is nulled ONLY if it actually
+    exited — otherwise a later start() would not see it alive, would
+    clear _stop_event, and double-spawn a second permanent daemon."""
     global _thread
     _stop_event.set()
     if _thread is not None:
         _thread.join(timeout=5)
-        _thread = None
+        if not _thread.is_alive():
+            _thread = None
 
 def generated_phrase_count():
     with _pool_lock:
