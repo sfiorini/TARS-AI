@@ -874,7 +874,9 @@ class TestManualRefresh(unittest.TestCase):
         done = threading.Event()
         release = threading.Event()
 
-        def _slow_refresh():
+        def _slow_refresh(**kwargs):
+            # [F1] **kwargs: _bg now calls _refresh_all_categories(
+            # respect_idle=False) — the stub must accept the parameter.
             # Hold 'running' until the idempotency check below has run —
             # an instant mock lets the bg thread finish first and the
             # second call would see a terminal state, not 'running'.
@@ -1009,6 +1011,61 @@ class TestManualRefresh(unittest.TestCase):
                              "exactly ONE cycle ran — the manual click "
                              "must not stack a second sweep on the "
                              "daemon's")
+
+
+class TestManualRefreshIdleBypass(unittest.TestCase):
+    """[F1] The idle gate must distinguish its two callers. The daemon
+    respects it (a busy robot must never burn the API key), but the
+    MANUAL web-UI refresh is explicit user intent — its own docstring
+    and docs/web-ui.md promise it bypasses the idle gate. The old code
+    had no way to tell the callers apart (only index == 0 was exempt),
+    so on any machine where _is_idle() is permanently False (the dev
+    Mac, a board with no readable temp sensor, or whenever TARS is
+    speaking/moving), POST /api/thinking/refresh refreshed ONE of 13
+    categories, reported 'done', and painted a green badge while 12
+    pools were silently skipped — and the daemon never fills them
+    either (it is idle-gated too)."""
+
+    def test_manual_refresh_bypasses_idle_gate_all_13(self):
+        """[F1] A manual refresh with _is_idle() False must refresh ALL
+        13 categories (explicit user intent), not stop after the first
+        because the inter-category idle gate cannot tell the manual
+        caller from the daemon."""
+        calls = []
+
+        def _recording(category):
+            calls.append(category)
+            return True
+
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+        saved_pools = dict(mt._refreshed)
+        mt._refreshed.clear()
+        self.addCleanup(lambda: (mt._refreshed.clear(),
+                                 mt._refreshed.update(saved_pools)))
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_recording), \
+             mock.patch.object(mt, "_is_idle", return_value=False), \
+             mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+            # _bg runs in a daemon thread; poll for the terminal state
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+
+        self.assertEqual(mt.refresh_status()["state"], "done",
+                         "the manual refresh must complete (all stubbed "
+                         "categories succeed), not error out")
+        self.assertEqual(calls, list(mt.CATEGORIES),
+                         "a manual refresh is explicit user intent: it "
+                         "must refresh ALL 13 categories even when "
+                         "_is_idle() is False — the idle gate must not "
+                         "silently skip 12 of 13 pools")
 
 
 if __name__ == "__main__":

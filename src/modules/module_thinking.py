@@ -500,7 +500,7 @@ def _refresh_once(category):
         _refreshed[category] = list(phrases)  # atomic: NEW list, never mutate
     return True
 
-def _refresh_all_categories():
+def _refresh_all_categories(respect_idle=True):
     """One full refresh cycle over every category. Survives a raising
     category; advances _last_refresh after EVERY cycle (success or not —
     no hammering on persistent failure). Checks the stop event BETWEEN
@@ -510,10 +510,14 @@ def _refresh_all_categories():
     categories too: the daemon samples it only once per cycle, so a
     user waking TARS mid-cycle would otherwise leave the remaining
     categories firing LLM calls on the same API key, competing with the
-    user's turn for the rate limit. The FIRST category is not gated —
-    the manual web-UI refresh bypasses the idle gate by design
-    (explicit user intent), and the daemon has just checked it. A
-    partial cycle still advances _last_refresh (correct: don't hammer).
+    user's turn for the rate limit. [F1] The gate applies ONLY to
+    the daemon (respect_idle=True, the default): the MANUAL web-UI
+    refresh passes respect_idle=False — explicit user intent bypasses
+    the idle gate for EVERY category (request_manual_refresh's
+    docstring and docs/web-ui.md promise exactly that). The FIRST
+    category is not gated for the daemon either (it has just checked
+    _is_idle itself). A partial cycle still advances _last_refresh
+    (correct: don't hammer).
     [F4] At most one cycle runs at a time (daemon OR manual — the two
     used to guard independently, so a web-UI click mid-daemon-cycle
     stacked a second loop: up to 26 concurrent raw_complete_llm calls
@@ -527,7 +531,13 @@ def _refresh_all_categories():
         for index, category in enumerate(CATEGORIES):
             if _stop_event.is_set():
                 break
-            if index and not _is_idle():
+            # [F1] the gate applies ONLY to the daemon (respect_idle=True,
+            # its default) — the manual web-UI refresh passes False
+            # (explicit user intent bypasses the idle gate for EVERY
+            # category; the old index-0-only exemption refreshed 1 of
+            # 13 categories on any machine where _is_idle() is
+            # permanently False, while reporting 'done')
+            if respect_idle and index and not _is_idle():
                 break  # user woke TARS mid-cycle — stop burning the API key
             try:
                 if _refresh_once(category):
@@ -605,7 +615,7 @@ def _refresh_loop():
                 continue
             if not _is_idle():
                 continue
-            _refresh_all_categories()
+            _refresh_all_categories(respect_idle=True)
         except Exception as e:
             queue_message(f"WARNING: thinking refresh loop error: {e}")
 
@@ -658,7 +668,9 @@ def request_manual_refresh():
 
     def _bg():
         try:
-            ok = _refresh_all_categories()
+            # [F1] explicit user intent: bypass the idle gate for every
+            # category (the daemon passes respect_idle=True)
+            ok = _refresh_all_categories(respect_idle=False)
             with _manual_lock:
                 _refresh_state["state"] = "done" if ok else "error"
                 if not ok:
