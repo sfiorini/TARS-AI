@@ -492,13 +492,21 @@ def _refresh_all_categories():
     no hammering on persistent failure). Checks the stop event BETWEEN
     categories: a full cycle can take minutes (13 x 60 s), so a stop()
     whose 5 s join timed out must not leave the daemon making LLM calls
-    for the rest of the cycle. A partial cycle still advances
-    _last_refresh (correct: don't hammer)."""
+    for the rest of the cycle. [F3] Re-checks the IDLE gate between
+    categories too: the daemon samples it only once per cycle, so a
+    user waking TARS mid-cycle would otherwise leave the remaining
+    categories firing LLM calls on the same API key, competing with the
+    user's turn for the rate limit. The FIRST category is not gated —
+    the manual web-UI refresh bypasses the idle gate by design
+    (explicit user intent), and the daemon has just checked it. A
+    partial cycle still advances _last_refresh (correct: don't hammer)."""
     global _last_refresh
     ok_any = False
-    for category in CATEGORIES:
+    for index, category in enumerate(CATEGORIES):
         if _stop_event.is_set():
             break
+        if index and not _is_idle():
+            break  # user woke TARS mid-cycle — stop burning the API key
         try:
             if _refresh_once(category):
                 ok_any = True

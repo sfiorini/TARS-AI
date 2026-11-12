@@ -236,7 +236,12 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
                 raise RuntimeError("boom")
             return True
 
-        with mock.patch.object(mt, "_refresh_once", side_effect=_flaky):
+        # [F3] the cycle now re-checks the idle gate between categories;
+        # this test is about surviving a raising category, so hold the
+        # gate open (the real _is_idle() is False on the dev Mac and
+        # would abort the cycle after the first, raising category)
+        with mock.patch.object(mt, "_refresh_once", side_effect=_flaky), \
+             mock.patch.object(mt, "_is_idle", return_value=True):
             ok = mt._refresh_all_categories()
         self.assertTrue(ok, "one failing category must not fail the cycle")
         self.assertGreater(mt._last_refresh, 100.0,
@@ -261,7 +266,12 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
         mt._stop_event = threading.Event()
         self.addCleanup(setattr, mt, "_stop_event", saved_event)
 
-        with mock.patch.object(mt, "_refresh_once", side_effect=_recording):
+        # [F3] hold the idle gate open — this test is about the STOP
+        # event abort, and the real _is_idle() is False on the dev Mac
+        # (it would otherwise abort the cycle before the stop event
+        # ever gets set)
+        with mock.patch.object(mt, "_refresh_once", side_effect=_recording), \
+             mock.patch.object(mt, "_is_idle", return_value=True):
             ok = mt._refresh_all_categories()
         self.assertTrue(ok)
         self.assertEqual(len(calls), 2,
@@ -269,6 +279,51 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
         self.assertGreater(mt._last_refresh, 100.0,
                            "a partial cycle must still advance "
                            "_last_refresh (no hammering)")
+
+    def test_cycle_breaks_between_categories_when_not_idle(self):
+        """[F3] the idle gate used to be sampled ONCE per cycle (in the
+        daemon loop, before the cycle started). A cycle can run
+        13 x 60 s, so a user waking TARS mid-cycle left the remaining
+        categories firing LLM calls on the same API key, competing with
+        the user's turn for the rate limit. The cycle must re-check
+        _is_idle() BETWEEN categories and break when not idle. The
+        FIRST category is not gated (a manual web-UI refresh bypasses
+        the idle gate by design — explicit user intent). A partial
+        cycle still advances _last_refresh (no hammering)."""
+        mt._last_refresh = 100.0
+        calls = []
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=lambda c: calls.append(c)
+                               or True), \
+             mock.patch.object(mt, "_is_idle", return_value=False):
+            ok = mt._refresh_all_categories()
+        self.assertTrue(ok)
+        self.assertEqual(calls, [mt.CATEGORIES[0]],
+                         "a not-idle cycle must stop after the first "
+                         "category — no LLM calls against a busy robot")
+        self.assertGreater(mt._last_refresh, 100.0,
+                           "a partial cycle must still advance "
+                           "_last_refresh (no hammering)")
+
+    def test_cycle_breaks_mid_cycle_when_user_wakes_tars(self):
+        """[F3] the mid-cycle case: idle for the first checks, then the
+        user wakes TARS — the remaining categories must not fire."""
+        mt._last_refresh = 100.0
+        calls = []
+
+        def _idle_goes_busy():
+            return len(calls) < 2  # busy from the 3rd category on
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=lambda c: calls.append(c)
+                               or True), \
+             mock.patch.object(mt, "_is_idle", side_effect=_idle_goes_busy):
+            ok = mt._refresh_all_categories()
+        self.assertTrue(ok)
+        self.assertEqual(calls, list(mt.CATEGORIES[:2]),
+                         "the cycle must break the moment the idle gate "
+                         "closes, mid-cycle")
+        self.assertGreater(mt._last_refresh, 100.0)
 
 
 # --- S-M4-04: idle gate, daemon loop, start/stop, boot wiring -----------
