@@ -816,6 +816,27 @@ class TestSuppressionPrecision(unittest.TestCase):
                     mt.likely_tool_turn(phrase),
                     f"genuine tool phrasing not suppressed: {phrase!r}")
 
+    def test_prefixed_triggers_reach_their_own_phrasings(self):
+        """[F2] triggers that themselves BEGIN with an allowlist
+        prefix ("can you see", "can you search", "can you convert",
+        "please convert") were unreachable: _imperative_head strips
+        the very prefix they start with, so the phrasings they were
+        added for regressed True->False (dead literals in the config).
+        The full phrase must match the ORIGINAL text as a secondary
+        check — still imperative position (startswith), so no
+        bare-noun or mid-sentence regression."""
+        for phrase in (
+            "can you see what's on the table",
+            "can you search wikipedia for the weather",
+            "can you convert the units for me",
+            "please convert this",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(
+                    mt.likely_tool_turn(phrase),
+                    f"prefixed trigger phrasing not suppressed: "
+                    f"{phrase!r}")
+
 
 class TestRefreshConfigKeys(unittest.TestCase):
     """S-M4-01: thinking_refresh_enabled / thinking_refresh_minutes live

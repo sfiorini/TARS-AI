@@ -344,6 +344,23 @@ def likely_tool_turn(user_text):
         for pattern in SUPPRESSION_REGEX_TRIGGERS.get(category, ()):
             if pattern.match(head):
                 return True
+    # [F2] SECONDARY check against the ORIGINAL text: triggers that
+    # themselves BEGIN with an allowlist prefix ("can you see",
+    # "can you search", "can you convert", "please convert",
+    # "turn the volume") can never match the stripped head — the strip
+    # removes the very prefix they start with, leaving dead literals
+    # in the config and regressing the phrasings they were added for
+    # ("can you see what's on the table", "please convert this").
+    # Match the full phrase against the original text instead: still
+    # imperative position (startswith / match at position 0), so no
+    # bare-noun or mid-sentence trigger becomes reachable.
+    for category in CATEGORY_ORDER:
+        for trigger in SUPPRESSION_TRIGGERS.get(category, ()):
+            if text.startswith(trigger):
+                return True
+        for pattern in SUPPRESSION_REGEX_TRIGGERS.get(category, ()):
+            if pattern.match(text):
+                return True
     return False
 
 _pool_lock = threading.Lock()
