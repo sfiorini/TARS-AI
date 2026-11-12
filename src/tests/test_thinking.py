@@ -1,5 +1,6 @@
 """Milestone 1 tests: module_thinking — categories, bank, sanitizer,
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
+import ast
 import os
 import unittest
 from unittest import mock
@@ -741,6 +742,40 @@ class TestRefreshConfigKeys(unittest.TestCase):
         char = CONFIG_METADATA['CHAR']
         self.assertIn('thinking_refresh_enabled', char)
         self.assertIn('thinking_refresh_minutes', char)
+
+
+class TestNoImportTimeConfigLoad(unittest.TestCase):
+    """[F3] `CONFIG = load_config()` at module level was dead state (no
+    production code in the module reads it — get_filler_phrase and
+    _refresh_loop call load_config() directly) that forced a full config
+    parse AND load_config's process-wide os.chdir() at import; worse, a
+    missing config.ini makes load_config sys.exit(1) — a BaseException
+    no except-Exception armor can catch. Import-time statements must
+    never call load_config. The module-level CONFIG survives ONLY as a
+    test seam (tests patch it and stub load_config to return it);
+    production never reads it."""
+
+    def test_no_top_level_load_config_call(self):
+        with open(os.path.join(_SRC, "modules", "module_thinking.py"),
+                  encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
+                                 ast.ClassDef)):
+                continue  # bodies run at call time, not import time
+            for sub in ast.walk(node):
+                if (isinstance(sub, ast.Call)
+                        and isinstance(sub.func, ast.Name)
+                        and sub.func.id == "load_config"):
+                    self.fail(
+                        "module_thinking calls load_config() at import "
+                        "time — config parse + process-wide chdir + "
+                        "sys.exit(1)-on-missing-config risk")
+
+    def test_config_is_a_none_test_seam(self):
+        # option (a): the attribute stays (tests patch it), production
+        # never populates it — it must rest at None
+        self.assertIsNone(mt.CONFIG)
 
 
 if __name__ == "__main__":

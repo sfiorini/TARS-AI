@@ -13,7 +13,14 @@ import time
 from modules.module_config import load_config
 from modules.module_messageQue import queue_message
 
-CONFIG = load_config()
+# [F3] TEST SEAM ONLY — production code NEVER reads this. Tests
+# patch this attribute and stub load_config to return it; the fallback
+# chain and the refresh loop read config via load_config() at CALL
+# time (web-UI edits are picked up live). A module-level load_config()
+# would force a full config parse plus load_config's process-wide
+# os.chdir() at import, and sys.exit(1) on a missing config file —
+# a BaseException no except-Exception armor can catch.
+CONFIG = None
 
 CATEGORIES = ("search", "vision", "movement", "music", "creative",
               "smart_home", "system", "compute", "reminder", "identity",
