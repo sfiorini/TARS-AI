@@ -1778,6 +1778,16 @@ function executeAction() {
 <label class="form-label d-flex align-items-center gap-1"><span>qr_code</span><span class="config-tooltip-wrap" data-tip="Scan with your phone to open the remote access URL."><i class="bi bi-info-circle config-tooltip-icon"></i></span></label>
 <div class="text-center"><img id="tunQrCode" class="rounded" style="max-width:120px; border:1px solid rgba(255,255,255,.25)" alt="QR Code"></div>
 </div></div>
+<div class="col-md-6 col-lg-4"><div class="field-wrapper">
+<label class="form-label d-flex align-items-center gap-1">
+  <span>Thinking phrases</span>
+  <span class="config-tooltip-wrap" data-tip="Ask the AI to write a fresh batch of filler phrases now. Runs in the background and never interrupts a conversation."><i class="bi bi-info-circle config-tooltip-icon"></i></span>
+  <span class="badge bg-secondary ms-1" id="thinkingRefreshBadge" style="font-size:.6rem">Idle</span>
+</label>
+<div class="text-center mt-3">
+  <button class="btn btn-sm btn-outline-primary" id="thinkingRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
+</div>
+</div></div>
 </div></div></div>`;
         } else {
           html += '</div></div></div>';
@@ -1987,6 +1997,9 @@ function executeAction() {
       // Remote access tunnel controls
       initTunnelControls();
 
+      // Thinking-phrase refresh controls
+      initThinkingRefresh();
+
       // Password show/hide toggle (event delegation)
       var configForm = $('configForm');
       if (configForm) {
@@ -2183,6 +2196,48 @@ function executeAction() {
         setButtons(true);
       }
     }).catch(() => {});
+  }
+
+  /* ── Thinking-phrase refresh (manual trigger) ───────────────── */
+  function initThinkingRefresh() {
+    const refreshBtn = $('thinkingRefreshBtn');
+    if (!refreshBtn) return;
+
+    function refreshThinkingPhrases() {
+      const badge = document.getElementById('thinkingRefreshBadge');
+      badge.textContent = 'Refreshing';
+      badge.className = 'badge bg-warning';
+      fetch('/api/thinking/refresh', { method: 'POST' })
+        .then(r => r.json())
+        .then(() => { pollThinkingStatus(); })
+        .catch(() => {
+          badge.textContent = 'Error';
+          badge.className = 'badge bg-danger';
+        });
+    }
+
+    function pollThinkingStatus() {
+      const badge = document.getElementById('thinkingRefreshBadge');
+      const timer = setInterval(() => {
+        fetch('/api/thinking/refresh/status').then(r => r.json()).then(d => {
+          if (d.state === 'running' || d.state === 'starting') return;
+          clearInterval(timer);
+          if (d.state === 'done') {
+            badge.textContent = d.generated + ' phrases';
+            badge.className = 'badge bg-success';
+          } else if (d.state === 'idle') {
+            badge.textContent = 'Idle';
+            badge.className = 'badge bg-secondary';
+          } else {
+            badge.textContent = 'Error';
+            badge.className = 'badge bg-danger';
+          }
+        }).catch(() => { clearInterval(timer); });
+      }, 2000);
+    }
+
+    refreshBtn.addEventListener('click', refreshThinkingPhrases);
+    pollThinkingStatus();  // show the current state on panel load
   }
 
   /* ── Fixed-position tooltips (escape overflow:hidden) ──────────── */
