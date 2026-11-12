@@ -141,7 +141,18 @@ class TestParsePhrasePayload(unittest.TestCase):
     schema."""
 
     def test_fenced_payload_tolerated(self):
-        payload = '"""json\n{"phrases": ["One.", "Two."]}\n"""'
+        # [F4] DISCRIMINATION (mutation-tested): the old payload used
+        # THREE double-quotes ('"""json ... """'), which the backtick
+        # fence regex never matches — it parsed via the body.find("{")
+        # fallback, so deleting the fence-stripping kept the test green.
+        # A bare ``` fence alone would STILL not discriminate (the
+        # fallback finds the fenced object anyway — verified), so the
+        # fence must be LOAD-BEARING: a reply-schema object sits BEFORE
+        # the fence. The fallback would find THAT object first and
+        # reject the whole payload (None); only the fence branch
+        # correctly extracts the phrases from inside the fence.
+        payload = ('Sure! Here you go: {"reply": "Let me look that up"}'
+                   '\n```json\n{"phrases": ["One.", "Two."]}\n```')
         self.assertEqual(mt._parse_phrase_payload(payload),
                          ["One.", "Two."])
 
