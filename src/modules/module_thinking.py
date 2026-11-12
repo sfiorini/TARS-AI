@@ -201,16 +201,45 @@ def classify_intent(user_text=None, tool_names=None):
 _pool_lock = threading.Lock()
 _refreshed = {}  # category -> list of LLM-refreshed phrases (M4; in-memory only)
 
+_MISSING = object()  # sentinel: key ABSENT vs explicitly empty []
+
+def _config_thinking_responses():
+    """Read CHAR.thinking_responses FRESH (a web-UI edit is picked up
+    without restart; a config failure never raises into the voice turn).
+    Returns (present, valid): present is False when the key is missing,
+    the read fails, or the value is not a JSON list (no provable user
+    intent -> the bank fallback serves); valid is the list of non-empty
+    string phrases. A MISSING key and an explicit [] are DISTINCT:
+    [] is a user's promise of silence, a missing key is not."""
+    try:
+        raw = load_config().get("CHAR", {}).get(
+            "thinking_responses", _MISSING)
+    except Exception:
+        return False, []
+    if raw is _MISSING:
+        return False, []
+    try:
+        cfg = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return False, []
+    if not isinstance(cfg, list):
+        return False, []
+    valid = [p for p in cfg if isinstance(p, str) and p.strip()]
+    return True, valid
+
 def get_filler_phrase(category):
     """The fallback chain. Returns a phrase string or None.
 
     1. refreshed in-memory pool for the category (M4; empty until a
        successful refresh — generated set wins while it exists)
-    2. curated PHRASE_BANK[category]
-    3. curated PHRASE_BANK['general']
-    4. load_config()['CHAR']['thinking_responses'] (web-UI-editable
-       floor, read FRESH so a web-UI edit is picked up without restart;
-       existing json.loads + isinstance(list) guard)
+    2. curated PHRASE_BANK[category] (specific categories only)
+    3. a SPECIFIC category with an empty bank: the user's
+       CHAR.thinking_responses list (universal fallback, read FRESH)
+       -> curated PHRASE_BANK['general'] -> None
+    4. the 'general' category: CHAR.thinking_responses IS the pool —
+       a non-empty list wins, an explicit [] is SILENCE (None, the
+       tooltip's promise), a missing key / config failure / non-list
+       value falls back to the curated PHRASE_BANK['general'] -> None
     5. None -> the caller speaks HOLDING_LINE (module_toolloop.py:38)
     """
     with _pool_lock:
@@ -218,26 +247,26 @@ def get_filler_phrase(category):
     if pool:
         return random.choice(pool)
     bank = PHRASE_BANK.get(category) or ()
-    if bank:
-        return random.choice(bank)
-    general = PHRASE_BANK.get("general") or ()
-    if general:
-        return random.choice(general)
-    try:
-        raw = load_config().get("CHAR", {}).get(
-            "thinking_responses", "[]")
-    except Exception:
-        raw = "[]"  # a config failure never raises into the voice turn
-    try:
-        cfg = json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
-        cfg = []
-    if not isinstance(cfg, list):
-        cfg = []
-    valid = [p for p in cfg if isinstance(p, str) and p.strip()]
-    if valid:
-        return random.choice(valid)
-    return None
+    if category != "general":
+        if bank:
+            return random.choice(bank)
+        present, valid = _config_thinking_responses()
+        if valid:
+            return random.choice(valid)
+        general = PHRASE_BANK.get("general") or ()
+        if general:
+            return random.choice(general)
+        return None
+    # 'general': the user's list IS the pool
+    present, valid = _config_thinking_responses()
+    if not present:
+        general = PHRASE_BANK.get("general") or ()
+        if general:
+            return random.choice(general)
+        return None
+    if not valid:
+        return None  # explicit [] -> silence, never the bank's voice
+    return random.choice(valid)
 
 
 _played_lock = threading.Lock()

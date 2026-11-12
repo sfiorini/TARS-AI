@@ -214,6 +214,71 @@ class TestFallbackChain(unittest.TestCase):
                 self.assertIsNone(mt.get_filler_phrase("search"))
 
 
+class TestConfigGeneralPoolContract(unittest.TestCase):
+    """[F1] CHAR.thinking_responses is the REAL general pool, and an
+    explicit [] is REAL silence. The old chain could never reach the
+    config list (the curated PHRASE_BANK['general'] is a hard-coded
+    non-empty 12-tuple), so a user's custom phrases were dead code and
+    the tooltip's "[] = silence" promise was false.
+
+    Contract (four cases):
+    - non-empty list  -> it IS the general pool (bank general bypassed)
+    - explicit []     -> silence for general (None), bank bypassed
+    - key missing     -> the bank's general pool serves
+    - specific category with an empty bank -> the config list is the
+      universal fallback (then bank general, then None)
+    """
+
+    def setUp(self):
+        self._cfg = mt.CONFIG
+        # NEVER the repo's config.ini — stub load_config to return the
+        # test's own dict (the chain reads it FRESH, dynamic side_effect
+        # so mid-test mt.CONFIG reassignments count)
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
+        mt._refreshed.clear()
+        self.addCleanup(mt._refreshed.clear)
+
+    def tearDown(self):
+        mt.CONFIG = self._cfg
+
+    def test_nonempty_config_is_the_general_pool(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": '["Hold on, sir."]'}}
+        self.assertEqual(mt.get_filler_phrase("general"),
+                         "Hold on, sir.",
+                         "a non-empty user list must REPLACE the bank's "
+                         "general pool, not lose to it")
+
+    def test_nonempty_config_does_not_override_specific_banks(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": '["Hold on, sir."]'}}
+        self.assertIn(mt.get_filler_phrase("search"),
+                      mt.PHRASE_BANK["search"])
+
+    def test_explicit_empty_list_is_silence_for_general(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        self.assertIsNone(mt.get_filler_phrase("general"),
+                          "explicit [] must mean silence — the bank's "
+                          "general pool must NOT speak over it")
+
+    def test_missing_key_falls_back_to_bank_general(self):
+        mt.CONFIG = {"CHAR": {}}  # key absent entirely
+        self.assertIn(mt.get_filler_phrase("general"),
+                      mt.PHRASE_BANK["general"])
+
+    def test_config_list_is_universal_fallback_for_empty_category(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": '["Hold on, sir."]'}}
+        with mock.patch.dict(mt.PHRASE_BANK, {"search": (), "general": ()}):
+            self.assertEqual(mt.get_filler_phrase("search"),
+                             "Hold on, sir.")
+
+    def test_refreshed_general_pool_still_wins_over_config(self):
+        mt._refreshed["general"] = ["Fresh general."]
+        mt.CONFIG = {"CHAR": {"thinking_responses": '["Hold on, sir."]'}}
+        self.assertEqual(mt.get_filler_phrase("general"), "Fresh general.")
+
+
 class TestHotPathSelection(unittest.TestCase):
     """S-M2-01: the hot path resolves a category and walks the verified
     fallback chain — never reaching random.choice([])."""
@@ -230,8 +295,11 @@ class TestHotPathSelection(unittest.TestCase):
                                "thinking_responses": "[]"},
                       "TTS": {"ttsoption": "piper"}}
         # the fallback chain's config floor reads mt.CONFIG — stub it too,
-        # NEVER the repo's config.ini (it ships a non-empty floor list)
-        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # NEVER the repo's config.ini (it ships a non-empty floor list).
+        # [F1] the key is MISSING (not "[]"): an explicit [] is now
+        # SILENCE for general, so these tests use the bank's general
+        # pool via the missing-key fallback
+        mt.CONFIG = {"CHAR": {}}
         # F3: the floor is now read via load_config() — stub it to return
         # the same dict (dynamic: mid-test mt.CONFIG reassignments count)
         p = mock.patch.object(mt, "load_config",
@@ -311,7 +379,9 @@ class TestPerTurnDedup(unittest.TestCase):
                                "thinking_responses": "[]"},
                       "TTS": {"ttsoption": "piper"}}
         self._mt_cfg = mt.CONFIG
-        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # [F1] missing key (not "[]") — an explicit [] is now silence
+        # for general; these tests play the bank's general pool
+        mt.CONFIG = {"CHAR": {}}
         # F3: the floor is read via load_config() — same stub as above
         p = mock.patch.object(mt, "load_config",
                               side_effect=lambda: mt.CONFIG)
@@ -415,8 +485,10 @@ class TestPreLlmSuppression(unittest.TestCase):
                                "thinking_responses": "[]"},
                       "TTS": {"ttsoption": "piper"}}
         self._mt_cfg = mt.CONFIG
-        # the config floor reads mt.CONFIG — never the repo's config.ini
-        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        # the config floor reads mt.CONFIG — never the repo's config.ini.
+        # [F1] missing key (not "[]") — an explicit [] is now silence
+        # for general; the not-suppressed tests play the bank's pool
+        mt.CONFIG = {"CHAR": {}}
         # F3: the floor is read via load_config() — same stub as above
         p = mock.patch.object(mt, "load_config",
                               side_effect=lambda: mt.CONFIG)

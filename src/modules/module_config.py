@@ -796,7 +796,7 @@ CONFIG_METADATA = {
             'description': 'When ON, TARS will say a random filler phrase (like "Let me think..." or "Processing...") while it waits for the AI to generate a response. When OFF, TARS stays silent while thinking.'
         },
         'thinking_responses': {
-            'description': 'After TARS hears your question, it takes a moment to think of an answer (the AI needs time to generate a response). During that pause, TARS will say one of these filler phrases so you know it is working and did not freeze. Things like "Let me think..." or "One moment..." You can customize these the same way as the responses above. Set to [] (empty brackets) if you want silence while it thinks.'
+            'description': 'After TARS hears your question, it takes a moment to think of an answer (the AI needs time to generate a response). During that pause, TARS will say one of these filler phrases so you know it is working and did not freeze. Things like "Let me think..." or "One moment..." This list IS the general pool: its phrases are used for everyday questions and whenever a category pool runs dry. TARS also keeps a built-in bank of category phrases (search, vision, movement, and so on) that are tried FIRST when your request matches a category. Set to [] (empty brackets) if you want silence on everyday questions; remove the line entirely to use the built-in general phrases instead.'
         },
         'thinking_refresh_enabled': {
             'description': 'When ON, TARS periodically asks the AI to write new filler phrases in the background — only while idle (standing by, not moving, not talking, CPU under 70 degrees) and at most once per interval. New phrases live in memory only and never overwrite your list. Default OFF.'
