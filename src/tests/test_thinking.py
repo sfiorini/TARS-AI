@@ -2,6 +2,8 @@
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
 import ast
 import os
+import threading
+import time
 import types
 import unittest
 from unittest import mock
@@ -785,6 +787,116 @@ class TestRefreshConfigKeys(unittest.TestCase):
         char = CONFIG_METADATA['CHAR']
         self.assertIn('thinking_refresh_enabled', char)
         self.assertIn('thinking_refresh_minutes', char)
+
+
+class TestDaemonCycleSettlesPiggybackedState(unittest.TestCase):
+    """[F1] A manual click that piggy-backs on an in-flight cycle sets
+    state 'running' WITHOUT spawning a _bg (request_manual_refresh's
+    locked-cycle branch) — so ONLY the cycle's completion can settle
+    it. The daemon never wrote _refresh_state, so the web UI polled
+    GET /api/thinking/refresh/status and showed 'Refreshing…' forever.
+    The cycle itself must write the terminal state when it ends."""
+
+    def setUp(self):
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        # force a TERMINAL state: the piggy-back branch is only
+        # reachable when the state is not already 'running'
+        mt._refresh_state["state"] = "idle"
+        mt._refresh_state["last_error"] = None
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+        # a set stop event would cut the stubbed cycle short and fail
+        # the done-path tests spuriously
+        was_set = mt._stop_event.is_set()
+        mt._stop_event.clear()
+        if was_set:
+            self.addCleanup(mt._stop_event.set)
+
+    def _daemon_cycle_with_midflight_click(self, verdict):
+        """Run a daemon-style cycle in a thread, click the manual
+        refresh while it is mid-flight (the piggy-back branch — no _bg
+        is spawned), let the cycle finish, and join it."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _slow_refresh_once(category):
+            entered.set()      # hold the cycle open mid-flight
+            release.wait(10)
+            return verdict
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_slow_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"):
+            t = threading.Thread(target=mt._refresh_all_categories,
+                                 daemon=True, name="F1DaemonCycle")
+            t.start()
+            self.assertTrue(entered.wait(5),
+                            "the daemon cycle never started")
+            # the click lands mid-cycle: piggy-back, no _bg spawned
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "running")
+            self.assertEqual(mt.refresh_status()["state"], "running")
+            release.set()
+            t.join(5)
+            self.assertFalse(t.is_alive(), "the daemon cycle never ended")
+
+    def test_piggybacked_click_settles_done_when_cycle_succeeds(self):
+        self._daemon_cycle_with_midflight_click(True)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "done",
+                         "the cycle the click piggy-backed on has "
+                         "ended — the state must settle, or the web UI "
+                         "shows 'Refreshing…' forever")
+        self.assertIsNone(info["last_error"])
+
+    def test_piggybacked_click_settles_error_when_cycle_fails(self):
+        self._daemon_cycle_with_midflight_click(False)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "error",
+                         "a piggy-backed click on a FAILED cycle must "
+                         "settle to 'error', not hang at 'running'")
+        self.assertEqual(info["last_error"], "no category refreshed")
+
+    def test_daemon_cannot_clobber_a_running_manual_refresh(self):
+        """The invariant: while a manual refresh genuinely runs its
+        OWN cycle it owns the 'running' state, and the daemon path
+        cannot settle it — the shared cycle lock means the daemon's
+        attempt is a no-cycle None, never a terminal write."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _slow_refresh_once(category):
+            entered.set()
+            release.wait(10)
+            return True
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_slow_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=False), \
+             mock.patch.object(mt, "queue_message"):
+            # the manual refresh starts its OWN cycle (spawn branch)
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+            self.assertTrue(entered.wait(5),
+                            "the manual cycle never started")
+            self.assertEqual(mt.refresh_status()["state"], "running")
+            # the daemon's tick lands while the manual cycle runs
+            self.assertIsNone(mt._refresh_all_categories(),
+                              "the daemon must not stack a cycle on the "
+                              "manual one's")
+            self.assertEqual(mt.refresh_status()["state"], "running",
+                             "a cycle that did not run must not settle "
+                             "the state a genuinely-running manual "
+                             "refresh owns")
+            release.set()
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+        self.assertEqual(mt.refresh_status()["state"], "done",
+                         "the manual _bg settles its own cycle")
 
 
 class TestNoImportTimeConfigLoad(unittest.TestCase):

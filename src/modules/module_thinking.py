@@ -572,6 +572,12 @@ def _refresh_all_categories(respect_idle=True):
         return ok_any
     finally:
         _cycle_lock.release()
+        # [F1] settle a piggy-backed 'running' state AFTER the release,
+        # never inside the lock: while the cycle ran (and between the
+        # release and this write) the state is 'running', so a manual
+        # click takes the idempotent already-running early-return — it
+        # can only piggy-back on a cycle that will still settle it.
+        _settle_refresh_state(ok_any)
 
 
 # --- M4: idle-gated background refresh daemon (S-M4-04) -----------------
@@ -672,6 +678,29 @@ def generated_phrase_count():
 _manual_lock = threading.Lock()
 _refresh_state = {"state": "idle", "last_error": None}
 
+def _settle_refresh_state(ok):
+    """[F1] Terminal write for a manual refresh state left 'running'
+    by a click that piggy-backed on an in-flight cycle: that branch
+    of request_manual_refresh sets 'running' but spawns NO _bg, so
+    only the cycle's completion can settle it — and the daemon used to
+    never write _refresh_state, so the web UI polled
+    /api/thinking/refresh/status and showed 'Refreshing…' forever.
+    Called from _refresh_all_categories' finally, AFTER the cycle
+    lock releases. Guard: only a 'running' state is written — a manual
+    _bg that ran its own cycle still writes its terminal state
+    afterwards (same verdict, idempotent), and while a manual cycle
+    genuinely holds the lock no other cycle can even reach this
+    settle, so the daemon can never clobber a refresh a live manual
+    refresh owns."""
+    with _manual_lock:
+        if _refresh_state["state"] != "running":
+            return
+        _refresh_state["state"] = "done" if ok else "error"
+        if ok:
+            _refresh_state["last_error"] = None
+        else:
+            _refresh_state["last_error"] = "no category refreshed"
+
 def request_manual_refresh():
     """Manual (web-UI) trigger — copies the /api/tunnel/start pattern:
     idempotent, daemon thread, returns immediately. Bypasses the idle
@@ -688,6 +717,10 @@ def request_manual_refresh():
             # the STATE must say 'running' too — the old early return
             # left the previous terminal value ('idle'/'done'/'error')
             # in place and the badge showed it while the refresh ran.
+            # [F1] No _bg is spawned here, so the in-flight cycle itself
+            # settles this 'running' when it ends (_settle_refresh_state
+            # — the daemon path used to never write the state, and the
+            # badge showed 'Refreshing…' forever).
             _refresh_state["state"] = "running"
             return {"state": "running"}
         _refresh_state["state"] = "running"
