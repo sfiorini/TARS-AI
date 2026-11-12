@@ -513,22 +513,33 @@ def _refresh_all_categories():
     user's turn for the rate limit. The FIRST category is not gated —
     the manual web-UI refresh bypasses the idle gate by design
     (explicit user intent), and the daemon has just checked it. A
-    partial cycle still advances _last_refresh (correct: don't hammer)."""
+    partial cycle still advances _last_refresh (correct: don't hammer).
+    [F4] At most one cycle runs at a time (daemon OR manual — the two
+    used to guard independently, so a web-UI click mid-daemon-cycle
+    stacked a second loop: up to 26 concurrent raw_complete_llm calls
+    on the same API key). The shared non-blocking guard returns False
+    immediately instead of stacking."""
     global _last_refresh
-    ok_any = False
-    for index, category in enumerate(CATEGORIES):
-        if _stop_event.is_set():
-            break
-        if index and not _is_idle():
-            break  # user woke TARS mid-cycle — stop burning the API key
-        try:
-            if _refresh_once(category):
-                ok_any = True
-        except Exception as e:
-            queue_message(f"WARNING: thinking refresh error ({category}): {e}")
-    with _meta_lock:
-        _last_refresh = time.time()
-    return ok_any
+    if not _cycle_lock.acquire(blocking=False):
+        return False  # another cycle (daemon or manual) is in flight
+    try:
+        ok_any = False
+        for index, category in enumerate(CATEGORIES):
+            if _stop_event.is_set():
+                break
+            if index and not _is_idle():
+                break  # user woke TARS mid-cycle — stop burning the API key
+            try:
+                if _refresh_once(category):
+                    ok_any = True
+            except Exception as e:
+                queue_message(f"WARNING: thinking refresh error "
+                              f"({category}): {e}")
+        with _meta_lock:
+            _last_refresh = time.time()
+        return ok_any
+    finally:
+        _cycle_lock.release()
 
 
 # --- M4: idle-gated background refresh daemon (S-M4-04) -----------------
@@ -537,6 +548,7 @@ _stop_event = threading.Event()
 _thread = None
 _start_lock = threading.Lock()
 _meta_lock = threading.Lock()  # guards _last_refresh (daemon + manual)
+_cycle_lock = threading.Lock()  # [F4] one refresh cycle at a time (daemon + manual)
 _last_refresh = 0.0
 _IDLE_TEMP_C = 70.0
 
@@ -631,9 +643,15 @@ _refresh_state = {"state": "idle", "last_error": None}
 def request_manual_refresh():
     """Manual (web-UI) trigger — copies the /api/tunnel/start pattern:
     idempotent, daemon thread, returns immediately. Bypasses the idle
-    and interval gates (explicit user intent) but never blocks a turn."""
+    and interval gates (explicit user intent) but never blocks a turn.
+    [F4] Shares the cycle guard with the daemon: a click while a cycle
+    is already in flight REPORTS 'running' instead of stacking a second
+    loop (the web UI polls status anyway)."""
     with _manual_lock:
         if _refresh_state["state"] == "running":
+            return {"state": "running"}
+        if _cycle_lock.locked():
+            # a cycle (typically the daemon's) is already in flight
             return {"state": "running"}
         _refresh_state["state"] = "running"
         _refresh_state["last_error"] = None

@@ -760,6 +760,103 @@ class TestManualRefresh(unittest.TestCase):
         self.assertIn("state", info)
         self.assertIn("generated", info)
 
+    def test_second_cycle_attempt_while_one_runs_does_not_stack(self):
+        """[F4] At most one _refresh_all_categories() runs at a time —
+        the daemon and the manual path share ONE guard. A second attempt
+        while a cycle is in flight must return False immediately
+        instead of stacking a second loop (up to 26 concurrent
+        raw_complete_llm calls on the same API key)."""
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def _slow_refresh_once(category):
+            calls.append(category)
+            if len(calls) == 1:   # hold the first cycle open mid-flight
+                entered.set()
+                release.wait(10)
+            return True
+
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_slow_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"):
+            results = {}
+
+            def _first_cycle():
+                results["first"] = mt._refresh_all_categories()
+
+            t = threading.Thread(target=_first_cycle, daemon=True,
+                                 name="F4FirstCycle")
+            t.start()
+            self.assertTrue(entered.wait(5),
+                            "the first cycle never started")
+            # a second attempt while the first is mid-cycle: no stacking
+            self.assertFalse(mt._refresh_all_categories(),
+                            "a second cycle must not run while one is "
+                            "in flight")
+            release.set()
+            t.join(5)
+            self.assertTrue(results["first"])
+            self.assertEqual(calls, list(mt.CATEGORIES),
+                             "exactly ONE cycle's worth of categories "
+                             "must run — no second sweep")
+
+    def test_manual_click_while_daemon_cycle_runs_reports_running(self):
+        """[F4] The audited failure: request_manual_refresh guarded only
+        against another MANUAL run, so a web-UI click while the daemon
+        was mid-cycle stacked a SECOND _refresh_all_categories loop.
+        The manual path must share the cycle guard and REPORT ('a
+        cycle is already running') instead of stacking."""
+        entered = threading.Event()
+        release = threading.Event()
+        calls = []
+
+        def _slow_refresh_once(category):
+            calls.append(category)
+            if len(calls) == 1:   # hold the daemon cycle open mid-flight
+                entered.set()
+                release.wait(10)
+            return True
+
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_slow_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"):
+            cycle_done = threading.Event()
+
+            def _daemon_cycle():
+                mt._refresh_all_categories()
+                cycle_done.set()
+
+            t = threading.Thread(target=_daemon_cycle, daemon=True,
+                                 name="F4DaemonCycle")
+            t.start()
+            self.assertTrue(entered.wait(5),
+                            "the daemon cycle never started")
+
+            # the manual click arrives mid-cycle: REPORT, don't stack
+            result = mt.request_manual_refresh()
+            self.assertEqual(result["state"], "running",
+                             "a manual click while a cycle is in flight "
+                             "must report 'running', not start a second "
+                             "sweep")
+            release.set()
+            self.assertTrue(cycle_done.wait(5))
+            t.join(5)
+            self.assertEqual(calls, list(mt.CATEGORIES),
+                             "exactly ONE cycle ran — the manual click "
+                             "must not stack a second sweep on the "
+                             "daemon's")
+
 
 if __name__ == "__main__":
     unittest.main()
