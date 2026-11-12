@@ -459,5 +459,47 @@ class TestPreLlmSuppression(unittest.TestCase):
         self.assertIn("source=source", window)
 
 
+class TestRefreshConfigKeys(unittest.TestCase):
+    """S-M4-01: thinking_refresh_enabled / thinking_refresh_minutes live
+    in all three homes (load_config, CONFIG_METADATA, template) or web-UI
+    saves destroy them (app_cms.py:655-680)."""
+
+    def test_defaults_off_and_120(self):
+        # Parse the TEMPLATE, never the repo's config.ini (it ships
+        # enable_thinking_responses = false and tests must not read it).
+        # _SRC per the test_tool_loop.py:18-22 convention — a bare
+        # "../../config.ini.template" would resolve OUTSIDE the repo root
+        # (module_llm's import chain chdirs the process).
+        import configparser
+        cp = configparser.ConfigParser()
+        cp.read(os.path.join(_SRC, "config.ini.template"))
+        # fallback=None so a MISSING key fails the assert cleanly instead
+        # of raising NoOptionError (RED must fail, not error).
+        self.assertEqual(
+            cp.getboolean('CHAR', 'thinking_refresh_enabled', fallback=None),
+            False)
+        self.assertEqual(
+            cp.getint('CHAR', 'thinking_refresh_minutes', fallback=None),
+            120)
+
+    def test_minutes_clamped_to_one(self):
+        # Pin the clamp arithmetic AND that the clamp lives at the
+        # load_config call site (single clamp site — the F5 trap).
+        self.assertEqual(max(1, -5), 1)
+        self.assertEqual(max(1, 0), 1)
+        with open(os.path.join(_SRC, "modules", "module_config.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn(
+            "max(1, config.getint('CHAR', 'thinking_refresh_minutes', fallback=120))",
+            src)
+
+    def test_metadata_covers_new_keys(self):
+        from modules.module_config import CONFIG_METADATA
+        char = CONFIG_METADATA['CHAR']
+        self.assertIn('thinking_refresh_enabled', char)
+        self.assertIn('thinking_refresh_minutes', char)
+
+
 if __name__ == "__main__":
     unittest.main()

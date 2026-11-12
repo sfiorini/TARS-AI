@@ -25,6 +25,10 @@ responses = ["Hi","Yes?","hey!","What's up?","Can I help you?","What do you need
 enable_thinking_responses = false
 # Filler phrases said while waiting for LLM response (JSON array, [] for none)
 thinking_responses = ["Let me think...","soooo.....","soo....","Let's seeee...","Let me seeee...","Let's see.....","One Moment...","One Moment","hum","humm","Analyzing...","Processing...","Calculating...","Computing...","Running the numbers...","Checking...","One moment...","Scanning data...","Assessing...","Evaluating...","Let me calculate...","Working on it...","Just a moment...","Reviewing...","Compiling...","Cross-referencing...","Thinking it through...","Give me a second...","Hold on..."]
+# Background AI refresh of filler phrases while idle (true/false, default false)
+thinking_refresh_enabled = false
+# Minimum minutes between background filler refreshes (default 120 = 2 hours)
+thinking_refresh_minutes = 120
 
 [LLM]
 # AI backend: openai | grok | deepinfra | other

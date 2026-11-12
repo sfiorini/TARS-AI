@@ -527,6 +527,8 @@ def load_config():
             "user_details": config['CHAR']['user_details'],
             "enable_thinking_responses": config.getboolean('CHAR', 'enable_thinking_responses', fallback=True),
             "thinking_responses": config['CHAR']['thinking_responses'],
+            "thinking_refresh_enabled": config.getboolean('CHAR', 'thinking_refresh_enabled', fallback=False),
+            "thinking_refresh_minutes": max(1, config.getint('CHAR', 'thinking_refresh_minutes', fallback=120)),
             "responses": config['CHAR']['responses'],
             "traits": persona_traits,
         },
@@ -795,6 +797,12 @@ CONFIG_METADATA = {
         },
         'thinking_responses': {
             'description': 'After TARS hears your question, it takes a moment to think of an answer (the AI needs time to generate a response). During that pause, TARS will say one of these filler phrases so you know it is working and did not freeze. Things like "Let me think..." or "One moment..." You can customize these the same way as the responses above. Set to [] (empty brackets) if you want silence while it thinks.'
+        },
+        'thinking_refresh_enabled': {
+            'description': 'When ON, TARS periodically asks the AI to write new filler phrases in the background — only while idle (standing by, not moving, not talking, CPU under 70 degrees) and at most once per interval. New phrases live in memory only and never overwrite your list. Default OFF.'
+        },
+        'thinking_refresh_minutes': {
+            'description': 'Minimum minutes between background filler-phrase refreshes (default 120 = every 2 hours). Values below 1 are treated as 1.'
         },
         'responses': {
             'description': 'When you say the wake word (like "Hey TARS"), TARS will immediately say one of these short phrases to let you know it heard you. This happens BEFORE it actually processes what you say next. Think of it like saying "Yeah?" when someone calls your name. You can change these to whatever you want, add new ones, or remove ones you do not like. The format is a list in square brackets with each phrase in quotes separated by commas. Set to [] (empty brackets) if you do not want any response.'
