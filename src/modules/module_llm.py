@@ -152,14 +152,17 @@ def _maybe_play_thinking_response(user_text=None, tool_names=None, source=None):
 
         from modules.module_thinking import (
             already_played_this_turn, classify_intent, get_filler_phrase,
-            mark_played_this_turn, sanitize_phrase)
+            likely_tool_turn, mark_played_this_turn, sanitize_phrase)
 
         if source is not None and already_played_this_turn(source):
             return True  # this turn already spoke a filler
 
         category = classify_intent(user_text, tool_names)
-        if tool_names is None and user_text and category != "general":
-            return False  # likely a tool turn — reply-0 holds the line (M3)
+        if tool_names is None and user_text and likely_tool_turn(user_text):
+            # [F2] high-precision gate: only an imperative/action trigger
+            # suppresses (a bare-noun keyword hit silenced 8 of 13 ordinary
+            # questions — dead air); reply-0 holds the line (M3)
+            return False
 
         thinking_text = get_filler_phrase(category)
         if thinking_text is not None:

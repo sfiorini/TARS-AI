@@ -547,7 +547,7 @@ class TestPreLlmSuppression(unittest.TestCase):
                   encoding="utf-8") as fh:
             src = fh.read()
         self.assertIn(
-            'if tool_names is None and user_text and category != "general":',
+            'if tool_names is None and user_text and likely_tool_turn(user_text):',
             src)
 
     def test_get_completion_and_get_parsed_pass_signals(self):
@@ -574,6 +574,97 @@ class TestPreLlmSuppression(unittest.TestCase):
         window = src[i_call:i_call + 400]
         self.assertIn("tool_names=", window)
         self.assertIn("source=source", window)
+
+
+ORDINARY_QUESTIONS = (
+    # [F2] every one of these MISCLASSIFIED with the bare-noun KEYWORDS
+    # (volume->system, convert->compute, dancing->movement, python->
+    # compute, lights->smart_home, camera->vision, bow->movement,
+    # wave->movement) and was SILENCED — dead air instead of a filler.
+    "what is the volume of a sphere",
+    "how do I convert celsius to fahrenheit",
+    "tell me a joke about a dancing bear",
+    "what's a good python tutorial",
+    "I love the lights in Paris",
+    "explain how a camera works",
+    "a recipe for a bow tie pasta",
+    "what does a wave look like",
+)
+
+GENUINE_TOOL_REQUESTS = (
+    "search the web for F1 news",
+    "turn off the living room lights",
+    "take a photo",
+    "play some jazz",
+    "set a timer for 10 minutes",
+    "what's the weather in Rome",
+    "send a message to John on Discord",
+    "add milk to my shopping list",
+)
+
+
+class TestSuppressionPrecision(unittest.TestCase):
+    """[F2] pre-LLM suppression must be HIGH-PRECISION, not high-recall:
+    a bare noun hit ("volume", "convert", "dancing", "python",
+    "lights", "camera", "bow", "wave") must NOT silence the filler —
+    a suppressed turn with an empty reply-0 speaks NOTHING, so a
+    misclassified ordinary question got dead air. Genuine tool requests
+    (imperative action patterns) must still suppress so reply-0 holds
+    the line."""
+
+    def setUp(self):
+        mt.reset_dedup()
+        mt._refreshed.clear()
+        self._cfg = llm.CONFIG
+        # "TTS" key required — see TestHotPathSelection.setUp
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "[]"},
+                      "TTS": {"ttsoption": "piper"}}
+        self._mt_cfg = mt.CONFIG
+        # [F1] missing key -> the bank's general pool serves
+        mt.CONFIG = {"CHAR": {}}
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start()
+        self.addCleanup(p.stop)
+        self._played = []
+
+        async def _fake_play(text, *a, **k):
+            self._played.append(text)
+
+        p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
+        p.start(); self.addCleanup(p.stop)
+        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        t.start(); self.addCleanup(t.stop)
+
+    def tearDown(self):
+        mt.reset_dedup()
+        llm.CONFIG = self._cfg
+        mt.CONFIG = self._mt_cfg
+        mt._refreshed.clear()
+
+    def test_ordinary_questions_get_a_filler(self):
+        for question in ORDINARY_QUESTIONS:
+            with self.subTest(question=question):
+                mt.reset_dedup()  # each subTest is a fresh turn
+                self._played.clear()
+                ok = llm._maybe_play_thinking_response(
+                    user_text=question, source="voice")
+                self.assertTrue(
+                    ok, f"ordinary question was silenced: {question!r}")
+                self.assertEqual(len(self._played), 1,
+                                  f"no filler spoken for {question!r}")
+
+    def test_genuine_tool_requests_are_suppressed(self):
+        for request in GENUINE_TOOL_REQUESTS:
+            with self.subTest(request=request):
+                mt.reset_dedup()  # each subTest is a fresh turn
+                self._played.clear()
+                ok = llm._maybe_play_thinking_response(
+                    user_text=request, source="voice")
+                self.assertFalse(
+                    ok, f"genuine tool request not suppressed: {request!r}")
+                self.assertEqual(self._played, [])
 
 
 class TestRefreshConfigKeys(unittest.TestCase):

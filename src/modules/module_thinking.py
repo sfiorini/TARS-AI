@@ -198,6 +198,91 @@ def classify_intent(user_text=None, tool_names=None):
                     return category
     return "general"
 
+# [F2] HIGH-PRECISION suppression triggers. KEYWORDS is high-RECALL on
+# purpose (a mis-picked phrase pool is cosmetic), but the pre-LLM
+# suppression in module_llm._maybe_play_thinking_response speaks
+# NOTHING on a hit — a suppressed turn with an empty reply-0 is dead
+# air — so its gate must be high-PRECISION. KEYWORDS contains bare
+# nouns ("volume", "convert", "dancing", "python", "lights",
+# "camera", "bow", "wave"), which silenced 8 of 13 ordinary
+# questions measured by the audit. Only imperative/action patterns
+# live here: a bare noun NEVER suppresses.
+SUPPRESSION_TRIGGERS = {
+    "search": ("search for", "search the web", "look up", "google",
+        "find me", "can you search", "what's the weather", "the weather",
+        "what's in the news", "latest headlines", "the news",
+        "check the news"),
+    "vision": ("take a photo", "take a picture", "take my picture",
+        "take a pic", "take a photograph", "snap a picture",
+        "capture a photo", "what do you see", "look around",
+        "describe your surroundings", "what's around you", "can you see"),
+    "movement": ("walk forward", "turn left", "turn right", "step back",
+        "move backward", "go forward", "do a dance", "dance for me",
+        "dance move", "wave at me", "wave to me", "wave hello",
+        "wave goodbye", "give me a wave", "take a bow", "swing your legs"),
+    "music": ("play some", "play a song", "play a track", "play music",
+        "play my", "play that", "start the radio", "the radio",
+        "stop the music", "turn off the music", "next song", "skip this",
+        "pause the music", "download this song",
+        "add this to my library", "list my music", "what's in my library",
+        "what's playing", "what song is this", "make me a song",
+        "generate music", "compose a track", "create a beat",
+        "write a song", "make some music", "produce a track"),
+    "creative": ("generate a photo of", "draw me", "draw a", "draw an",
+        "create an image", "make a picture", "generate artwork",
+        "paint me", "create a portrait", "generate an image",
+        "make an image", "create art", "generate a picture"),
+    "smart_home": ("turn on the", "turn off the", "open the garage",
+        "close the garage", "garage door", "lock the front door",
+        "unlock the front door", "set the thermostat", "shopping list",
+        "dim the lights", "brighten the lights"),
+    "system": ("exit the program", "quit the program", "close the program",
+        "stop the program", "exit tars", "quit tars", "shut down",
+        "shutdown", "power off", "restart", "reboot", "volume up",
+        "volume down", "set the volume", "turn the volume",
+        "turn up the volume", "turn down the volume", "open retropie",
+        "launch retropie", "start retropie", "open youtube",
+        "watch the video", "open the website", "go to the website",
+        "open the browser", "open a browser"),
+    "compute": ("calculate", "do the math", "do the maths",
+        "run this code", "run the code", "run that code",
+        "execute this code", "execute the code", "run this script",
+        "run the script", "run this python", "compute this",
+        "convert this for me", "convert that for me", "can you convert",
+        "please convert"),
+    "reminder": ("remind me", "set a timer", "set a reminder",
+        "set an alarm", "set my alarm", "alarm in", "what reminders",
+        "show my timers", "show my reminders", "cancel my reminder",
+        "cancel the reminder", "cancel my timers", "cancel the timer",
+        "delete the timer", "cancel reminder", "timer for",
+        "snooze the alarm"),
+    "identity": ("my name is", "call me", "be more", "be less",
+        "your humor", "your sarcasm", "your verbosity",
+        "remember my name", "adjust your persona", "change your persona",
+        "your persona"),
+    "skill": ("run skill", "load skill", "skill example", "on discord",
+        "send a message on discord", "send a discord"),
+    "mcp": (),
+    "general": (),
+}
+
+def likely_tool_turn(user_text):
+    """[F2] High-precision pre-LLM gate: True only when the user's text
+    matches a SUPPRESSION_TRIGGERS pattern — an imperative/action phrase
+    that reliably precedes a tool call (so reply-0 can hold the line).
+    Bare-noun KEYWORDS hits do NOT count: suppressing an ordinary
+    question speaks nothing at all (dead air). Pure, no I/O; tool-name
+    signals are handled by the caller (tool_names is not None disables
+    the gate entirely)."""
+    text = (user_text or "").lower()
+    if not text:
+        return False
+    for category in CATEGORY_ORDER:
+        for trigger in SUPPRESSION_TRIGGERS.get(category, ()):
+            if trigger in text:
+                return True
+    return False
+
 _pool_lock = threading.Lock()
 _refreshed = {}  # category -> list of LLM-refreshed phrases (M4; in-memory only)
 
