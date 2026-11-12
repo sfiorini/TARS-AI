@@ -216,13 +216,24 @@ def classify_intent(user_text=None, tool_names=None):
 # live here: a bare noun NEVER suppresses.
 SUPPRESSION_TRIGGERS = {
     "search": ("search for", "search the web", "look up", "google",
-        "find me", "can you search", "what's the weather", "the weather",
+        "find me",
+        # [F2-prefixed] TOOL-ISH completions only — the bare "can you
+        # search" matched ANY completion and silenced ordinary
+        # questions ("can you search my meaning"-style asks)
+        "can you search for", "can you search wikipedia",
+        "can you search the web",
+        "what's the weather", "the weather",
         "what's in the news", "latest headlines", "the news",
         "check the news"),
     "vision": ("take a photo", "take a picture", "take my picture",
         "take a pic", "take a photograph", "snap a picture",
         "capture a photo", "what do you see", "look around",
-        "describe your surroundings", "what's around you", "can you see",
+        "describe your surroundings", "what's around you",
+        # [F2-prefixed] TOOL-ISH completions only — the bare "can you
+        # see" matched ANY completion and silenced ordinary questions
+        # ("can you see what I mean", "can you see the difference …")
+        "can you see what's on", "can you see the screen",
+        "can you see the camera",
         "look at me"),
     "movement": ("walk forward", "turn left", "turn right", "step back",
         "move backward", "go forward", "do a dance", "dance for me",
@@ -258,8 +269,16 @@ SUPPRESSION_TRIGGERS = {
         "run this code", "run the code", "run that code",
         "execute this code", "execute the code", "run this script",
         "run the script", "run this python", "compute this",
-        "convert this for me", "convert that for me", "can you convert",
-        "please convert"),
+        "convert this for me", "convert that for me",
+        # [F2-prefixed] TOOL-ISH completions only — the bare "can you
+        # convert" / "please convert" matched ANY completion and
+        # silenced ordinary questions ("can you convert that into a
+        # percentage", "please convert that into plain english").
+        # The NUMERIC convert requests need no prefixed trigger: the
+        # \bconvert\s+\d regex below matches them on the imperative
+        # head ("can you convert 20 dollars" strips to "convert 20
+        # dollars").
+        "can you convert the units", "please convert this"),
     "reminder": ("remind me", "set a timer", "set a reminder",
         "set an alarm", "set my alarm", "alarm in", "what reminders",
         "show my timers", "show my reminders", "cancel my reminder",
@@ -360,12 +379,13 @@ def likely_tool_turn(user_text):
             if pattern.match(head):
                 return True
     # [F2] SECONDARY check against the ORIGINAL text: triggers that
-    # themselves BEGIN with an allowlist prefix ("can you see",
-    # "can you search", "can you convert", "please convert",
-    # "turn the volume") can never match the stripped head — the strip
-    # removes the very prefix they start with, leaving dead literals
-    # in the config and regressing the phrasings they were added for
-    # ("can you see what's on the table", "please convert this").
+    # themselves BEGIN with an allowlist prefix ("can you see what's
+    # on", "can you search wikipedia", "can you convert the units",
+    # "please convert this", "turn the volume") can never match the
+    # stripped head — the strip removes the very prefix they start
+    # with, leaving dead literals in the config and regressing the
+    # phrasings they were added for ("can you see what's on the
+    # table", "please convert this").
     # Match the full phrase against the original text instead: still
     # imperative position (startswith / match at position 0), so no
     # bare-noun or mid-sentence trigger becomes reachable.

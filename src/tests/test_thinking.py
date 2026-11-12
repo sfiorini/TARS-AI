@@ -693,6 +693,16 @@ ORDINARY_QUESTIONS = (
     "why do the lights on my router blink",
     "how do I turn the lights on in dark souls",
     "what does convert 20 mean in a spreadsheet formula",
+    # [F2-prefixed] the bare prefixed triggers ("can you see",
+    # "can you search", "can you convert", "please convert")
+    # matched ANY completion, so these ordinary conversational
+    # questions returned likely_tool_turn True -> the pre-LLM gate
+    # spoke NOTHING (dead air for the whole turn). The triggers now
+    # require a tool-ish completion; these must get a filler.
+    "can you see what I mean",
+    "can you see the difference between these two",
+    "can you convert that into a percentage",
+    "please convert that into plain english",
 )
 
 GENUINE_TOOL_REQUESTS = (
@@ -818,13 +828,14 @@ class TestSuppressionPrecision(unittest.TestCase):
 
     def test_prefixed_triggers_reach_their_own_phrasings(self):
         """[F2] triggers that themselves BEGIN with an allowlist
-        prefix ("can you see", "can you search", "can you convert",
-        "please convert") were unreachable: _imperative_head strips
-        the very prefix they start with, so the phrasings they were
-        added for regressed True->False (dead literals in the config).
-        The full phrase must match the ORIGINAL text as a secondary
-        check — still imperative position (startswith), so no
-        bare-noun or mid-sentence regression."""
+        prefix ("can you see what's on", "can you search wikipedia",
+        "can you convert the units", "please convert this") were
+        unreachable: _imperative_head strips the very prefix they
+        start with, so the phrasings they were added for regressed
+        True->False (dead literals in the config). The full phrase
+        must match the ORIGINAL text as a secondary check — still
+        imperative position (startswith), so no bare-noun or
+        mid-sentence regression."""
         for phrase in (
             "can you see what's on the table",
             "can you search wikipedia for the weather",
@@ -836,6 +847,41 @@ class TestSuppressionPrecision(unittest.TestCase):
                     mt.likely_tool_turn(phrase),
                     f"prefixed trigger phrasing not suppressed: "
                     f"{phrase!r}")
+
+    def test_prefixed_triggers_require_a_toolish_completion(self):
+        """[F2-prefixed] the prefixed suppression triggers used to be
+        BARE ("can you see", "can you search", "can you convert",
+        "please convert"), so they matched ANY completion and
+        silenced ordinary conversational questions ("can you see what
+        I mean" -> likely_tool_turn True -> dead air for the whole
+        turn). The narrowed triggers must keep the genuine tool
+        phrasings suppressed WITHOUT catching the conversational
+        completions — the pinned pairs below differ ONLY in the
+        completion."""
+        must_suppress = (
+            "can you see what's on the table",
+            "can you search wikipedia for the weather",
+            "can you convert the units for me",
+            "please convert this",
+        )
+        must_not_suppress = (
+            "can you see what I mean",
+            "can you see the difference between these two",
+            "can you convert that into a percentage",
+            "please convert that into plain english",
+        )
+        for phrase in must_suppress:
+            with self.subTest(phrase=phrase):
+                self.assertTrue(
+                    mt.likely_tool_turn(phrase),
+                    f"genuine prefixed tool phrasing not suppressed: "
+                    f"{phrase!r}")
+        for phrase in must_not_suppress:
+            with self.subTest(phrase=phrase):
+                self.assertFalse(
+                    mt.likely_tool_turn(phrase),
+                    f"ordinary question silenced by an over-broad "
+                    f"prefixed trigger: {phrase!r}")
 
     def test_comma_after_prefix_is_recognized(self):
         """[F3] the prefix allowlist accepted only "prefix + space" —
