@@ -636,16 +636,40 @@ class TestDedupSuppressesHoldingLine(_LoopTestCase):
                       "TTS": {"ttsoption": "piper"}}
         self.addCleanup(llm.__setattr__, "CONFIG", saved_cfg)
 
+        # DISCRIMINATION (mutation-tested): asserting only
+        # `HOLDING_LINE not in spoken` is equally true when a FRESH
+        # filler plays (the actual bug — the dedup check deleted and
+        # the loop double-speaks over the turn's first filler). The
+        # filler playback itself must be observed too: the loop's
+        # _maybe_play_thinking_response call must play NOTHING.
+        fillers = []
+
         async def _fake_play(text, *a, **k):
             # coroutine stub — the real _play closure does
             # asyncio.run(play_audio_chunks(...)); a plain lambda would
             # raise ValueError inside asyncio.run and log a spurious error
-            pass
+            fillers.append(text)
 
-        p = mock.patch("modules.module_tts.play_audio_chunks",
-                       new=_fake_play)
-        p.start()
-        self.addCleanup(p.stop)
+        # Synchronous thread stub scoped to module_llm ONLY (never the
+        # global threading.Thread — patching that process-wide is the
+        # F8 flake hazard): the filler playback must be observed BEFORE
+        # the assertions, not raced against a real thread.
+        class _SyncThread:
+            def __init__(self, target=None, args=(), daemon=None,
+                         name=None):
+                self._target = target
+
+            def start(self):
+                if self._target:
+                    self._target()
+
+        for p in (mock.patch("modules.module_tts.play_audio_chunks",
+                             new=_fake_play),
+                  mock.patch.object(llm, "threading",
+                                    types.SimpleNamespace(
+                                        Thread=_SyncThread))):
+            p.start()
+            self.addCleanup(p.stop)
 
         started = self._runner().start_turn(
             self._parsed([{"function": "search", "parameters": {}}],
@@ -654,6 +678,12 @@ class TestDedupSuppressesHoldingLine(_LoopTestCase):
         self.assertTrue(started)
         self._wait_turn()
         self.assertNotIn(HOLDING_LINE, self.spoken)
+        # the positive invariant: exactly one filler per turn — the
+        # pre-marked dedup key means this turn ALREADY spoke one, so
+        # the loop's call must NOT play a second
+        self.assertEqual(fillers, [],
+                         "the loop's filler call played a SECOND filler "
+                         "over the one this turn already spoke")
 
 
 class TestToolloopCategoryPass(_LoopTestCase):
