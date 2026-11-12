@@ -1284,5 +1284,117 @@ class TestNoImportTimeConfigLoad(unittest.TestCase):
         self.assertIsNone(mt.CONFIG)
 
 
+class TestDeadAirFiller(unittest.TestCase):
+    """[DEAD-AIR] A suppressed pre-LLM filler must not leave the turn silent.
+
+    Measured live 2026-11-12: "turn off the light" classifies as smart_home
+    but likely_tool_turn() is True, so the pre-LLM filler is suppressed on
+    the assumption the model speaks its own holding line. For Home
+    Assistant the model returns an EMPTY reply and only a function call, so
+    the user heard NOTHING until the light changed. web_search is unaffected
+    because its skill prompt forces a reply-0 ("On it...").
+    """
+
+    def setUp(self):
+        self._cfg = llm.CONFIG
+        self._mt_cfg = mt.CONFIG
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "[]"},
+                      "TTS": {"ttsoption": "piper"}}
+        mt.CONFIG = {"CHAR": {}}
+        p = mock.patch.object(mt, "load_config",
+                              side_effect=lambda: mt.CONFIG)
+        p.start(); self.addCleanup(p.stop)
+        mt._refreshed.clear()
+        mt.reset_dedup()
+        self._played = []
+
+        async def _fake_play(text, *a, **k):
+            self._played.append(text)
+
+        p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
+        p.start(); self.addCleanup(p.stop)
+        t = mock.patch.object(llm, "threading", _LLM_THREADING_SEAM)
+        t.start(); self.addCleanup(t.stop)
+
+    def tearDown(self):
+        llm.CONFIG = self._cfg
+        mt.CONFIG = self._mt_cfg
+        mt._refreshed.clear()
+        mt.reset_dedup()
+
+    def test_empty_reply_with_tool_call_speaks_a_category_filler(self):
+        llm._speak_filler_if_reply_empty(
+            {"reply": "", "function_calls": [{"function": "home_assistant"}]},
+            "turn off the light", source="voice")
+        self.assertEqual(len(self._played), 1)
+        self.assertIn(self._played[0], mt.PHRASE_BANK["smart_home"])
+
+    def test_whitespace_reply_counts_as_empty(self):
+        llm._speak_filler_if_reply_empty(
+            {"reply": "   ", "function_calls": [{"function": "web_search"}]},
+            "search the news", source="voice")
+        self.assertEqual(len(self._played), 1)
+        self.assertIn(self._played[0], mt.PHRASE_BANK["search"])
+
+    def test_model_reply_means_no_filler(self):
+        """The weather path: web_search forces a reply-0 ("On it...").
+        That must NOT gain a second filler."""
+        llm._speak_filler_if_reply_empty(
+            {"reply": "On it...",
+             "function_calls": [{"function": "web_search"}]},
+            "what's the weather", source="voice")
+        self.assertEqual(self._played, [])
+
+    def test_block_list_reply_counts_as_a_reply(self):
+        parsed = {"reply": [{"type": "text", "text": "On it."}],
+                  "function_calls": [{"function": "home_assistant"}]}
+        llm._speak_filler_if_reply_empty(parsed, "turn off the light",
+                                         source="voice")
+        self.assertEqual(self._played, [])
+
+    def test_no_pending_work_means_no_filler(self):
+        llm._speak_filler_if_reply_empty({"reply": "", "function_calls": []},
+                                         "hello", source="voice")
+        self.assertEqual(self._played, [])
+
+    def test_string_result_means_no_filler(self):
+        llm._speak_filler_if_reply_empty("Text extraction failed: boom",
+                                         "hello", source="voice")
+        self.assertEqual(self._played, [])
+
+    def test_already_played_turn_does_not_double_speak(self):
+        # tool_names (not user_text) so the pre-LLM suppression gate does not
+        # swallow this setup call — we need a filler genuinely played.
+        self.assertTrue(llm._maybe_play_thinking_response(
+            tool_names=["web_search"], source="voice"))
+        before = len(self._played)
+        llm._speak_filler_if_reply_empty(
+            {"reply": "", "function_calls": [{"function": "home_assistant"}]},
+            "turn off the light", source="voice")
+        self.assertEqual(len(self._played), before)
+
+    def test_never_raises_on_garbage(self):
+        for bad in (None, {}, [], object(), {"reply": None},
+                    {"function_calls": None}, {"function_calls": [None]}):
+            llm._speak_filler_if_reply_empty(bad, "x", source="voice")
+
+
+class TestProcessCompletionWiring(unittest.TestCase):
+    """The helper is dead code unless process_completion calls it."""
+
+    def test_process_completion_calls_the_dead_air_helper(self):
+        path = os.path.join(_SRC, "modules", "module_llm.py")
+        with open(path) as fh:
+            tree = ast.parse(fh.read())
+        fn = next((n for n in ast.walk(tree)
+                   if isinstance(n, ast.FunctionDef)
+                   and n.name == "process_completion"), None)
+        self.assertIsNotNone(fn, "process_completion() not found")
+        names = {n.func.id for n in ast.walk(fn)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+        self.assertIn("_speak_filler_if_reply_empty", names)
+
+
 if __name__ == "__main__":
     unittest.main()

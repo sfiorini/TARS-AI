@@ -188,6 +188,43 @@ def _maybe_play_thinking_response(user_text=None, tool_names=None, source=None):
         return False
 
 
+def _speak_filler_if_reply_empty(parsed, user_text, source=None):
+    """[DEAD-AIR] Cover the tool-execution gap when the model says nothing.
+
+    The pre-LLM filler is suppressed when the utterance looks like a tool
+    turn (``likely_tool_turn``), on the assumption that the model speaks its
+    own holding line. Measured live 2026-11-12: for Home Assistant
+    imperatives ("turn off the light") the model returns an EMPTY reply and
+    only a function call, so the suppressed turn spoke NOTHING until the
+    device changed — dead air for the whole HA round-trip. ``web_search`` is
+    unaffected because its skill prompt forces a reply-0 ("On it...").
+
+    Speaks a category filler now, resolved from the tool names — which the
+    pre-LLM path could not know, because the model had not chosen a tool
+    yet. The toolloop already applies exactly this rule to reply-0; this is
+    the same rule for the non-loop path.
+
+    No-op when the model DID reply (nothing to cover), when no work is
+    pending (no function calls), or when a filler already played this turn
+    (per-turn dedup, which also stops the toolloop double-speaking).
+    Never raises into the turn.
+    """
+    try:
+        if not isinstance(parsed, dict):
+            return
+        if content_text(parsed.get("reply")).strip():
+            return
+        calls = parsed.get("function_calls") or []
+        if not calls:
+            return
+        _maybe_play_thinking_response(
+            user_text=user_text,
+            tool_names=[str(c.get("function", "")) for c in calls],
+            source=source)
+    except Exception:
+        return
+
+
 def content_text(content):
     """Normalize an LLM `content` value to plain text.
 
@@ -440,7 +477,10 @@ def process_completion(prompt, image_b64=None, source="voice"):
             }
         return result
 
-    return _get_parsed(prompt)
+    result = _get_parsed(prompt)
+    # [DEAD-AIR] a suppressed pre-LLM filler + an empty reply-0 = silence
+    _speak_filler_if_reply_empty(result, prompt, source)
+    return result
 
 
 def followup_completion(user_input, prior_reply, tool_results_text, source="voice"):
