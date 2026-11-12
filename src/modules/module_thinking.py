@@ -187,7 +187,13 @@ KEYWORDS = {
         "front door locked", "set the thermostat", "garage", "lights",
         "light", "lamp", "switch off", "switch on", "dim the", "brighten",
         "thermostat", "heating", "air conditioning", "the fan", "plug",
-        "socket", "blinds", "curtains"),
+        "socket", "blinds", "curtains",
+        # [ROOM-VOCAB] naming an AREA is itself the home-command signal:
+        # "switch Victoria's room off" fell to 'general' because the dict
+        # knew devices but no rooms. 'room' also covers bedroom/bathroom.
+        "room", "kitchen", "office", "hallway", "basement", "attic",
+        "porch", "garden", "living room", "dining room", "tv",
+        "television"),
     "system": ("exit the program", "quit the program", "close the program",
         "stop the program", "exit tars", "quit tars", "shut down", "shutdown",
         "power off", "restart", "reboot", "volume", "retropie",

@@ -175,6 +175,19 @@ class TestClassifyIntentRecall(unittest.TestCase):
         ("draw me a cat", "creative"),
         ("calculate 15 percent of 200", "compute"),
         ("what's the temperature outside", "search"),
+        # --- [ROOM-VOCAB] a room/area name IS the home-command signal ---
+        # Measured live: "switch Victoria's room off" and "Victoria's room
+        # off" fell to 'general' because smart_home knew devices but no
+        # rooms — yet naming an area is exactly what makes it a home
+        # command. The LLM only inferred "light" AFTER the filler played.
+        ("switch victoria's room off", "smart_home"),
+        ("victoria's room off", "smart_home"),
+        ("set the bedroom to 20 degrees", "smart_home"),
+        ("is the kitchen warm", "smart_home"),
+        ("lock the basement door", "smart_home"),
+        ("turn on the porch", "smart_home"),
+        ("open the dining room blinds", "smart_home"),
+        ("switch the tv on", "smart_home"),
     )
 
     def test_every_row_reaches_its_bank(self):
