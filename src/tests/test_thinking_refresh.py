@@ -245,6 +245,42 @@ class TestRefreshOnce(_RefreshStateTestCase):
         self.assertEqual(old, ["Old one."],
                          "the old list must never be mutated in place")
 
+    def test_swap_takes_pool_lock(self):
+        """[F6] The pool swap (the only WRITE to _refreshed) must happen
+        UNDER _pool_lock — every reader (get_filler_phrase, the mid-turn
+        filler) takes the same lock, so an unguarded assignment is a
+        torn read/write race. test_lock_not_held_during_generation pins
+        only the INVERSE (the lock must not span the LLM call); nothing
+        pinned the positive side — verified: replacing
+        `with _pool_lock: _refreshed[category] = ...` with an unguarded
+        assignment left all of TestRefreshOnce green. Same
+        _RecordingLock pattern as test_read_and_write_both_take_meta_lock.
+        DISCRIMINATION (mutation-tested): removing the `with _pool_lock:`
+        (keeping the bare assignment) makes this test FAIL; restoring it
+        makes it PASS again."""
+        self._stub_llm('{"phrases": ["Fresh one."]}')
+
+        class _RecordingLock:
+            def __init__(self, inner):
+                self._inner = inner
+                self.count = 0
+            def __enter__(self):
+                self.count += 1
+                return self._inner.__enter__()
+            def __exit__(self, *exc):
+                return self._inner.__exit__(*exc)
+
+        real = mt._pool_lock
+        rec = _RecordingLock(real)
+        mt._pool_lock = rec
+        self.addCleanup(setattr, mt, "_pool_lock", real)
+
+        self.assertTrue(mt._refresh_once("search"))
+        self.assertGreaterEqual(
+            rec.count, 1,
+            "the pool swap must acquire _pool_lock — an unguarded "
+            "assignment races every reader of the phrase bank")
+
 
 class TestRefreshAllCategories(_RefreshStateTestCase):
     """S-M4-03: the cycle survives a raising category and advances
