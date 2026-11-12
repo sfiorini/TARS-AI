@@ -179,12 +179,23 @@ class TestRefreshOnce(_RefreshStateTestCase):
         # A payload in the conversation schema ("reply") is rejected, not
         # scavenged — at the parse level AND at the refresh level (the
         # old pool survives).
-        self.assertIsNone(
-            mt._parse_phrase_payload('{"reply": "Let me look that up"}'))
+        # [F5] DISCRIMINATION (mutation-tested): the old payload had NO
+        # "phrases" key, so .get("phrases") already returned None —
+        # deleting the anti-scavenging rule kept the test green. The
+        # payload must contain BOTH a "reply" key AND phrase-like
+        # content, so the rule is the ONLY thing that decides: with it
+        # the reply schema wins (None, old pool kept); without it the
+        # phrases would be scavenged.
+        payload = ('{"reply": "Let me look that up", '
+                   '"phrases": ["One.", "Two."]}')
+        self.assertIsNone(mt._parse_phrase_payload(payload))
         mt._refreshed["search"] = ["Old one."]
-        self._stub_llm('{"reply": "Let me look that up"}')
+        self._stub_llm(payload)
         self.assertFalse(mt._refresh_once("search"))
         self.assertEqual(mt._refreshed["search"], ["Old one."])
+        self.assertNotEqual(mt._refreshed["search"], ["One.", "Two."],
+                            "the reply-schema rejection must win over the "
+                            "phrase-like content — never scavenge")
 
     def test_prompt_carries_category_and_register(self):
         stub = self._stub_llm('{"phrases": ["Fresh one."]}')
