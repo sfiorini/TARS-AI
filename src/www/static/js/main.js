@@ -1778,7 +1778,16 @@ function executeAction() {
 <label class="form-label d-flex align-items-center gap-1"><span>qr_code</span><span class="config-tooltip-wrap" data-tip="Scan with your phone to open the remote access URL."><i class="bi bi-info-circle config-tooltip-icon"></i></span></label>
 <div class="text-center"><img id="tunQrCode" class="rounded" style="max-width:120px; border:1px solid rgba(255,255,255,.25)" alt="QR Code"></div>
 </div></div>
-<div class="col-md-6 col-lg-4"><div class="field-wrapper">
+`;
+        }
+
+        // Inject the thinking-phrase refresh controls into the System grid
+        // (they belong with thinking_responses / thinking_refresh_*). The
+        // data-dep-conds reuses applyDependencies(): refreshing phrases is
+        // pointless when fillers are never spoken, so the card hides with
+        // the master switch.
+        if (section === 'CHAR') {
+          html += `<div class="col-md-6 col-lg-4" data-dep-conds='[{"field":"enable_thinking_responses","values":["true"]}]' data-dep-section="CHAR"><div class="field-wrapper">
 <label class="form-label d-flex align-items-center gap-1">
   <span>Thinking phrases</span>
   <span class="config-tooltip-wrap" data-tip="Ask the AI to write a fresh batch of filler phrases now. Runs in the background and never interrupts a conversation."><i class="bi bi-info-circle config-tooltip-icon"></i></span>
@@ -1787,11 +1796,10 @@ function executeAction() {
 <div class="text-center mt-3">
   <button class="btn btn-sm btn-outline-primary" id="thinkingRefreshBtn"><i class="bi bi-arrow-clockwise me-1"></i>Refresh</button>
 </div>
-</div></div>
-</div></div></div>`;
-        } else {
-          html += '</div></div></div>';
+</div></div>`;
         }
+
+        html += '</div></div></div>';
       }
 
       // Character Editor panel (same pattern as config-panel)

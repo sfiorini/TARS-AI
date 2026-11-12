@@ -842,10 +842,16 @@ CONFIG_METADATA = {
             'description': 'After TARS hears your question, it takes a moment to think of an answer (the AI needs time to generate a response). During that pause, TARS will say one of these filler phrases so you know it is working and did not freeze. Things like "Let me think..." or "One moment..." This list IS the general pool: its phrases are used for everyday questions and whenever a category pool runs dry. TARS also keeps a built-in bank of category phrases (search, vision, movement, and so on) that are tried FIRST when your request matches a category. Set to [] (empty brackets) if you want silence on everyday questions; remove the line entirely to use the built-in general phrases instead.'
         },
         'thinking_refresh_enabled': {
-            'description': 'When ON, TARS periodically asks the AI to write new filler phrases in the background — only while idle (standing by, not moving, not talking, CPU under 70 degrees) and at most once per interval. New phrases live in memory only and never overwrite your list. Default OFF.'
+            'description': 'When ON, TARS periodically asks the AI to write new filler phrases in the background — only while idle (standing by, not moving, not talking, CPU under 70 degrees) and at most once per interval. New phrases live in memory only and never overwrite your list. Default OFF.',
+            # pointless when fillers are never spoken
+            'depends_on': [{'field': 'enable_thinking_responses',
+                            'values': ['true']}],
         },
         'thinking_refresh_minutes': {
-            'description': 'Minimum minutes between background filler-phrase refreshes (default 120 = every 2 hours). Values below 1 are treated as 1.'
+            'description': 'Minimum minutes between background filler-phrase refreshes (default 120 = every 2 hours). Values below 1 are treated as 1.',
+            # the interval only means something when auto-refresh is on
+            'depends_on': [{'field': 'thinking_refresh_enabled',
+                            'values': ['true']}],
         },
         'responses': {
             'description': 'When you say the wake word (like "Hey TARS"), TARS will immediately say one of these short phrases to let you know it heard you. This happens BEFORE it actually processes what you say next. Think of it like saying "Yeah?" when someone calls your name. You can change these to whatever you want, add new ones, or remove ones you do not like. The format is a list in square brackets with each phrase in quotes separated by commas. Set to [] (empty brackets) if you do not want any response.'
