@@ -1102,6 +1102,13 @@ class TestCycleGuardSentinel(unittest.TestCase):
         self.addCleanup(setattr, mt, "_cycle_lock", saved_lock)
         saved_state = dict(mt._refresh_state)
         self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        # [F1] shrink the busy-lock wait so _bg gives up WELL before
+        # this test's cleanups restore the REAL _cycle_lock — with the
+        # 2 s default the give-up races the cleanup and a starved
+        # thread could squeeze one last acquire past the restore.
+        saved_wait = getattr(mt, "_MANUAL_CYCLE_WAIT_S", 2.0)
+        mt._MANUAL_CYCLE_WAIT_S = 0.5
+        self.addCleanup(setattr, mt, "_MANUAL_CYCLE_WAIT_S", saved_wait)
 
         with mock.patch.object(mt, "queue_message"):
             self.assertEqual(mt.request_manual_refresh()["state"],
@@ -1116,6 +1123,63 @@ class TestCycleGuardSentinel(unittest.TestCase):
         self.assertEqual(info["state"], "running",
                          "a cycle already in flight is NOT an error — "
                          "the refresh IS running")
+        self.assertIsNone(info["last_error"])
+        # [F1] the leak proof: the manual thread must be GONE — an
+        # unbounded spin survives the cleanups, reacquires the REAL
+        # _cycle_lock and runs a full 13-category cycle against the
+        # live LLM inside the pytest process (measured: 13 'LLM
+        # request failed: 401' lines per suite run).
+        self.assertEqual(
+            [t for t in threading.enumerate()
+             if t.name == "ThinkingRefreshManual" and t.is_alive()],
+            [], "the manual refresh thread outlived the test — it will "
+               "reacquire the real cycle lock and leak a refresh cycle")
+
+    def test_bg_terminates_when_the_lock_never_frees(self):
+        """[F1] _bg's busy-lock retry is BOUNDED: a lock that stays
+        busy with no cycle to name (a daemon in its acquire/identity
+        window, or a stub that never frees) must TERMINATE the thread,
+        not spin forever. On expiry _bg reports the already-running
+        state and returns — it must never fall through to a cycle of
+        its own."""
+        class _SneakyLock:
+            def locked(self):
+                return False
+            def acquire(self, blocking=True):
+                return False
+            def release(self):
+                pass
+
+        saved_lock = mt._cycle_lock
+        mt._cycle_lock = _SneakyLock()
+        self.addCleanup(setattr, mt, "_cycle_lock", saved_lock)
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        saved_wait = getattr(mt, "_MANUAL_CYCLE_WAIT_S", 2.0)
+        mt._MANUAL_CYCLE_WAIT_S = 0.2
+        self.addCleanup(setattr, mt, "_MANUAL_CYCLE_WAIT_S", saved_wait)
+
+        with mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+        # the thread must TERMINATE within the bound — poll for its exit
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            if not any(t.name == "ThinkingRefreshManual"
+                       for t in threading.enumerate()):
+                break
+            time.sleep(0.02)
+        self.assertEqual(
+            [t for t in threading.enumerate()
+             if t.name == "ThinkingRefreshManual" and t.is_alive()],
+            [], "the manual refresh thread must terminate when the "
+               "cycle lock never frees — an unbounded spin outlives "
+               "the caller, reacquires the real lock after the test's "
+               "cleanups and leaks a full refresh cycle")
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "running",
+                         "giving up on a busy lock is NOT an error — the "
+                         "refresh is reported as already running")
         self.assertIsNone(info["last_error"])
 
     def test_genuine_all_failed_still_reports_error(self):

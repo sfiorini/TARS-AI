@@ -640,6 +640,11 @@ _cycle_lock = threading.Lock()  # [F4] one refresh cycle at a time (daemon + man
 _cycle_id_lock = threading.Lock()  # [F2] guards the cycle identity below
 _cycle_seq = 0                    # [F2] monotonic cycle identity
 _running_cycle_id = None          # [F2] id of the cycle currently holding _cycle_lock, else None
+# [F1] BOUND on the manual refresh's busy-lock retry: _bg may not
+# spin forever waiting for _cycle_lock — a thread that cannot get the
+# lock gives up after this many seconds and reports the already-
+# running state (it must never outlive the caller's intent).
+_MANUAL_CYCLE_WAIT_S = 2.0
 _last_refresh = 0.0
 _IDLE_TEMP_C = 70.0
 
@@ -812,7 +817,21 @@ def request_manual_refresh():
         try:
             # [F1] explicit user intent: bypass the idle gate for every
             # category (the daemon passes respect_idle=True)
+            # [F1] BOUNDED retry: the loop below re-attempts the
+            # acquire while the lock is busy, but a thread that cannot
+            # get the lock must TERMINATE, not spin — an unbounded
+            # spin outlives the caller's intent (and, in the test
+            # suite, the test's cleanups: the leaked thread reacquired
+            # the REAL lock and ran a full 13-category cycle against
+            # the live LLM). On expiry: do NOT run a cycle — report the
+            # already-running state and return (the daemon's cycle
+            # will settle it, or the user polls again). The deadline
+            # check is at the TOP of the loop so an expired thread
+            # never makes another acquire attempt.
+            give_up_at = time.monotonic() + _MANUAL_CYCLE_WAIT_S
             while True:
+                if time.monotonic() >= give_up_at:
+                    return
                 ok = _refresh_all_categories(respect_idle=False)
                 if ok is not None:
                     break
@@ -833,7 +852,7 @@ def request_manual_refresh():
                         return
                 # the in-flight cycle ended in the window between our
                 # failed acquire and the read: nothing can settle our
-                # state — run our OWN cycle (the lock is free)
+                # state — retry our OWN cycle (the lock is free)
                 time.sleep(0.05)
             with _manual_lock:
                 if (_refresh_state["state"] == "running"
