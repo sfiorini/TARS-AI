@@ -140,6 +140,65 @@ class TestClassifyIntentKeywords(unittest.TestCase):
         self.assertEqual(mt.classify_intent(user_text=""), "general")
 
 
+class TestClassifyIntentRecall(unittest.TestCase):
+    """[KEYWORDS-RECALL] The classifier must actually REACH the 12 category
+    banks. Measured live on 2026-11-11: 7 of 7 realistic utterances below
+    fell through to 'general', so every filler was drawn from the single
+    general pool (the user's 29 'hold on' synonyms) and the 156 flavoured
+    bank phrases were unreachable. Each row is a real phrasing, not a
+    keyword echo."""
+
+    TABLE = (
+        # --- the seven measured failures (RED before the fix) ---
+        ("turn off the light", "smart_home"),
+        ("latest news today", "search"),
+        ("what is the latest news", "search"),
+        ("turn off Victoria room light", "smart_home"),
+        ("switch off the lamp", "smart_home"),
+        ("who won the race", "search"),
+        ("whats the weather like", "search"),
+        # --- the seven already-pinned behaviours (must NOT move) ---
+        ("search for a photo of a cat", "search"),
+        ("take a photo", "vision"),
+        ("shut down the pi", "system"),
+        ("turn off the lights", "smart_home"),
+        ("remind me in 5 minutes", "reminder"),
+        ("my name is Joe", "identity"),
+        ("tell me about turtles", "general"),
+        # --- coverage across the remaining banks ---
+        ("dim the lights in the kitchen", "smart_home"),
+        ("open the garage door", "smart_home"),
+        ("play some music", "music"),
+        ("what song is this", "music"),
+        ("what do you see", "vision"),
+        ("walk forward", "movement"),
+        ("draw me a cat", "creative"),
+        ("calculate 15 percent of 200", "compute"),
+        ("what's the temperature outside", "search"),
+    )
+
+    def test_every_row_reaches_its_bank(self):
+        for text, expected in self.TABLE:
+            with self.subTest(text=text):
+                self.assertEqual(mt.classify_intent(user_text=text), expected)
+
+    def test_empty_still_general(self):
+        self.assertEqual(mt.classify_intent(), "general")
+        self.assertEqual(mt.classify_intent(user_text=""), "general")
+
+    def test_realistic_traffic_does_not_collapse_into_general(self):
+        """The whole point: realistic traffic must not collapse into the
+        general pool. Only the deliberately-unclassifiable row
+        ("tell me about turtles") may land there. Discriminating by
+        construction: it FAILS on the pre-fix KEYWORDS (8 of 24 rows were
+        general) and passes only once the banks are genuinely reachable."""
+        general = [t for t, _ in self.TABLE
+                   if mt.classify_intent(user_text=t) == "general"]
+        self.assertEqual(general, ["tell me about turtles"])
+        self.assertGreaterEqual(
+            len({mt.classify_intent(user_text=t) for t, _ in self.TABLE}), 7)
+
+
 class TestClassifyIntentTools(unittest.TestCase):
     def test_tool_name_beats_keywords(self):
         self.assertEqual(
