@@ -59,6 +59,8 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | `GET /servo_status`, `POST /servo_reinit` | **fork additions** — servo health and no-reboot recovery |
 | `GET /mcp`, `POST /mcp`, `PUT /mcp/<name>`, `DELETE /mcp/<name>`, `POST /mcp/<name>/test` | MCP server registry + live status + connection test (see [MCP](mcp.md)) |
 | `GET /api/wifi/*`, `GET /api/tunnel/*` | wifi + tunnel (QR) management |
+| `POST /api/thinking/refresh` | kick off a filler-phrase refresh in the background; returns immediately |
+| `GET /api/thinking/refresh/status` | poll the refresh state (`state`, `generated`) |
 
 ## Motion tab
 
