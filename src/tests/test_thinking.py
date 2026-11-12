@@ -945,6 +945,132 @@ class TestDaemonCycleSettlesPiggybackedState(unittest.TestCase):
                          "the manual _bg settles its own cycle")
 
 
+class TestCycleSettleIdentity(unittest.TestCase):
+    """[F2] The settle runs AFTER the cycle lock is released, so a click
+    landing in that window sees a FREE lock and spawns a REAL _bg cycle.
+    The previous cycle's settle used to write its verdict over that
+    manual cycle's 'running' state — and main.js clears its poller on
+    the first non-running state, so the badge stayed wrong for the
+    whole session. Invariant: a settle writes ONLY the state its own
+    cycle was named to settle (a piggy-backed click names the in-flight
+    cycle; a spawned _bg's state carries no name, which no settle
+    matches)."""
+
+    def setUp(self):
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: (mt._refresh_state.clear(),
+                                 mt._refresh_state.update(saved_state)))
+        mt._refresh_state["state"] = "idle"
+        mt._refresh_state["last_error"] = None
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+        # getattr: the identity globals do not exist before the fix —
+        # setUp must not ERROR on the pre-fix module (RED fails, never
+        # errors)
+        saved_running = getattr(mt, "_running_cycle_id", None)
+        self.addCleanup(setattr, mt, "_running_cycle_id", saved_running)
+        mt._running_cycle_id = None
+        # a set stop event would cut the stubbed cycle short and fail
+        # the done-path tests spuriously
+        was_set = mt._stop_event.is_set()
+        mt._stop_event.clear()
+        if was_set:
+            self.addCleanup(mt._stop_event.set)
+
+    def test_release_window_click_not_clobbered_by_previous_settle(self):
+        """A click in the post-release window spawns a REAL manual cycle;
+        the previous cycle's settle must leave that state alone."""
+        entered = threading.Event()
+        release_manual = threading.Event()
+        # captured BEFORE the patch below or the wrapper recurses into
+        # the mock
+        real_settle = mt._settle_refresh_state
+
+        def _gated_refresh_once(category):
+            entered.set()
+            if threading.current_thread().name == "ThinkingRefreshManual":
+                release_manual.wait(10)  # hold the MANUAL cycle open
+            return True
+
+        def _click_in_the_release_window(*settle_args):
+            # runs in the daemon cycle's finally AFTER the lock is
+            # released — the exact F2 window. *settle_args forwards
+            # whatever the PRE- or POST-fix settle passes (RED must
+            # fail on the assertion, never error on the signature).
+            response = mt.request_manual_refresh()
+            real_settle(*settle_args)
+            return response
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_gated_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"), \
+             mock.patch.object(mt, "_settle_refresh_state",
+                               side_effect=_click_in_the_release_window):
+            t = threading.Thread(target=mt._refresh_all_categories,
+                                 daemon=True, name="F2DaemonCycle")
+            t.start()
+            self.assertTrue(entered.wait(5),
+                            "the daemon cycle never started")
+            t.join(5)
+            self.assertFalse(t.is_alive(), "the daemon cycle never ended")
+            # the click took the SPAWN branch (lock free, state
+            # terminal) — a REAL manual cycle is running right now
+            self.assertEqual(mt.refresh_status()["state"], "running",
+                             "the previous cycle's settle clobbered the "
+                             "manual cycle's 'running' state — the web "
+                             "UI stops polling on the first non-running "
+                             "state and the badge stays wrong for the "
+                             "session")
+            # let the manual cycle finish and settle its OWN state
+            # (inside the patch block — the cycle's remaining
+            # categories must keep hitting the mocked _refresh_once)
+            release_manual.set()
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "done",
+                         "the manual cycle must settle its own state")
+        self.assertIsNone(info["last_error"])
+
+    def test_manual_success_clears_a_stale_last_error(self):
+        """[F2] _bg's terminal write must be self-consistent: 'done'
+        must never sit beside a stale last_error — the write site
+        clears it, not just the distant spawn-branch start-clear."""
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _gated_refresh_once(category):
+            entered.set()
+            release.wait(10)
+            return True
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_gated_refresh_once), \
+             mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+            self.assertTrue(entered.wait(5),
+                            "the manual cycle never started")
+            # a stale error lands while the refresh runs (whatever set
+            # it, the SUCCESS verdict must not ship beside it)
+            with mt._manual_lock:
+                mt._refresh_state["last_error"] = "stale error"
+            release.set()
+            # poll INSIDE the patch block — the cycle's remaining
+            # categories must keep hitting the mocked _refresh_once
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "done")
+        self.assertIsNone(info["last_error"],
+                         "a successful refresh must clear last_error")
+
+
 class TestNoImportTimeConfigLoad(unittest.TestCase):
     """[F3] `CONFIG = load_config()` at module level was dead state (no
     production code in the module reads it — get_filler_phrase and

@@ -581,9 +581,15 @@ def _refresh_all_categories(respect_idle=True):
     ('a cycle is already in flight') immediately instead of stacking —
     [F3] distinct from False ('every category failed'), so the manual
     path never paints an error badge for a refresh that IS running."""
-    global _last_refresh
+    global _last_refresh, _cycle_seq, _running_cycle_id
     if not _cycle_lock.acquire(blocking=False):
         return None  # another cycle (daemon or manual) is in flight
+    # [F2] capture the cycle's IDENTITY inside the lock: the settle in
+    # the finally may write ONLY a state whose marker names THIS cycle.
+    with _cycle_id_lock:
+        _cycle_seq += 1
+        cycle_id = _cycle_seq
+        _running_cycle_id = cycle_id
     try:
         ok_any = False
         for index, category in enumerate(CATEGORIES):
@@ -607,13 +613,21 @@ def _refresh_all_categories(respect_idle=True):
             _last_refresh = time.time()
         return ok_any
     finally:
+        # [F2] clear the identity BEFORE releasing the lock: a click in
+        # the post-clear window can never piggy-back on a cycle whose
+        # settle is about to run (it takes the spawn branch instead,
+        # and the id-guarded settle below cannot touch a state the
+        # spawned _bg owns). The clear and every piggy-back mark are
+        # serialized by _cycle_id_lock, so a mark can never land after
+        # this cycle's settle already ran (no stranded 'running').
+        with _cycle_id_lock:
+            _running_cycle_id = None
         _cycle_lock.release()
-        # [F1] settle a piggy-backed 'running' state AFTER the release,
-        # never inside the lock: while the cycle ran (and between the
-        # release and this write) the state is 'running', so a manual
-        # click takes the idempotent already-running early-return — it
-        # can only piggy-back on a cycle that will still settle it.
-        _settle_refresh_state(ok_any)
+        # [F1] settle a piggy-backed 'running' state AFTER the release:
+        # while the cycle ran the state was 'running', so a manual
+        # click took the piggy-back branch and named THIS cycle —
+        # only that named state is written ([F2] identity guard).
+        _settle_refresh_state(ok_any, cycle_id)
 
 
 # --- M4: idle-gated background refresh daemon (S-M4-04) -----------------
@@ -623,6 +637,9 @@ _thread = None
 _start_lock = threading.Lock()
 _meta_lock = threading.Lock()  # guards _last_refresh (daemon + manual)
 _cycle_lock = threading.Lock()  # [F4] one refresh cycle at a time (daemon + manual)
+_cycle_id_lock = threading.Lock()  # [F2] guards the cycle identity below
+_cycle_seq = 0                    # [F2] monotonic cycle identity
+_running_cycle_id = None          # [F2] id of the cycle currently holding _cycle_lock, else None
 _last_refresh = 0.0
 _IDLE_TEMP_C = 70.0
 
@@ -712,9 +729,9 @@ def generated_phrase_count():
         return sum(len(v) for v in _refreshed.values())
 
 _manual_lock = threading.Lock()
-_refresh_state = {"state": "idle", "last_error": None}
+_refresh_state = {"state": "idle", "last_error": None, "cycle": None}
 
-def _settle_refresh_state(ok):
+def _settle_refresh_state(ok, cycle_id):
     """[F1] Terminal write for a manual refresh state left 'running'
     by a click that piggy-backed on an in-flight cycle: that branch
     of request_manual_refresh sets 'running' but spawns NO _bg, so
@@ -722,16 +739,23 @@ def _settle_refresh_state(ok):
     never write _refresh_state, so the web UI polled
     /api/thinking/refresh/status and showed 'Refreshing…' forever.
     Called from _refresh_all_categories' finally, AFTER the cycle
-    lock releases. Guard: only a 'running' state is written — a manual
-    _bg that ran its own cycle still writes its terminal state
-    afterwards (same verdict, idempotent), and while a manual cycle
-    genuinely holds the lock no other cycle can even reach this
-    settle, so the daemon can never clobber a refresh a live manual
-    refresh owns."""
+    lock releases.
+    [F2] IDENTITY GUARD: the settle runs after the lock is released,
+    and a click landing in that window sees a free lock and spawns a
+    REAL _bg cycle — whose 'running' state this verdict must not
+    touch (main.js clears its poller on the first non-running state,
+    so a clobbered badge stays wrong for the whole session). The
+    piggy-backed click NAMED this cycle (_refresh_state['cycle'] ==
+    cycle_id); a spawned _bg's state carries cycle None, which no
+    settle matches. Invariant: a settle writes only the state its own
+    cycle was named to settle."""
     with _manual_lock:
         if _refresh_state["state"] != "running":
             return
+        if _refresh_state.get("cycle") != cycle_id:
+            return  # not this cycle's state — never clobber another owner
         _refresh_state["state"] = "done" if ok else "error"
+        _refresh_state["cycle"] = None
         if ok:
             _refresh_state["last_error"] = None
         else:
@@ -747,36 +771,81 @@ def request_manual_refresh():
     with _manual_lock:
         if _refresh_state["state"] == "running":
             return {"state": "running"}
-        if _cycle_lock.locked():
-            # a cycle (typically the daemon's) is already in flight.
-            # [F2] The web UI ignores the POST body and POLLS /status, so
-            # the STATE must say 'running' too — the old early return
-            # left the previous terminal value ('idle'/'done'/'error')
-            # in place and the badge showed it while the refresh ran.
-            # [F1] No _bg is spawned here, so the in-flight cycle itself
-            # settles this 'running' when it ends (_settle_refresh_state
-            # — the daemon path used to never write the state, and the
-            # badge showed 'Refreshing…' forever).
-            _refresh_state["state"] = "running"
+    # [F2] piggy-back decision: read the RUNNING CYCLE'S identity under
+    # the id lock (atomic with the cycle's identity-clear) — NOT
+    # _cycle_lock.locked(): a cycle between its identity-clear and its
+    # lock release must not be piggy-backed on (its settle is about to
+    # run and would strand the state), and a cycle that has not yet
+    # taken an identity cannot be named.
+    with _cycle_id_lock:
+        running = _running_cycle_id
+        if running is not None:
+            with _manual_lock:
+                # a cycle (typically the daemon's) is already in flight.
+                # [F2] The web UI ignores the POST body and POLLS /status,
+                # so the STATE must say 'running' too — the old early
+                # return left the previous terminal value
+                # ('idle'/'done'/'error') in place and the badge showed it
+                # while the refresh ran.
+                # [F1] No _bg is spawned here, so the in-flight cycle
+                # itself settles this 'running' when it ends
+                # (_settle_refresh_state — the daemon path used to never
+                # write the state, and the badge showed 'Refreshing…'
+                # forever). [F2] NAME the cycle: only ITS settle may
+                # write this state (identity guard).
+                if _refresh_state["state"] == "running":
+                    return {"state": "running"}
+                _refresh_state["state"] = "running"
+                _refresh_state["cycle"] = running
+                return {"state": "running"}
+    with _manual_lock:
+        if _refresh_state["state"] == "running":
             return {"state": "running"}
         _refresh_state["state"] = "running"
+        # [F2] marker None: this 'running' state is owned by OUR _bg —
+        # no cycle's settle matches None, so a previous cycle's settle
+        # (still in flight after its lock release) can never clobber it.
+        _refresh_state["cycle"] = None
         _refresh_state["last_error"] = None
 
     def _bg():
         try:
             # [F1] explicit user intent: bypass the idle gate for every
             # category (the daemon passes respect_idle=True)
-            ok = _refresh_all_categories(respect_idle=False)
+            while True:
+                ok = _refresh_all_categories(respect_idle=False)
+                if ok is not None:
+                    break
+                # [F3] a cycle is already in flight (daemon or manual):
+                # already-running is NOT an error — the refresh IS
+                # running. [F2] hand OUR 'running' state's settle to
+                # THAT cycle (name it) so its verdict settles us; the
+                # read+name is atomic with the cycle's identity-clear
+                # under _cycle_id_lock, so the name can never land on a
+                # cycle whose settle already ran.
+                with _cycle_id_lock:
+                    running = _running_cycle_id
+                    if running is not None:
+                        with _manual_lock:
+                            if (_refresh_state["state"] == "running"
+                                    and _refresh_state["cycle"] is None):
+                                _refresh_state["cycle"] = running
+                        return
+                # the in-flight cycle ended in the window between our
+                # failed acquire and the read: nothing can settle our
+                # state — run our OWN cycle (the lock is free)
+                time.sleep(0.05)
             with _manual_lock:
-                if ok is None:
-                    # [F3] a cycle is already in flight (daemon or
-                    # manual): already-running is NOT an error — the
-                    # refresh IS running; keep state 'running', set no
-                    # last_error
-                    return
-                _refresh_state["state"] = "done" if ok else "error"
-                if not ok:
-                    _refresh_state["last_error"] = "no category refreshed"
+                if (_refresh_state["state"] == "running"
+                        and _refresh_state["cycle"] is None):
+                    _refresh_state["state"] = "done" if ok else "error"
+                    # [F2] self-consistent terminal write: 'done' must
+                    # never ship beside a stale last_error (mirrors
+                    # _settle_refresh_state)
+                    if ok:
+                        _refresh_state["last_error"] = None
+                    else:
+                        _refresh_state["last_error"] = "no category refreshed"
         except Exception as e:
             with _manual_lock:
                 _refresh_state["state"] = "error"
