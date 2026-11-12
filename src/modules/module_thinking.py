@@ -310,7 +310,10 @@ _SUPPRESSION_PREFIXES = (
 def _imperative_head(text):
     """[F1-REGRESSION] Strip the prefix allowlist (repeatedly -
     "hey tars please lights on" and "please turn the lights on"
-    both reduce to "lights on"). Pure string work, no I/O."""
+    both reduce to "lights on"). [F3] An optional comma after each
+    prefix is accepted too ("hey tars, lights off", "please, turn
+    the lights off") — the natural vocative comma. Pure string work,
+    no I/O."""
     stripped = text
     changed = True
     while changed:
@@ -318,6 +321,13 @@ def _imperative_head(text):
         for prefix in _SUPPRESSION_PREFIXES:
             if stripped.startswith(prefix):
                 stripped = stripped[len(prefix):]
+                changed = True
+                continue
+            # [F3] comma variant: the prefix word + a comma (then any
+            # spaces) instead of the plain trailing space
+            stem = prefix[:-1]  # the prefix without its trailing space
+            if stripped.startswith(stem + ","):
+                stripped = stripped[len(stem) + 1:].lstrip(" ")
                 changed = True
     return stripped
 

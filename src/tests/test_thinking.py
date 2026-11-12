@@ -837,6 +837,22 @@ class TestSuppressionPrecision(unittest.TestCase):
                     f"prefixed trigger phrasing not suppressed: "
                     f"{phrase!r}")
 
+    def test_comma_after_prefix_is_recognized(self):
+        """[F3] the prefix allowlist accepted only "prefix + space" —
+        the natural vocative comma ("hey tars, lights off", "tars,
+        lights off", "please, turn the lights off") regressed
+        True->False. An optional comma after each prefix must be
+        accepted."""
+        for phrase in (
+            "hey tars, lights off",
+            "tars, lights off",
+            "please, turn the lights off",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertTrue(
+                    mt.likely_tool_turn(phrase),
+                    f"comma-prefixed phrasing not suppressed: {phrase!r}")
+
 
 class TestRefreshConfigKeys(unittest.TestCase):
     """S-M4-01: thinking_refresh_enabled / thinking_refresh_minutes live
