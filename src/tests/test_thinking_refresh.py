@@ -748,15 +748,74 @@ class TestBootWiring(unittest.TestCase):
     def test_boot_never_blocks_boot(self):
         # module_main cannot be imported/run on the dev Mac (hardware
         # init) — assert structurally that the thinking-refresh boot
-        # wiring sits inside its own try/except, so a daemon failure
-        # can never block boot
-        src = self._main_src()
-        i_call = src.index("module_thinking.start()")
-        i_try = src.rindex("try:", 0, i_call)
-        i_except = src.index("except Exception as e:", i_call)
-        self.assertLess(i_try, i_call)
-        self.assertLess(i_call, i_except)
-        self.assertIn("thinking_refresh_enabled", src[i_try:i_except])
+        # wiring sits inside its own DEDICATED try/except, so a daemon
+        # failure can never block boot.
+        # [F7] DISCRIMINATION (mutation-tested): the old
+        # rindex("try:") / index("except Exception as e:") scan was
+        # satisfied by the ENCLOSING servo-init try/except — deleting
+        # the dedicated guard around module_thinking.start() left the
+        # test green (verified). Simply asserting "the Try containing
+        # the call has an Exception handler" would NOT discriminate
+        # either: the enclosing servo try also catches Exception. The
+        # assertion is therefore structural AND specific — the Try
+        # node whose body contains the module_thinking.start() call
+        # must be DEDICATED: its body is EXACTLY the module_thinking
+        # import plus the config-gate If holding the call, and its
+        # handler catches Exception and names the thinking daemon.
+        # The enclosing servo try satisfies NEITHER half: its body
+        # carries a dozen other boot statements and its handler
+        # speaks only of servo initialization.
+        with open(_SRC / "modules" / "module_main.py",
+                  encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+
+        def _starts_thinking(node):
+            return (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "start"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "module_thinking")
+
+        def _is_dedicated(node):
+            # body: EXACTLY the import + the gate If containing the
+            # start() call — no other statements
+            if len(node.body) != 2:
+                return False
+            imp, gate = node.body
+            if not (isinstance(imp, ast.ImportFrom)
+                    and imp.module == "modules"
+                    and [a.name for a in imp.names] == ["module_thinking"]):
+                return False
+            if not isinstance(gate, ast.If):
+                return False
+            if "thinking_refresh_enabled" not in ast.unparse(gate.test):
+                return False
+            if not any(_starts_thinking(x) for x in ast.walk(gate)):
+                return False
+            # handler: catches Exception and names the thinking daemon
+            if len(node.handlers) != 1:
+                return False
+            h = node.handlers[0]
+            if not (isinstance(h.type, ast.Name)
+                    and h.type.id == "Exception"):
+                return False
+            handler_src = ast.unparse(h).lower()
+            return ("thinking" in handler_src
+                    or "refresh" in handler_src)
+
+        containing = [n for n in ast.walk(tree)
+                      if isinstance(n, ast.Try)
+                      and any(_starts_thinking(x)
+                              for st in n.body for x in ast.walk(st))]
+        self.assertTrue(containing,
+                        "module_thinking.start() must exist in the boot "
+                        "wiring")
+        self.assertTrue(any(_is_dedicated(n) for n in containing),
+                        "the thinking-refresh boot wiring must sit in its "
+                        "own DEDICATED try/except — a bare start() (or one "
+                        "guarded only by the enclosing servo-init try) lets "
+                        "a daemon failure abort the whole servo "
+                        "initialization and block boot")
 
 
 class TestRefreshRoutes(unittest.TestCase):
