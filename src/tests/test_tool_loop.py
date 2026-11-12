@@ -614,6 +614,48 @@ class TestHoldingLine(_LoopTestCase):
         self.assertEqual(self.spoken, ["final answer"])
 
 
+class TestDedupSuppressesHoldingLine(_LoopTestCase):
+    """S-M2-02: a pre-marked per-turn dedup key means the loop's filler
+    call reports 'already handled' — HOLDING_LINE must not double-speak.
+
+    Real (unpatched) hot path: only CONFIG and audio playback are stubbed
+    (patching mt.already_played_this_turn → True is NOT allowed — that
+    case is already test_thinking_mechanism_suppresses_fallback above)."""
+
+    def test_pre_marked_dedup_suppresses_holding_line(self):
+        from modules import module_thinking as mt
+        from modules import module_llm as llm
+        mt.reset_dedup()
+        self.addCleanup(mt.reset_dedup)
+        bump_epoch("voice")
+        mt.mark_played_this_turn("voice")
+        self.registry.register(_descriptor("search"))
+        saved_cfg = llm.CONFIG
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": '["Hold on."]'},
+                      "TTS": {"ttsoption": "piper"}}
+        self.addCleanup(llm.__setattr__, "CONFIG", saved_cfg)
+
+        async def _fake_play(text, *a, **k):
+            # coroutine stub — the real _play closure does
+            # asyncio.run(play_audio_chunks(...)); a plain lambda would
+            # raise ValueError inside asyncio.run and log a spurious error
+            pass
+
+        p = mock.patch("modules.module_tts.play_audio_chunks",
+                       new=_fake_play)
+        p.start()
+        self.addCleanup(p.stop)
+
+        started = self._runner().start_turn(
+            self._parsed([{"function": "search", "parameters": {}}],
+                         reply=""),
+            "hello", "voice", self.callbacks)
+        self.assertTrue(started)
+        self._wait_turn()
+        self.assertNotIn(HOLDING_LINE, self.spoken)
+
+
 class TestFollowupCompletion(unittest.TestCase):
     """followup_completion prompt shape (S-M4-05) — the model's behavior
     depends on the augmentation format, so it is pinned exactly."""

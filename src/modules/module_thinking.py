@@ -233,3 +233,32 @@ def get_filler_phrase(category):
     if valid:
         return random.choice(valid)
     return None
+
+
+_played_lock = threading.Lock()
+_last_played_key = None  # (source, epoch) of the last turn that played
+
+def _turn_key(source):
+    """Per-turn identity: the toolloop epoch for this source. Lazy import
+    (module_toolloop is Mac-safe, but keep the pattern uniform and the
+    failure armor returns a stable key)."""
+    try:
+        from modules.module_toolloop import _current_epoch
+        return (source, _current_epoch(source))
+    except Exception:
+        return (source, None)
+
+def already_played_this_turn(source):
+    with _played_lock:
+        return _last_played_key == _turn_key(source)
+
+def mark_played_this_turn(source):
+    global _last_played_key
+    with _played_lock:
+        _last_played_key = _turn_key(source)
+
+def reset_dedup():
+    """Test hook — clear the dedup marker between tests."""
+    global _last_played_key
+    with _played_lock:
+        _last_played_key = None
