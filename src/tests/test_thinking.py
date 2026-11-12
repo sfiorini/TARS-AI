@@ -132,5 +132,45 @@ class TestClassifyIntentRegistryKinds(unittest.TestCase):
             self.assertEqual(mt.classify_intent(tool_names=["weird_name"]), "mcp")
 
 
+class TestFallbackChain(unittest.TestCase):
+    def setUp(self):
+        self._cfg = mt.CONFIG
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+
+    def tearDown(self):
+        mt.CONFIG = self._cfg
+
+    def test_bank_category_wins(self):
+        self.assertIn(mt.get_filler_phrase("search"), mt.PHRASE_BANK["search"])
+
+    def test_unknown_category_falls_to_general_bank(self):
+        self.assertIn(mt.get_filler_phrase("nope"), mt.PHRASE_BANK["general"])
+
+    def test_refreshed_pool_wins_when_present(self):
+        mt._refreshed["search"] = ["Fresh from the cloud."]
+        try:
+            self.assertEqual(mt.get_filler_phrase("search"),
+                             "Fresh from the cloud.")
+        finally:
+            mt._refreshed.clear()
+
+    def test_config_floor_used_when_bank_emptied(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses":
+            '["Config floor phrase."]'}}
+        with mock.patch.dict(mt.PHRASE_BANK, clear=True):
+            self.assertEqual(mt.get_filler_phrase("search"),
+                             "Config floor phrase.")
+
+    def test_config_garbage_returns_none(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": "not json at all"}}
+        with mock.patch.dict(mt.PHRASE_BANK, clear=True):
+            self.assertIsNone(mt.get_filler_phrase("search"))
+
+    def test_all_empty_returns_none(self):
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        with mock.patch.dict(mt.PHRASE_BANK, clear=True):
+            self.assertIsNone(mt.get_filler_phrase("search"))
+
+
 if __name__ == "__main__":
     unittest.main()

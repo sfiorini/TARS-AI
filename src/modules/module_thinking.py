@@ -197,3 +197,39 @@ def classify_intent(user_text=None, tool_names=None):
                 if kw in text:
                     return category
     return "general"
+
+_pool_lock = threading.Lock()
+_refreshed = {}  # category -> list of LLM-refreshed phrases (M4; in-memory only)
+
+def get_filler_phrase(category):
+    """The fallback chain. Returns a phrase string or None.
+
+    1. refreshed in-memory pool for the category (M4; empty until a
+       successful refresh — generated set wins while it exists)
+    2. curated PHRASE_BANK[category]
+    3. curated PHRASE_BANK['general']
+    4. CONFIG['CHAR']['thinking_responses'] (web-UI-editable floor,
+       existing json.loads + isinstance(list) guard)
+    5. None -> the caller speaks HOLDING_LINE (module_toolloop.py:38)
+    """
+    with _pool_lock:
+        pool = _refreshed.get(category) or []
+    if pool:
+        return random.choice(pool)
+    bank = PHRASE_BANK.get(category) or ()
+    if bank:
+        return random.choice(bank)
+    general = PHRASE_BANK.get("general") or ()
+    if general:
+        return random.choice(general)
+    raw = CONFIG["CHAR"].get("thinking_responses", "[]")
+    try:
+        cfg = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        cfg = []
+    if not isinstance(cfg, list):
+        cfg = []
+    valid = [p for p in cfg if isinstance(p, str) and p.strip()]
+    if valid:
+        return random.choice(valid)
+    return None
