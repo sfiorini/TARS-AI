@@ -696,14 +696,12 @@ ORDINARY_QUESTIONS = (
 )
 
 GENUINE_TOOL_REQUESTS = (
-    # [F1-REGRESSION] the finding's acceptance set: the imperative-
-    # position rule (a trigger must START the utterance) cannot reach
-    # "send a message to John on Discord" or "add milk to my shopping
-    # list" without reintroducing bare-noun/mid-sentence triggers —
-    # those two are accepted recall misses (an extra filler utterance,
-    # NOT dead air; see MISSED_TOOL_PHRASINGS' comment for the
-    # precision-over-recall rationale) and were dropped from the
-    # pinned set by the finding's measured acceptance list.
+    # [F1-REGRESSION] the finding's acceptance set. [F4] "send a
+    # message to John on Discord" and "add milk to my shopping list"
+    # were previously DELETED from this pinned set when they regressed
+    # True->False — deleting a failing case from a pinned set is how
+    # the regression went unnoticed; they are restored and must
+    # suppress again (see test_genuine_tool_requests_are_suppressed).
     "lights on",
     "lights off",
     "turn the lights on",
@@ -719,6 +717,8 @@ GENUINE_TOOL_REQUESTS = (
     "set a timer for 10 minutes",
     "what's the weather in Rome",
     "turn off the living room lights",
+    "send a message to John on Discord",
+    "add milk to my shopping list",
 )
 
 MISSED_TOOL_PHRASINGS = (

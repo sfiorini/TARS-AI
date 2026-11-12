@@ -272,7 +272,7 @@ SUPPRESSION_TRIGGERS = {
         "remember my name", "adjust your persona", "change your persona",
         "your persona"),
     "skill": ("run skill", "load skill", "skill example", "on discord",
-        "send a message on discord", "send a discord"),
+        "send a message", "send a message on discord", "send a discord"),
     "mcp": (),
     "general": (),
 }
@@ -288,6 +288,11 @@ SUPPRESSION_TRIGGERS = {
 SUPPRESSION_REGEX_TRIGGERS = {
     "system": (re.compile(r"\bvolume\s*\d"),),
     "compute": (re.compile(r"\bconvert\s+\d"),),
+    # [F4] "add milk to my shopping list": the noun ("shopping list")
+    # sits mid-utterance, so no startswith trigger can reach it — the
+    # VERB + object shape is the tool request; matched against the
+    # imperative head (and the original text) like the substrings.
+    "smart_home": (re.compile(r"add .+ to my shopping list"),),
 }
 
 # [F1-REGRESSION] IMPERATIVE POSITION. The substring triggers above
