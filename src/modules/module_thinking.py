@@ -222,7 +222,8 @@ SUPPRESSION_TRIGGERS = {
     "vision": ("take a photo", "take a picture", "take my picture",
         "take a pic", "take a photograph", "snap a picture",
         "capture a photo", "what do you see", "look around",
-        "describe your surroundings", "what's around you", "can you see"),
+        "describe your surroundings", "what's around you", "can you see",
+        "look at me"),
     "movement": ("walk forward", "turn left", "turn right", "step back",
         "move backward", "go forward", "do a dance", "dance for me",
         "dance move", "wave at me", "wave to me", "wave hello",
@@ -242,11 +243,13 @@ SUPPRESSION_TRIGGERS = {
     "smart_home": ("turn on the", "turn off the", "open the garage",
         "close the garage", "garage door", "lock the front door",
         "unlock the front door", "set the thermostat", "shopping list",
-        "dim the lights", "brighten the lights"),
+        "dim the lights", "brighten the lights", "lights on",
+        "lights off"),
     "system": ("exit the program", "quit the program", "close the program",
         "stop the program", "exit tars", "quit tars", "shut down",
         "shutdown", "power off", "restart", "reboot", "volume up",
-        "volume down", "set the volume", "turn the volume",
+        "volume down", "set the volume", "set volume",
+        "turn the volume",
         "turn up the volume", "turn down the volume", "open retropie",
         "launch retropie", "start retropie", "open youtube",
         "watch the video", "open the website", "go to the website",
@@ -261,6 +264,7 @@ SUPPRESSION_TRIGGERS = {
         "set an alarm", "set my alarm", "alarm in", "what reminders",
         "show my timers", "show my reminders", "cancel my reminder",
         "cancel the reminder", "cancel my timers", "cancel the timer",
+        "cancel my timer", "stop the timer",
         "delete the timer", "cancel reminder", "timer for",
         "snooze the alarm"),
     "identity": ("my name is", "call me", "be more", "be less",
@@ -271,6 +275,19 @@ SUPPRESSION_TRIGGERS = {
         "send a message on discord", "send a discord"),
     "mcp": (),
     "general": (),
+}
+
+# [F4] Numeric tool phrasings ("volume 50", "convert 20 dollars to
+# euros") cannot be a plain substring trigger without either overfitting
+# to the sample utterance ("volume 50" suppresses nothing else) or
+# reintroducing the bare-noun regression ("volume" / "convert" silenced
+# the ordinary questions in TestSuppressionPrecision). The DIGIT is
+# what makes the phrasing an imperative tool request rather than a
+# question about the concept — so the trigger is the noun followed by a
+# number. Checked by likely_tool_turn exactly like the substrings above.
+SUPPRESSION_REGEX_TRIGGERS = {
+    "system": (re.compile(r"\bvolume\s*\d"),),
+    "compute": (re.compile(r"\bconvert\s+\d"),),
 }
 
 def likely_tool_turn(user_text):
@@ -287,6 +304,9 @@ def likely_tool_turn(user_text):
     for category in CATEGORY_ORDER:
         for trigger in SUPPRESSION_TRIGGERS.get(category, ()):
             if trigger in text:
+                return True
+        for pattern in SUPPRESSION_REGEX_TRIGGERS.get(category, ()):
+            if pattern.search(text):
                 return True
     return False
 

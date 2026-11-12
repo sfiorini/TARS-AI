@@ -652,6 +652,23 @@ GENUINE_TOOL_REQUESTS = (
     "add milk to my shopping list",
 )
 
+MISSED_TOOL_PHRASINGS = (
+    # [F4] measured misses of the precision gate: genuine tool
+    # phrasings that slipped through SUPPRESSION_TRIGGERS (an extra
+    # filler utterance, not dead air — non-blocking, but they must
+    # suppress again WITHOUT broadening back to the bare-noun
+    # KEYWORDS that silenced ordinary questions)
+    "cancel my timer",
+    "lights on",
+    "lights off",
+    "turn the lights on",
+    "set volume to 50",
+    "volume 50",
+    "convert 20 dollars to euros",
+    "stop the timer",
+    "look at me",
+)
+
 
 class TestSuppressionPrecision(unittest.TestCase):
     """[F2] pre-LLM suppression must be HIGH-PRECISION, not high-recall:
@@ -715,6 +732,17 @@ class TestSuppressionPrecision(unittest.TestCase):
                 self.assertFalse(
                     ok, f"genuine tool request not suppressed: {request!r}")
                 self.assertEqual(self._played, [])
+
+    def test_measured_tool_phrasings_suppress(self):
+        """[F4] the recall side of the precision gate: these genuine
+        tool phrasings were measured to slip through
+        SUPPRESSION_TRIGGERS. They must suppress again — without
+        regressing the ordinary-question set above."""
+        for phrase in MISSED_TOOL_PHRASINGS:
+            with self.subTest(phrase=phrase):
+                self.assertTrue(
+                    mt.likely_tool_turn(phrase),
+                    f"genuine tool phrasing not suppressed: {phrase!r}")
 
 
 class TestRefreshConfigKeys(unittest.TestCase):
