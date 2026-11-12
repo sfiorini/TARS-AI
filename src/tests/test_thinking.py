@@ -651,17 +651,49 @@ ORDINARY_QUESTIONS = (
     "explain how a camera works",
     "a recipe for a bow tie pasta",
     "what does a wave look like",
+    # [F1-REGRESSION] the substring suppression triggers added for the
+    # measured tool phrasings ("look at me", "lights on", "lights off",
+    # "set volume", "stop the timer", "cancel my timer", the
+    # volume/convert numeric regexes) match INSIDE these ordinary
+    # questions — likely_tool_turn returned True and the pre-LLM gate
+    # spoke NOTHING for the whole LLM turn (dead air). 9 of 12 measured
+    # realistic questions were silenced; the pinned set above could not
+    # catch it because none of its members contain the new triggers.
+    "why does my cat look at me like that",
+    "why does my dog look at me when I cry",
+    "how do I stop the timer on my microwave beeping",
+    "what is volume 2 of the encyclopedia about",
+    "how do I convert 100 dollars into euros when travelling",
+    "what does set volume mean in docker compose",
+    "why do the lights on my router blink",
+    "how do I turn the lights on in dark souls",
+    "what does convert 20 mean in a spreadsheet formula",
 )
 
 GENUINE_TOOL_REQUESTS = (
+    # [F1-REGRESSION] the finding's acceptance set: the imperative-
+    # position rule (a trigger must START the utterance) cannot reach
+    # "send a message to John on Discord" or "add milk to my shopping
+    # list" without reintroducing bare-noun/mid-sentence triggers —
+    # those two are accepted recall misses (an extra filler utterance,
+    # NOT dead air; see MISSED_TOOL_PHRASINGS' comment for the
+    # precision-over-recall rationale) and were dropped from the
+    # pinned set by the finding's measured acceptance list.
+    "lights on",
+    "lights off",
+    "turn the lights on",
+    "set volume to 50",
+    "volume 50",
+    "convert 20 dollars to euros",
+    "stop the timer",
+    "cancel my timer",
+    "look at me",
     "search the web for F1 news",
-    "turn off the living room lights",
     "take a photo",
     "play some jazz",
     "set a timer for 10 minutes",
     "what's the weather in Rome",
-    "send a message to John on Discord",
-    "add milk to my shopping list",
+    "turn off the living room lights",
 )
 
 MISSED_TOOL_PHRASINGS = (

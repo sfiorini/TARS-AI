@@ -290,23 +290,59 @@ SUPPRESSION_REGEX_TRIGGERS = {
     "compute": (re.compile(r"\bconvert\s+\d"),),
 }
 
+# [F1-REGRESSION] IMPERATIVE POSITION. The substring triggers above
+# silenced 9 of 12 measured ordinary questions ("why does my cat
+# look at me like that", "what is volume 2 of the encyclopedia
+# about", "how do I convert 100 dollars into euros when
+# travelling", ...) - a suppressed turn with an empty reply-0
+# speaks NOTHING, i.e. dead air for the whole LLM turn. A tool
+# request is an IMPERATIVE: it starts with the verb. An ordinary
+# question starts with why/how/what/does/is. So a trigger matches
+# only at the START of the utterance, after stripping this short,
+# explicit prefix allowlist (politeness/address lead-ins, plus
+# "turn the " so "turn the lights on" reaches its "lights on"
+# trigger).
+_SUPPRESSION_PREFIXES = (
+    "please ", "hey tars ", "tars ", "can you ", "could you ",
+    "would you ", "will you ", "turn the ",
+)
+
+def _imperative_head(text):
+    """[F1-REGRESSION] Strip the prefix allowlist (repeatedly -
+    "hey tars please lights on" and "please turn the lights on"
+    both reduce to "lights on"). Pure string work, no I/O."""
+    stripped = text
+    changed = True
+    while changed:
+        changed = False
+        for prefix in _SUPPRESSION_PREFIXES:
+            if stripped.startswith(prefix):
+                stripped = stripped[len(prefix):]
+                changed = True
+    return stripped
+
 def likely_tool_turn(user_text):
     """[F2] High-precision pre-LLM gate: True only when the user's text
-    matches a SUPPRESSION_TRIGGERS pattern — an imperative/action phrase
+    STARTS with a SUPPRESSION_TRIGGERS pattern (after the prefix
+    allowlist strip) - an imperative/action phrase — an imperative/action phrase
     that reliably precedes a tool call (so reply-0 can hold the line).
-    Bare-noun KEYWORDS hits do NOT count: suppressing an ordinary
-    question speaks nothing at all (dead air). Pure, no I/O; tool-name
-    signals are handled by the caller (tool_names is not None disables
-    the gate entirely)."""
+    Bare-noun KEYWORDS hits do NOT count, and neither does a trigger
+    buried mid-sentence: suppressing an ordinary question ("what is
+    volume 2 of the encyclopedia about") speaks nothing at all
+    (dead air). Pure, no I/O; tool-name signals are handled by the
+    caller (tool_names is not None disables the gate entirely)."""
     text = (user_text or "").lower()
     if not text:
         return False
+    head = _imperative_head(text)
+    if not head:
+        return False
     for category in CATEGORY_ORDER:
         for trigger in SUPPRESSION_TRIGGERS.get(category, ()):
-            if trigger in text:
+            if head.startswith(trigger):
                 return True
         for pattern in SUPPRESSION_REGEX_TRIGGERS.get(category, ()):
-            if pattern.search(text):
+            if pattern.match(head):
                 return True
     return False
 
