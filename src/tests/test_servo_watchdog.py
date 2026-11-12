@@ -528,6 +528,51 @@ class TestMode1Health(ServoctlSelfHealingTestCase):
             self.assertFalse(servoctl.initialize_pca9685())
         self.assertTrue(any("write failed" in str(c.args[0]) for c in qm.call_args_list))
 
+    def test_init_failure_paths_leave_pca_none(self):
+        # audit F2: every failed-init return path must clear the pca
+        # handle — otherwise servo_status().pca_alive reports true and
+        # _try_lazy_pca_init (gated on `pca is None`) never retries,
+        # delaying recovery to the 30 s chip-repair rate limit instead
+        # of the 5 s lazy re-init.
+        class _Mode2WriteFailsPca:
+            mode1_reg = 0x20
+
+            @property
+            def mode2_reg(self):
+                return 0x01
+
+            @mode2_reg.setter
+            def mode2_reg(self, value):
+                raise OSError("register write failed")
+
+        servoctl.pca = None
+        with mock.patch.object(servoctl.busio, "I2C", return_value=mock.MagicMock()), \
+             mock.patch.object(servoctl, "PCA9685", return_value=_Mode2WriteFailsPca()):
+            self.assertFalse(servoctl.initialize_pca9685())
+        self.assertIsNone(servoctl.pca,
+                          "a failed MODE2 write must clear the pca handle")
+
+        # consistency: an exception AFTER the handle is created (the
+        # frequency write) is also a failed init — same honest reporting
+        class _FrequencyWriteFailsPca:
+            mode1_reg = 0x20
+            mode2_reg = 0x04
+
+            @property
+            def frequency(self):
+                return 50
+
+            @frequency.setter
+            def frequency(self, value):
+                raise OSError(121, "Remote I/O error")
+
+        servoctl.pca = None
+        with mock.patch.object(servoctl.busio, "I2C", return_value=mock.MagicMock()), \
+             mock.patch.object(servoctl, "PCA9685", return_value=_FrequencyWriteFailsPca()):
+            self.assertFalse(servoctl.initialize_pca9685())
+        self.assertIsNone(servoctl.pca,
+                          "an exception after handle creation must clear it too")
+
     def test_read_mode2_returns_register_value(self):
         servoctl.pca = _FakeMode1Pca(0x20, mode2=0x1E)
         self.assertEqual(servoctl._read_mode2(), 0x1E)

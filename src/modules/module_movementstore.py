@@ -134,15 +134,26 @@ class MovementStore:
                     f"MOVEMENTS: invalid movements.json: {exc} — using defaults")
                 candidate = None
             if candidate is not None:
-                # first pass: structural validation of every entry
+                # first pass: structural validation of every entry.
+                # Normalize BEFORE validating (audit F1): the hold_time
+                # clamp inside _validate_step mutates the step dict it is
+                # handed — without normalizing here it landed on the
+                # throwaway copy built by _step_defaults, so a
+                # hand-edited 60 s hold survived load() and would trip
+                # the 30 s stuck-MOVING watchdog mid-hold.
+                normalized = {}
                 for mid, entry in candidate.items():
                     try:
+                        entry = self._normalize_steps(entry)
                         self.validate_entry(mid, entry)
+                        normalized[mid] = entry
                     except ValueError as exc:
                         queue_message(
                             f"MOVEMENTS: invalid entry '{mid}': {exc}")
                         candidate = None
                         break
+                if candidate is not None:
+                    candidate = normalized
             if candidate is not None:
                 # second pass: movement refs resolve once all ids are
                 # known, and the ref graph must be acyclic (audit
@@ -256,13 +267,20 @@ class MovementStore:
             return [f"{path}: no movements object"]
         errors = []
         known = set(entries)
+        # audit F1: normalize before validating (same as load()) so the
+        # hold_time clamp persists — validate_entry alone clamps a
+        # throwaway copy and the 60 s hold reaches play_steps()
+        normalized = {}
         for mid, entry in entries.items():
             try:
+                entry = self._normalize_steps(entry)
                 self.validate_entry(mid, entry, known_ids=known)
+                normalized[mid] = entry
             except ValueError as exc:
                 errors.append(f"{mid}: {exc}")
         if errors:
             return errors
+        entries = normalized
         # audit A2-remainder: reject cyclic imports wholesale — the DFS
         # runs on the CANDIDATE set before anything is committed
         for mid in entries:

@@ -350,6 +350,49 @@ class TestHoldTimeClamp(_StoreTestCase):
             self.store.add("hold_bad", entry)
 
 
+class TestHoldTimeClampPersistsOnLoadImport(_StoreTestCase):
+    """Audit F1: the clamp inside _validate_step mutates the step dict
+    it is handed — on load()/import_from() (which never ran
+    _normalize_steps) it landed on the throwaway copy built by
+    _step_defaults, so a hand-edited 60 s hold survived into playback
+    and would trip the 30 s stuck-MOVING watchdog mid-hold."""
+
+    def _partial_hold_entry(self):
+        # exactly the hand-edit from the audit: a partial step whose
+        # only outlier is hold_time 60
+        return {
+            "name": "Hold Move", "type": "legs_only",
+            "description": "a hand-edited entry with a long hold",
+            "steps": [{"left_height": 50, "hold_time": 60}],
+            "steps_arms": None,
+        }
+
+    def test_load_and_import_clamp_partial_step_hold_time(self):
+        # load(): movements.json is user-editable at runtime
+        self._write_store({"hold_move": self._partial_hold_entry()})
+        with mock.patch("modules.module_movementstore.queue_message") as qm:
+            self.store.load()
+        step = self.store.get("hold_move")["steps"][0]
+        self.assertEqual(step["hold_time"], 10.0,
+                         "load() must persist the clamp, not discard it")
+        # the partial step is completed with the defaults (same as add())
+        self.assertEqual(sorted(step), sorted(_STEP_KEYS))
+        self.assertTrue(
+            any("clamped" in str(call) for call in qm.call_args_list),
+            "clamping on load must emit the queue_message warning")
+
+        # import_from(): the same hand-edit via an import file
+        import_path = os.path.join(self.tmp, "import.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"imported_hold":
+                                      self._partial_hold_entry()}}, fh)
+        self.assertEqual(self.store.import_from(import_path), [])
+        step = self.store.get("imported_hold")["steps"][0]
+        self.assertEqual(step["hold_time"], 10.0,
+                         "import_from() must persist the clamp too")
+
+
 class TestResetSemantics(_StoreTestCase):
     """D5 reset semantics: delete + re-insert from defaults (S-M1-04)."""
 

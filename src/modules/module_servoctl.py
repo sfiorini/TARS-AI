@@ -149,6 +149,10 @@ def initialize_pca9685():
             # state — report failure so the repair path retries later.
             if not _write_register(0x01, 0x04):
                 queue_message("ERROR: PCA9685 MODE2 configuration write failed - init failed")
+                # audit F2: clear the handle — a failed init must not
+                # leave pca_alive reporting true, or _try_lazy_pca_init
+                # (gated on `pca is None`) never retries
+                pca = None
                 return False
             queue_message("LOAD: PCA9685 initialized successfully")
             return True
@@ -158,10 +162,14 @@ def initialize_pca9685():
                 queue_message(f"ERROR: I2C Remote I/O error - Check connections and power!")
             else:
                 queue_message(f"ERROR: I2C error {e.errno}: {e}")
+            # audit F2: the exception may fire AFTER the handle was
+            # created (e.g. the frequency write) — same honest reporting
+            pca = None
             return False
             
         except Exception as e:
             queue_message(f"ERROR: Failed to initialize PCA9685: {e}")
+            pca = None
             return False
 
 def _try_lazy_pca_init():
