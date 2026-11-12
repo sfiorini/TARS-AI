@@ -400,7 +400,14 @@ class TestPreLlmSuppression(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(self._played, [])
 
-    def test_general_text_fires_at_pre_llm(self):
+    # NOTE: the two tests below invoke _maybe_play_thinking_response
+    # directly — they pin CLASSIFIER behaviour (general text is never
+    # suppressed; explicit tool_names win). They are NOT branch guards:
+    # their inputs make the suppression condition inherently False, so
+    # they would stay green even if the branch were deleted. The branch
+    # itself is guarded by test_suppression_branch_present below.
+
+    def test_general_text_is_not_suppressed(self):
         ok = llm._maybe_play_thinking_response(
             user_text="tell me about turtles", source="voice")
         self.assertTrue(ok)
@@ -411,6 +418,20 @@ class TestPreLlmSuppression(unittest.TestCase):
             user_text="search for the weather in Rome",
             tool_names=["web_search"], source="voice")
         self.assertTrue(ok)
+
+    def test_suppression_branch_present(self):
+        # F1 branch guard: the suppression branch in module_llm is the
+        # only thing that keeps likely-tool turns silent before the LLM
+        # call. The behaviour tests above cannot catch its removal
+        # (their inputs make the condition False either way), so pin the
+        # branch's distinguishing line in the source. (_SRC, never a
+        # bare relative path — module_llm's import chain chdirs.)
+        with open(os.path.join(_SRC, "modules", "module_llm.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        self.assertIn(
+            'if tool_names is None and user_text and category != "general":',
+            src)
 
     def test_get_completion_and_get_parsed_pass_signals(self):
         # source-scan: the two pre-LLM sites must forward user_text and
@@ -425,6 +446,17 @@ class TestPreLlmSuppression(unittest.TestCase):
         self.assertIn(
             "_maybe_play_thinking_response(user_text=prompt, source=source)",
             src)
+
+    def test_toolloop_passes_tool_names_and_source(self):
+        # F2: the toolloop filler site must forward tool_names + source
+        # too (the third call site of the milestone)
+        with open(os.path.join(_SRC, "modules", "module_toolloop.py"),
+                  encoding="utf-8") as fh:
+            src = fh.read()
+        i_call = src.index("_maybe_play_thinking_response(")
+        window = src[i_call:i_call + 400]
+        self.assertIn("tool_names=", window)
+        self.assertIn("source=source", window)
 
 
 if __name__ == "__main__":
