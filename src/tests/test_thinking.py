@@ -431,6 +431,40 @@ class TestPerTurnDedup(unittest.TestCase):
         self.assertFalse(llm._maybe_play_thinking_response(source="voice"))
         self.assertFalse(mt.already_played_this_turn("voice"))
 
+    def test_concurrent_source_marks_do_not_clobber_each_other(self):
+        """[F1] The dedup state must be PER-SOURCE. A single global slot
+        is clobbered by any concurrent source's mark: the voice turn
+        marks, a webui turn (its own socketio thread) marks, and the
+        voice turn's next check then sees the webui key -> not-played.
+        Each source must keep its OWN last-played epoch."""
+        from modules.module_toolloop import bump_epoch
+        bump_epoch("voice")
+        bump_epoch("voice")   # voice epoch 2
+        bump_epoch("webui")   # webui epoch 1 (concurrent turn)
+        mt.mark_played_this_turn("voice")
+        mt.mark_played_this_turn("webui")  # must NOT erase voice's mark
+        self.assertTrue(mt.already_played_this_turn("voice"),
+                        "a concurrent webui mark clobbered the voice "
+                        "turn's dedup state")
+        self.assertTrue(mt.already_played_this_turn("webui"))
+
+    def test_interleaved_sources_never_double_speak(self):
+        """[F1] The audited failure through the hot path: a voice turn
+        plays a filler, a concurrent webui turn plays its own, and the
+        voice turn's next fire then speaks a SECOND filler on top —
+        because the single global dedup slot held the webui key. One
+        filler per (source, turn): the voice re-fire must be suppressed
+        even though another source played in between."""
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertTrue(llm._maybe_play_thinking_response(source="webui"))
+        # the voice turn fires again (e.g. the toolloop site): still
+        # suppressed — True (handled), NO third playback
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertEqual(len(self._played), 2,
+                         "one filler per source — a clobbered dedup "
+                         "slot double-speaks over the filler already "
+                         "played")
+
 
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 

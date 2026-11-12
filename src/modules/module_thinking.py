@@ -355,32 +355,39 @@ def get_filler_phrase(category):
 
 
 _played_lock = threading.Lock()
-_last_played_key = None  # (source, epoch) of the last turn that played
+# [F1] PER-SOURCE dedup state: source -> epoch of THAT source's last
+# turn that played. A single global slot was clobbered by any
+# concurrent source's mark (a voice turn's filler, then a webui turn's
+# own socketio thread, left the voice turn's check seeing the webui
+# key -> not-played -> HOLDING_LINE spoken on top of the filler).
+_last_played_epochs = {}
 
-def _turn_key(source):
-    """Per-turn identity: the toolloop epoch for this source. Lazy import
-    (module_toolloop is Mac-safe, but keep the pattern uniform and the
-    failure armor returns a stable key)."""
+def _turn_epoch(source):
+    """The toolloop epoch for this source. Lazy import (module_toolloop
+    is Mac-safe, but keep the pattern uniform and the failure armor
+    returns a stable epoch)."""
     try:
         from modules.module_toolloop import _current_epoch
-        return (source, _current_epoch(source))
+        return _current_epoch(source)
     except Exception:
-        return (source, None)
+        return None
 
 def already_played_this_turn(source):
+    """[F1] Consults ONLY this source's own entry — another source's
+    mark must never clobber this source's dedup state."""
     with _played_lock:
-        return _last_played_key == _turn_key(source)
+        epoch = _turn_epoch(source)
+        return (source in _last_played_epochs
+                and _last_played_epochs[source] == epoch)
 
 def mark_played_this_turn(source):
-    global _last_played_key
     with _played_lock:
-        _last_played_key = _turn_key(source)
+        _last_played_epochs[source] = _turn_epoch(source)
 
 def reset_dedup():
-    """Test hook — clear the dedup marker between tests."""
-    global _last_played_key
+    """Test hook — clear the dedup markers between tests."""
     with _played_lock:
-        _last_played_key = None
+        _last_played_epochs.clear()
 
 
 # --- M4: cloud refresh machinery (S-M4-03) ------------------------------
