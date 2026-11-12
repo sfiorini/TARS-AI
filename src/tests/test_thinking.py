@@ -2,7 +2,8 @@
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
 import unittest
 
-from modules.module_thinking import CATEGORIES, REGISTERS, PHRASE_BANK, sanitize_phrase
+from modules.module_thinking import (CATEGORIES, REGISTERS, PHRASE_BANK,
+    sanitize_phrase, TOOL_CATEGORY_MAP)
 
 
 class TestPhraseBank(unittest.TestCase):
@@ -23,6 +24,27 @@ class TestPhraseBank(unittest.TestCase):
     def test_registers_defined_for_every_category(self):
         self.assertEqual(set(REGISTERS), set(CATEGORIES))
 
+
+
+class TestToolCategoryMap(unittest.TestCase):
+    def test_web_search_maps_to_search(self):
+        self.assertEqual(TOOL_CATEGORY_MAP["web_search"], "search")
+
+    def test_take_photo_maps_to_vision(self):
+        self.assertEqual(TOOL_CATEGORY_MAP["take_photo"], "vision")
+
+    def test_all_twelve_builtin_categories_covered(self):
+        self.assertIn("execute_movement", TOOL_CATEGORY_MAP)
+        self.assertIn("generate_image", TOOL_CATEGORY_MAP)
+        self.assertIn("home_assistant", TOOL_CATEGORY_MAP)
+        self.assertIn("sandbox_exec", TOOL_CATEGORY_MAP)
+        self.assertIn("reminder", TOOL_CATEGORY_MAP)
+        self.assertIn("identify_speaker_name", TOOL_CATEGORY_MAP)
+        self.assertIn("load_skill", TOOL_CATEGORY_MAP)
+
+    def test_every_mapped_category_is_valid(self):
+        for cat in TOOL_CATEGORY_MAP.values():
+            self.assertIn(cat, CATEGORIES)
 
 
 class TestSanitizePhrase(unittest.TestCase):

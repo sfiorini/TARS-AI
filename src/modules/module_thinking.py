@@ -98,3 +98,29 @@ def sanitize_phrase(text):
     if not isinstance(text, str):
         return ""
     return _SANITIZE_RE.sub("", text)
+
+TOOL_CATEGORY_MAP = {
+    "web_search": "search",
+    "capture_camera_view": "vision", "network_camera": "vision",
+    "take_photo": "vision",
+    "execute_movement": "movement",
+    "tars_radio": "music", "generate_music": "music",
+    "generate_image": "creative",
+    "home_assistant": "smart_home",
+    "system_control": "system", "volume": "system",
+    "launch_retropie": "system", "browser": "system",
+    "sandbox_exec": "compute",
+    "reminder": "reminder",
+    "identify_speaker_name": "identity", "adjust_persona": "identity",
+    "load_skill": "skill", "run_skill_script": "skill",
+}
+
+def _tool_kind(name):
+    """Registry kind for an unmapped tool name (guarded: registry lookup
+    is pure in-memory; any failure means 'unknown')."""
+    try:
+        from modules.module_toolregistry import get_registry
+        d = get_registry().get(name)
+        return getattr(d, "kind", "") if d is not None else ""
+    except Exception:
+        return ""
