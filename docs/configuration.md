@@ -93,7 +93,7 @@ It prints a diff of exactly those changes. The Bearer key is then sent automatic
 
 ## Editing config from the web UI vs by hand
 
-Both write the same file. The web UI config editor (`GET /get_config` / `POST /save_config`) exposes every key of `src/config.ini.template` with its description — hover the (i) icon. Hand-editing is fine too; `module_config.load_config()` re-reads the file (with a small cache), and `module_servoctl.refresh_config()` hot-reloads all `[SERVO]` offsets without touching the PCA9685. Either way, **restart the app** (`POST /reboot_program`) for most changes to take effect.
+Both write the same file. The web UI config editor (`GET /get_config` / `POST /save_config`) exposes every key of `src/config.ini.template` with its description — hover the (i) icon. A key your `config.ini` **predates** still appears in the form, showing the template default (`module_config.resolve_ui_config_values()`), so upgrading to a release that adds a config key never hides that key; saving then writes it into `config.ini`. Hand-editing is fine too; `module_config.load_config()` re-reads the file (with a small cache), and `module_servoctl.refresh_config()` hot-reloads all `[SERVO]` offsets without touching the PCA9685. Either way, **restart the app** (`POST /reboot_program`) for most changes to take effect.
 
 ```bash
 curl -b /tmp/tars.cookie http://<pi-ip>/get_config | python3 -m json.tool | head -20

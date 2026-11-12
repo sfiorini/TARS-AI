@@ -47,6 +47,7 @@ BOOT_ID = str(_uuid.uuid4())
 # === Custom Modules ===
 from modules.module_config import load_config
 from modules.module_config import CONFIG_METADATA as CONFIG_UI_FIELDS
+from modules.module_config import resolve_ui_config_values
 from modules.module_llm import get_completion, process_completion, _sanitize_for_tts
 import modules.module_llm as _llm_mod
 from modules.module_tts import generate_tts_audio, SentenceTTSPipeline
@@ -1465,12 +1466,24 @@ def get_config():
         config = configparser.RawConfigParser()
         config.optionxform = str
         config.read(file_to_read)
+
+        # [UI-DEFAULTS] Fall back to the shipped template for any key the
+        # user's config.ini predates — otherwise the form silently hides
+        # the fields of every feature that adds a new config key (the key
+        # is in the template and load_config() supplies a default, but the
+        # old code only emitted keys already present on disk).
+        defaults = configparser.RawConfigParser()
+        defaults.optionxform = str
+        if os.path.exists(template_file):
+            defaults.read(template_file)
+
+        resolved = resolve_ui_config_values(config, defaults, CONFIG_UI_FIELDS)
         
         filtered_config = {}
         field_options = {}
         
         for section_name, section_def in CONFIG_UI_FIELDS.items():
-            if section_name not in config.sections():
+            if section_name not in resolved:
                 continue
             
             if '__description__' in section_def:
@@ -1478,14 +1491,13 @@ def get_config():
                     'description': section_def['__description__']
                 }
             
-            filtered_config[section_name] = {}
+            filtered_config[section_name] = dict(resolved[section_name])
             
             for field_name, field_def in section_def.items():
                 if field_name.startswith('__'):
                     continue
                 
-                if field_name in config[section_name]:
-                    filtered_config[section_name][field_name] = config[section_name][field_name]
+                if field_name in resolved[section_name]:
                     
                     field_key = f"{section_name}.{field_name}"
                     field_options[field_key] = {}

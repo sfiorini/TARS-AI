@@ -769,6 +769,49 @@ def update_character_setting(trait: str, value: int):
         queue_message(f"ERROR: Failed to update character setting: {e}")
         return False
 
+def resolve_ui_config_values(user_parser, default_parser, ui_fields):
+    """[UI-DEFAULTS] Effective values for the web-UI config form.
+
+    A field the user's ``config.ini`` does not contain falls back to the
+    shipped ``config.ini.template`` default instead of vanishing from the
+    form. Without this, every EXISTING installation silently hides the
+    fields of any feature that adds a new config key — the key is in the
+    template and ``load_config()`` supplies a default, but the form only
+    rendered keys already present on disk (measured live 2026-11-12:
+    ``thinking_refresh_enabled`` / ``thinking_refresh_minutes`` were
+    invisible on the robot).
+
+    Args:
+        user_parser: RawConfigParser over the user's config.ini
+            (``optionxform = str`` so key case is preserved).
+        default_parser: RawConfigParser over config.ini.template.
+        ui_fields: section -> {field: definition} mapping
+            (``CONFIG_METADATA``).
+
+    Returns:
+        ``{section: {field: value}}`` in ``ui_fields`` order. Sections
+        absent from BOTH parsers are omitted; fields absent from both are
+        omitted (nothing to show). ``__``-prefixed keys are skipped.
+
+    Pure: no I/O, no chdir, no globals — safe to unit-test off-device.
+    """
+    resolved = {}
+    for section_name, section_def in ui_fields.items():
+        has_user = user_parser.has_section(section_name)
+        has_default = default_parser.has_section(section_name)
+        if not (has_user or has_default):
+            continue
+        values = {}
+        for field_name in section_def:
+            if field_name.startswith("__"):
+                continue
+            if has_user and field_name in user_parser[section_name]:
+                values[field_name] = user_parser[section_name][field_name]
+            elif has_default and field_name in default_parser[section_name]:
+                values[field_name] = default_parser[section_name][field_name]
+        resolved[section_name] = values
+    return resolved
+
 
 CONFIG_METADATA = {
     'CHAR': {
