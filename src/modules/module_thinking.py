@@ -521,11 +521,13 @@ def _refresh_all_categories(respect_idle=True):
     [F4] At most one cycle runs at a time (daemon OR manual — the two
     used to guard independently, so a web-UI click mid-daemon-cycle
     stacked a second loop: up to 26 concurrent raw_complete_llm calls
-    on the same API key). The shared non-blocking guard returns False
-    immediately instead of stacking."""
+    on the same API key). The shared non-blocking guard returns None
+    ('a cycle is already in flight') immediately instead of stacking —
+    [F3] distinct from False ('every category failed'), so the manual
+    path never paints an error badge for a refresh that IS running."""
     global _last_refresh
     if not _cycle_lock.acquire(blocking=False):
-        return False  # another cycle (daemon or manual) is in flight
+        return None  # another cycle (daemon or manual) is in flight
     try:
         ok_any = False
         for index, category in enumerate(CATEGORIES):
@@ -677,6 +679,12 @@ def request_manual_refresh():
             # category (the daemon passes respect_idle=True)
             ok = _refresh_all_categories(respect_idle=False)
             with _manual_lock:
+                if ok is None:
+                    # [F3] a cycle is already in flight (daemon or
+                    # manual): already-running is NOT an error — the
+                    # refresh IS running; keep state 'running', set no
+                    # last_error
+                    return
                 _refresh_state["state"] = "done" if ok else "error"
                 if not ok:
                     _refresh_state["last_error"] = "no category refreshed"

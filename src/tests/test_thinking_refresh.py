@@ -1062,6 +1062,88 @@ class TestMidCycleClickMarksRunning(unittest.TestCase):
 
 
 
+class TestCycleGuardSentinel(unittest.TestCase):
+    """[F3] _refresh_all_categories used to return False BOTH when the
+    cycle lock was busy AND when every category failed — the manual _bg
+    then set {'state': 'error', 'last_error': 'no category refreshed'}:
+    a red Error badge for a refresh that WAS running. Lock-busy must be
+    a distinct sentinel (None = 'a cycle is already in flight'); only a
+    genuine all-categories-failed cycle reports 'error'."""
+
+    def test_lock_busy_returns_none_not_false(self):
+        # hold the cycle lock in THIS thread: acquire(blocking=False)
+        # inside must fail -> 'already in flight', which is NOT the
+        # same verdict as 'nothing refreshed'
+        with mt._cycle_lock:
+            self.assertIsNone(
+                mt._refresh_all_categories(),
+                "a busy cycle lock means 'already running' — distinct "
+                "from False ('nothing refreshed'), so the manual path "
+                "must not paint an error badge for it")
+
+    def test_bg_treats_lock_busy_as_running_not_error(self):
+        """The measured race: _refresh_state is not 'running' and
+        _cycle_lock.locked() says free at click time, but a daemon cycle
+        grabs the lock before _bg's acquire. _bg must keep state
+        'running' (the daemon's cycle IS the refresh) instead of
+        setting 'no category refreshed'."""
+        class _SneakyLock:
+            # locked() says free (the click's check passes) but
+            # acquire() says busy (the daemon won the race)
+            def locked(self):
+                return False
+            def acquire(self, blocking=True):
+                return False
+            def release(self):
+                pass
+
+        saved_lock = mt._cycle_lock
+        mt._cycle_lock = _SneakyLock()
+        self.addCleanup(setattr, mt, "_cycle_lock", saved_lock)
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+
+        with mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+            # _bg runs in a daemon thread; give it a moment, then the
+            # state must STILL be 'running' (never 'error')
+            for _ in range(100):
+                if mt.refresh_status()["state"] == "error":
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "running",
+                         "a cycle already in flight is NOT an error — "
+                         "the refresh IS running")
+        self.assertIsNone(info["last_error"])
+
+    def test_genuine_all_failed_still_reports_error(self):
+        """Discrimination: a cycle that genuinely ran and refreshed
+        NOTHING must still report 'error' — the sentinel must not mask
+        real failure."""
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+
+        with mock.patch.object(mt, "_refresh_once", return_value=False), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting")
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "error",
+                          "a genuine all-categories-failed cycle must "
+                          "still report 'error'")
+        self.assertEqual(info["last_error"], "no category refreshed")
+
+
+
 class TestManualRefreshIdleBypass(unittest.TestCase):
     """[F1] The idle gate must distinguish its two callers. The daemon
     respects it (a busy robot must never burn the API key), but the
