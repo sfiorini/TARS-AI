@@ -15,6 +15,7 @@ _last_refresh after every cycle).
 
 The LLM HTTP layer is always stubbed — no network, no real client.
 """
+import ast
 import sys
 import threading
 import time
@@ -422,6 +423,52 @@ class TestBootWiring(unittest.TestCase):
         self.assertLess(i_try, i_call)
         self.assertLess(i_call, i_except)
         self.assertIn("thinking_refresh_enabled", src[i_try:i_except])
+
+
+class TestRefreshRoutes(unittest.TestCase):
+    """S-M5-02: route presence + delegation. module_chatui CANNOT be
+    imported on the dev Mac — module_chatui.py:55 imports
+    module_servoctl, whose top level (module_servoctl.py:21-23) imports
+    Pi-only board/busio/adafruit_pca9685; the existing suite never
+    imports module_chatui, it AST-parses it (test_docs_webui_parity.py,
+    test_movement_store.py:755-758). So, exactly like
+    TestServoReinitRouteMapping (test_servo_watchdog.py:962), this is a
+    source-structural (ast) test, NOT a Flask test-client test. Route
+    BEHAVIOUR (lock, idempotency, state shape) is already unit-covered
+    by S-M5-01's tests on request_manual_refresh/refresh_status."""
+
+    def _route_fn(self, name):
+        with open(_SRC / "modules" / "module_chatui.py",
+                  encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == name:
+                return node
+        self.fail(f"{name} not found in module_chatui.py")
+
+    def _route_path(self, fn):
+        for dec in fn.decorator_list:
+            if (isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Attribute)
+                    and dec.func.attr == "route"):
+                return ast.literal_eval(dec.args[0])
+        return None
+
+    def test_post_refresh_route_exists_and_delegates(self):
+        fn = self._route_fn("thinking_refresh_start")
+        self.assertEqual(self._route_path(fn), "/api/thinking/refresh")
+        methods = [c.value for dec in fn.decorator_list
+                   if isinstance(dec, ast.Call)
+                   for kw in dec.keywords if kw.arg == "methods"
+                   for c in kw.value.elts]
+        self.assertIn("POST", methods)
+        self.assertIn("request_manual_refresh", ast.unparse(fn))
+
+    def test_status_route_exists_and_delegates(self):
+        fn = self._route_fn("thinking_refresh_status")
+        self.assertEqual(self._route_path(fn),
+                         "/api/thinking/refresh/status")
+        self.assertIn("refresh_status", ast.unparse(fn))
 
 
 class TestManualRefresh(unittest.TestCase):

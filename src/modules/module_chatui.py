@@ -1999,6 +1999,22 @@ def tunnel_qr():
 
 
 
+@flask_app.route('/api/thinking/refresh', methods=['POST'])
+def thinking_refresh_start():
+    """Kick off a filler-phrase refresh in the background (tunnel-start
+    pattern: the lock/idempotency live in module_thinking, this route is
+    a thin wrapper so it is testable without Flask)."""
+    from modules.module_thinking import request_manual_refresh
+    return jsonify(request_manual_refresh())
+
+
+@flask_app.route('/api/thinking/refresh/status', methods=['GET'])
+def thinking_refresh_status():
+    from modules.module_thinking import refresh_status
+    return jsonify(refresh_status())
+
+
+
 @flask_app.route('/api/eyes/mood', methods=['POST'])
 def eyes_set_mood():
     import modules.UI.apps.module_app_eyes as _eyes_mod
