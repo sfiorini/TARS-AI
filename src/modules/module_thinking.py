@@ -551,7 +551,13 @@ def _is_idle():
             return False
         from modules.module_cputemp import get_thermal_status
         temp = get_thermal_status().get("current_temp")
-        if temp is None or temp >= _IDLE_TEMP_C:
+        # [F2] An ABSENT sensor leaves CPUTempModule.temperature at its
+        # 0.0 initialiser, so the status reports 0.0 — NOT None — and
+        # 0.0 >= 70.0 is False: the gate would pass while the CPU is
+        # hot. A temperature that is not a positive number cannot
+        # prove idle (a real reading, e.g. 45 C, still passes).
+        if (isinstance(temp, bool) or not isinstance(temp, (int, float))
+                or temp <= 0 or temp >= _IDLE_TEMP_C):
             return False
         return True
     except Exception:

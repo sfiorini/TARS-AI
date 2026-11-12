@@ -399,6 +399,41 @@ class TestIdleGate(unittest.TestCase):
                         return_value={"current_temp": None}):
             self.assertFalse(mt._is_idle())
 
+    def test_zero_temp_sensor_blocks(self):
+        """[F2] CPUTempModule.__init__ leaves self.temperature = 0.0
+        when _read_temp() raises (no /sys/class/thermal/... on the
+        board), so get_thermal_status() reports current_temp == 0.0 —
+        NOT None. 0.0 >= 70.0 is False, so the gate USED TO PASS while
+        the CPU was hot. A non-positive reading cannot prove idle."""
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": 0.0}):
+            self.assertFalse(mt._is_idle())
+
+    def test_negative_temp_blocks(self):
+        # [F2] the non-positive rule covers a nonsense negative reading
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": -12.5}):
+            self.assertFalse(mt._is_idle())
+
+    def test_real_sensor_45c_still_passes(self):
+        # [F2] discrimination: the legitimate case must survive — a real
+        # sensor reading 45 C is below the 70 C gate and must pass
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": 45.0}):
+            self.assertTrue(mt._is_idle())
+
 
 class TestRefreshDaemon(_RefreshStateTestCase):
     """S-M4-04: the daemon loop fires ONLY when enabled AND past the
