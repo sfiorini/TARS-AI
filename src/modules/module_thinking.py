@@ -124,3 +124,76 @@ def _tool_kind(name):
         return getattr(d, "kind", "") if d is not None else ""
     except Exception:
         return ""
+
+CATEGORY_ORDER = ("search", "vision", "movement", "music", "creative",
+                  "smart_home", "system", "compute", "reminder", "identity",
+                  "skill", "mcp", "general")
+
+KEYWORDS = {
+    "search": ("search for", "look up", "google", "find me", "can you search",
+        "what's the weather", "the weather", "what's in the news",
+        "latest headlines", "the news"),
+    "vision": ("what do you see", "look at", "what's visible",
+        "describe surroundings", "what's in front", "what's around",
+        "look around", "check visually", "what's that", "can you see",
+        "describe view", "take a photo", "snap a picture", "take my picture",
+        "photo of me", "take a pic", "photograph", "capture a photo",
+        "camera"),
+    "movement": ("walk forward", "turn left", "turn right", "step back",
+        "move backward", "go forward", "dance", "dancing", "wave", "waving",
+        "bow", "monster", "tilt", "swing legs"),
+    "music": ("play some music", "start the radio", "the radio",
+        "stop the music", "turn off the music", "next song", "skip this",
+        "pause the music", "download this song", "add this to my library",
+        "list my music", "what's in my library", "what's playing",
+        "what song is this", "make me a song", "generate music",
+        "compose a track", "create a beat", "write a song", "make some music",
+        "produce a track", "play my songs"),
+    "creative": ("generate a photo of", "draw me", "draw a", "create an image",
+        "make a picture", "generate artwork", "paint me", "create a portrait",
+        "generate an image", "make an image", "create art"),
+    "smart_home": ("open the garage", "turn off the lights", "turn on the lights",
+        "front door locked", "set the thermostat", "garage", "lights",
+        "thermostat"),
+    "system": ("exit the program", "quit the program", "close the program",
+        "stop the program", "exit tars", "quit tars", "shut down", "shutdown",
+        "power off", "volume", "retropie", "emulation station", "retro game",
+        "on youtube", "watch the video", "open the website",
+        "go to the website"),
+    "compute": ("calculate", "do the math", "run this code", "python",
+        "convert", "compute", "math problem"),
+    "reminder": ("remind me", "set a timer", "set a reminder", "alarm in",
+        "what reminders", "show my timers", "cancel my reminder",
+        "delete the timer", "cancel reminder", "timer"),
+    "identity": ("my name is", "call me", "be more", "be less", "your humor",
+        "your sarcasm", "your verbosity", "remember my name"),
+    "skill": ("skill example", "run skill", "load skill"),
+    "mcp": (),
+    "general": (),
+}
+
+def classify_intent(user_text=None, tool_names=None):
+    """Hybrid resolver: tool-name map -> keyword scan -> general.
+    Pure, no I/O, microseconds. Tool names (available only at the
+    toolloop site) always win; otherwise the user's text is scanned in
+    CATEGORY_ORDER (first match wins, general last)."""
+    if tool_names:
+        for name in tool_names:
+            if not isinstance(name, str):
+                continue
+            if name in TOOL_CATEGORY_MAP:
+                return TOOL_CATEGORY_MAP[name]
+            if name.startswith("mcp_"):
+                return "mcp"
+            kind = _tool_kind(name)
+            if kind == "mcp":
+                return "mcp"
+            if kind == "agent_skill":
+                return "skill"
+    text = (user_text or "").lower()
+    if text:
+        for category in CATEGORY_ORDER:
+            for kw in KEYWORDS.get(category, ()):
+                if kw in text:
+                    return category
+    return "general"

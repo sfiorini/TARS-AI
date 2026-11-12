@@ -1,7 +1,9 @@
 """Milestone 1 tests: module_thinking — categories, bank, sanitizer,
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
 import unittest
+from unittest import mock
 
+from modules import module_thinking as mt
 from modules.module_thinking import (CATEGORIES, REGISTERS, PHRASE_BANK,
     sanitize_phrase, TOOL_CATEGORY_MAP)
 
@@ -64,6 +66,70 @@ class TestSanitizePhrase(unittest.TestCase):
     def test_non_string_returns_empty(self):
         self.assertEqual(sanitize_phrase(None), "")
         self.assertEqual(sanitize_phrase(42), "")
+
+
+class TestClassifyIntentKeywords(unittest.TestCase):
+    def test_search_beats_vision_on_search_for_a_photo(self):
+        self.assertEqual(mt.classify_intent(user_text="search for a photo of a cat"), "search")
+
+    def test_take_a_photo_is_vision(self):
+        self.assertEqual(mt.classify_intent(user_text="take a photo"), "vision")
+
+    def test_shutdown_is_system(self):
+        self.assertEqual(mt.classify_intent(user_text="shut down the pi"), "system")
+
+    def test_lights_are_smart_home(self):
+        self.assertEqual(mt.classify_intent(user_text="turn off the lights"), "smart_home")
+
+    def test_remind_me_is_reminder(self):
+        self.assertEqual(mt.classify_intent(user_text="remind me in 5 minutes"), "reminder")
+
+    def test_my_name_is_is_identity(self):
+        self.assertEqual(mt.classify_intent(user_text="my name is Joe"), "identity")
+
+    def test_unmatched_text_is_general(self):
+        self.assertEqual(mt.classify_intent(user_text="tell me about turtles"), "general")
+
+    def test_empty_inputs_are_general(self):
+        self.assertEqual(mt.classify_intent(), "general")
+        self.assertEqual(mt.classify_intent(user_text=""), "general")
+
+
+class TestClassifyIntentTools(unittest.TestCase):
+    def test_tool_name_beats_keywords(self):
+        self.assertEqual(
+            mt.classify_intent(user_text="tell me about turtles",
+                               tool_names=["web_search"]), "search")
+
+    def test_mcp_prefix_is_mcp(self):
+        self.assertEqual(mt.classify_intent(tool_names=["mcp_hass_turn_on"]),
+                         "mcp")
+
+    def test_load_skill_is_skill(self):
+        self.assertEqual(mt.classify_intent(tool_names=["load_skill"]),
+                         "skill")
+
+    def test_unknown_tool_falls_to_keywords_then_general(self):
+        self.assertEqual(
+            mt.classify_intent(user_text="tell me about turtles",
+                               tool_names=["mystery_tool"]), "general")
+
+
+class TestClassifyIntentRegistryKinds(unittest.TestCase):
+    def test_agent_skill_kind_is_skill(self):
+        desc = mock.Mock()
+        desc.kind = "agent_skill"
+        with mock.patch("modules.module_toolregistry.get_registry",
+                        return_value={"custom_agent_tool": desc}):
+            self.assertEqual(
+                mt.classify_intent(tool_names=["custom_agent_tool"]), "skill")
+
+    def test_mcp_kind_is_mcp(self):
+        desc = mock.Mock()
+        desc.kind = "mcp"
+        with mock.patch("modules.module_toolregistry.get_registry",
+                        return_value={"weird_name": desc}):
+            self.assertEqual(mt.classify_intent(tool_names=["weird_name"]), "mcp")
 
 
 if __name__ == "__main__":
