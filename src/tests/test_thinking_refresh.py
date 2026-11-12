@@ -1013,6 +1013,55 @@ class TestManualRefresh(unittest.TestCase):
                              "daemon's")
 
 
+class TestMidCycleClickMarksRunning(unittest.TestCase):
+    """[F2] The web UI ignores the POST body and POLLS
+    /api/thinking/refresh/status — so a manual click that arrives while
+    a (daemon) cycle is in flight must leave _refresh_state['state'] ==
+    'running', not the previous terminal value. The old early return
+    reported {'state': 'running'} in the POST body but never WROTE the
+    state, so the badge showed 'Idle'/'Done' while the refresh was
+    actually running."""
+
+    def test_midcycle_click_marks_state_running(self):
+        entered = threading.Event()
+        release = threading.Event()
+
+        def _slow_refresh_once(category):
+            entered.set()      # hold the daemon cycle open mid-flight
+            release.wait(10)
+            return True
+
+        saved_state = dict(mt._refresh_state)
+        self.addCleanup(lambda: mt._refresh_state.update(saved_state))
+        # terminal residue from a PREVIOUS refresh — the stale value
+        # the badge used to show while this refresh ran
+        mt._refresh_state["state"] = "done"
+        mt._refresh_state["last_error"] = None
+        saved_last = mt._last_refresh
+        self.addCleanup(setattr, mt, "_last_refresh", saved_last)
+
+        with mock.patch.object(mt, "_refresh_once",
+                               side_effect=_slow_refresh_once), \
+             mock.patch.object(mt, "_is_idle", return_value=True), \
+             mock.patch.object(mt, "queue_message"):
+            t = threading.Thread(target=mt._refresh_all_categories,
+                                 daemon=True, name="F2DaemonCycle")
+            t.start()
+            self.assertTrue(entered.wait(5),
+                            "the daemon cycle never started")
+            # the manual click arrives mid-cycle
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "running")
+            self.assertEqual(
+                mt.refresh_status()["state"], "running",
+                "the mid-cycle click must WRITE state 'running' — the "
+                "UI polls /status, not the POST body, and used to see "
+                "the previous terminal value")
+            release.set()
+            t.join(5)
+
+
+
 class TestManualRefreshIdleBypass(unittest.TestCase):
     """[F1] The idle gate must distinguish its two callers. The daemon
     respects it (a busy robot must never burn the API key), but the

@@ -661,7 +661,12 @@ def request_manual_refresh():
         if _refresh_state["state"] == "running":
             return {"state": "running"}
         if _cycle_lock.locked():
-            # a cycle (typically the daemon's) is already in flight
+            # a cycle (typically the daemon's) is already in flight.
+            # [F2] The web UI ignores the POST body and POLLS /status, so
+            # the STATE must say 'running' too — the old early return
+            # left the previous terminal value ('idle'/'done'/'error')
+            # in place and the badge showed it while the refresh ran.
+            _refresh_state["state"] = "running"
             return {"state": "running"}
         _refresh_state["state"] = "running"
         _refresh_state["last_error"] = None
