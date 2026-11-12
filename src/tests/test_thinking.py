@@ -323,7 +323,13 @@ class TestHotPathSelection(unittest.TestCase):
 
         p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
         p.start(); self.addCleanup(p.stop)
-        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        # [F2] NARROW SEAM: "modules.module_llm.threading.Thread"
+        # resolves module_llm.threading to the GLOBAL threading module,
+        # so the patch hit every thread in the process while the test
+        # ran. Replace module_llm's OWN `threading` NAME instead (same
+        # fix as TestPerTurnDedup.setUp's [F8]).
+        t = mock.patch.object(llm, "threading",
+                              types.SimpleNamespace(Thread=_ImmediateThread))
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -554,7 +560,11 @@ class TestPreLlmSuppression(unittest.TestCase):
 
         p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
         p.start(); self.addCleanup(p.stop)
-        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        # [F2] NARROW SEAM — see TestPerTurnDedup.setUp's [F8]: the
+        # global-threading patch hit every thread in the process;
+        # patch only module_llm's OWN `threading` NAME.
+        t = mock.patch.object(llm, "threading",
+                              types.SimpleNamespace(Thread=_ImmediateThread))
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
@@ -703,7 +713,11 @@ class TestSuppressionPrecision(unittest.TestCase):
 
         p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
         p.start(); self.addCleanup(p.stop)
-        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        # [F2] NARROW SEAM — see TestPerTurnDedup.setUp's [F8]: the
+        # global-threading patch hit every thread in the process;
+        # patch only module_llm's OWN `threading` NAME.
+        t = mock.patch.object(llm, "threading",
+                              types.SimpleNamespace(Thread=_ImmediateThread))
         t.start(); self.addCleanup(t.stop)
 
     def tearDown(self):
