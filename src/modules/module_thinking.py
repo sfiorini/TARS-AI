@@ -381,3 +381,84 @@ def _refresh_all_categories():
             queue_message(f"WARNING: thinking refresh error ({category}): {e}")
     _last_refresh = time.time()
     return ok_any
+
+
+# --- M4: idle-gated background refresh daemon (S-M4-04) -----------------
+
+_stop_event = threading.Event()
+_thread = None
+_start_lock = threading.Lock()
+_last_refresh = 0.0
+_IDLE_TEMP_C = 70.0
+
+def _is_idle():
+    """ALL of: STANDBY, not MOVING, not TTS-playing, CPU < 70 C.
+    ANY import/check failure -> False (cannot prove idle -> don't run).
+    module_servoctl imports Pi-only board/busio/adafruit_pca9685 at top
+    level — the lazy import here is MANDATORY or importing this module
+    breaks on the dev Mac."""
+    try:
+        from modules.module_state import get_tars_state, TarsState
+        if get_tars_state() != TarsState.STANDBY:
+            return False
+        from modules import module_servoctl as servoctl  # lazy: Pi-only deps
+        if servoctl.MOVING:
+            return False
+        from modules.module_tts import is_tts_playing  # lazy: heavy deps
+        if is_tts_playing():
+            return False
+        from modules.module_cputemp import get_thermal_status
+        temp = get_thermal_status().get("current_temp")
+        if temp is None or temp >= _IDLE_TEMP_C:
+            return False
+        return True
+    except Exception:
+        return False
+
+def _refresh_interval_s():
+    try:
+        minutes = load_config().get("CHAR", {}).get(
+            "thinking_refresh_minutes", 120)
+    except Exception:
+        minutes = 120
+    return max(1, int(minutes)) * 60
+
+def _refresh_loop():
+    while not _stop_event.is_set():
+        _stop_event.wait(60)  # cheap tick: the real gates decide below
+        if _stop_event.is_set():
+            return
+        try:
+            if not load_config().get("CHAR", {}).get(
+                    "thinking_refresh_enabled", False):
+                continue
+            if time.time() - _last_refresh < _refresh_interval_s():
+                continue
+            if not _is_idle():
+                continue
+            _refresh_all_categories()
+        except Exception as e:
+            queue_message(f"WARNING: thinking refresh loop error: {e}")
+
+def start():
+    """Start the daemon (idempotent). Boot wiring calls this only when
+    thinking_refresh_enabled is true."""
+    global _thread
+    with _start_lock:
+        if _thread is not None and _thread.is_alive():
+            return
+        _stop_event.clear()
+        _thread = threading.Thread(target=_refresh_loop, daemon=True,
+                                   name="ThinkingRefresh")
+        _thread.start()
+
+def stop():
+    global _thread
+    _stop_event.set()
+    if _thread is not None:
+        _thread.join(timeout=5)
+        _thread = None
+
+def generated_phrase_count():
+    with _pool_lock:
+        return sum(len(v) for v in _refreshed.values())

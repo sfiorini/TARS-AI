@@ -15,11 +15,21 @@ _last_refresh after every cycle).
 
 The LLM HTTP layer is always stubbed — no network, no real client.
 """
+import sys
+import threading
+import types
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from modules import module_llm as llm
 from modules import module_thinking as mt
+from modules.module_state import TarsState
+
+# Absolute src/ path for source-scanning tests: importing module_llm (top
+# of this file) chdir's the process to src/modules (pre-existing bug in
+# module_config.load_config — do NOT fix here), so relative paths lie.
+_SRC = Path(__file__).resolve().parent.parent
 
 
 class TestRawCompleteTimeout(unittest.TestCase):
@@ -194,6 +204,195 @@ class TestRefreshAllCategories(_RefreshStateTestCase):
         self.assertTrue(ok, "one failing category must not fail the cycle")
         self.assertGreater(mt._last_refresh, 100.0,
                            "_last_refresh must advance after every cycle")
+
+
+# --- S-M4-04: idle gate, daemon loop, start/stop, boot wiring -----------
+
+def _fake_servoctl(moving=False):
+    """Stand-in for modules.module_servoctl (the real one imports Pi-only
+    board/busio/adafruit_pca9685 at top level, so it CANNOT be imported on
+    the dev Mac — and a string-target mock.patch would import it too).
+    Installed in sys.modules by the idle/daemon test setUps; removed in
+    cleanup (hard constraint: no sys.modules leak)."""
+    fake = types.ModuleType("modules.module_servoctl")
+    fake.MOVING = moving
+    return fake
+
+
+class TestIdleGate(unittest.TestCase):
+    """S-M4-04: _is_idle is true ONLY when ALL four conditions hold; ANY
+    import/check failure means False (cannot prove idle -> don't run)."""
+
+    def setUp(self):
+        self._saved = sys.modules.get("modules.module_servoctl")
+        sys.modules["modules.module_servoctl"] = _fake_servoctl(moving=False)
+        self.addCleanup(self._restore_servoctl)
+
+    def _restore_servoctl(self):
+        if self._saved is None:
+            sys.modules.pop("modules.module_servoctl", None)
+        else:
+            sys.modules["modules.module_servoctl"] = self._saved
+
+    def test_idle_when_all_clear(self):
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": 55.0}):
+            self.assertTrue(mt._is_idle())
+
+    def test_not_standby_blocks(self):
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.TALKING):
+            self.assertFalse(mt._is_idle())
+
+    def test_moving_blocks(self):
+        sys.modules["modules.module_servoctl"].MOVING = True
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY):
+            self.assertFalse(mt._is_idle())
+
+    def test_tts_playing_blocks(self):
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=True):
+            self.assertFalse(mt._is_idle())
+
+    def test_hot_cpu_blocks(self):
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": 74.7}):
+            self.assertFalse(mt._is_idle())
+
+    def test_no_sensor_blocks(self):
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": None}):
+            self.assertFalse(mt._is_idle())
+
+
+class TestRefreshDaemon(_RefreshStateTestCase):
+    """S-M4-04: the daemon loop fires ONLY when enabled AND past the
+    interval AND fully idle; start/stop are idempotent."""
+
+    def setUp(self):
+        super().setUp()
+        self._saved_servo = sys.modules.get("modules.module_servoctl")
+        sys.modules["modules.module_servoctl"] = _fake_servoctl(moving=False)
+        self.addCleanup(self._restore_servoctl)
+
+    def _restore_servoctl(self):
+        if self._saved_servo is None:
+            sys.modules.pop("modules.module_servoctl", None)
+        else:
+            sys.modules["modules.module_servoctl"] = self._saved_servo
+
+    def _run_one_tick(self):
+        """Fabricate exactly one _refresh_loop iteration: the fake event
+        answers False (while-check), False (post-wait guard), then True
+        (the next while-check) so the loop exits after one pass."""
+        ev = mock.MagicMock()
+        ev.is_set.side_effect = [False, False, True]
+        ev.wait.return_value = False
+        with mock.patch.object(mt, "_stop_event", ev):
+            mt._refresh_loop()
+
+    def test_loop_waits_when_disabled(self):
+        cfg = mock.patch.object(mt, "load_config", return_value={
+            "CHAR": {"thinking_refresh_enabled": False}})
+        cfg.start()
+        self.addCleanup(cfg.stop)
+        refresh = mock.patch.object(mt, "_refresh_all_categories")
+        stub = refresh.start()
+        self.addCleanup(refresh.stop)
+        self._run_one_tick()
+        stub.assert_not_called()
+
+    def test_loop_fires_when_gates_open(self):
+        mt._last_refresh = 0.0
+        cfg = mock.patch.object(mt, "load_config", return_value={
+            "CHAR": {"thinking_refresh_enabled": True,
+                     "thinking_refresh_minutes": 120}})
+        cfg.start()
+        self.addCleanup(cfg.stop)
+        refresh = mock.patch.object(mt, "_refresh_all_categories")
+        stub = refresh.start()
+        self.addCleanup(refresh.stop)
+        with mock.patch("modules.module_state.get_tars_state",
+                        return_value=TarsState.STANDBY), \
+             mock.patch("modules.module_tts.is_tts_playing",
+                        return_value=False), \
+             mock.patch("modules.module_cputemp.get_thermal_status",
+                        return_value={"current_temp": 55.0}):
+            self._run_one_tick()
+        stub.assert_called_once()
+
+    def test_start_idempotent(self):
+        saved_thread = mt._thread
+        self.addCleanup(setattr, mt, "_thread", saved_thread)
+        mt._thread = None
+        fake_thread = mock.MagicMock()
+        fake_thread.is_alive.return_value = True
+        with mock.patch.object(mt, "threading") as fake_threading:
+            fake_threading.Thread.return_value = fake_thread
+            mt.start()
+            first = mt._thread
+            mt.start()
+            self.assertIs(mt._thread, first,
+                          "a second start() must not spawn another thread")
+            self.assertEqual(fake_threading.Thread.call_count, 1)
+
+    def test_stop_sets_event(self):
+        saved_event = mt._stop_event
+        self.addCleanup(setattr, mt, "_stop_event", saved_event)
+        mt._stop_event = threading.Event()
+        saved_thread = mt._thread
+        self.addCleanup(setattr, mt, "_thread", saved_thread)
+        mt._thread = None
+        self.assertFalse(mt._stop_event.is_set())
+        mt.stop()
+        mt.stop()  # idempotent: a second stop() must not raise
+        self.assertTrue(mt._stop_event.is_set())
+
+
+class TestBootWiring(unittest.TestCase):
+    """S-M4-04: boot wiring is config-gated (off by default) and sits in
+    its own try/except so a daemon failure can never block boot. Source
+    scan only — startup_initialization needs real hardware and cannot
+    run on the dev Mac."""
+
+    def _main_src(self):
+        return (_SRC / "modules" / "module_main.py").read_text()
+
+    def test_boot_wiring_gated_off(self):
+        body = self._main_src()
+        i_fn = body.index("def startup_initialization")
+        body = body[i_fn:]
+        self.assertIn("thinking_refresh_enabled", body)
+        self.assertIn("thinking_refresh_enabled', False)", body,
+                      "the gate must default to False (off by default)")
+
+    def test_boot_never_blocks_boot(self):
+        # module_main cannot be imported/run on the dev Mac (hardware
+        # init) — assert structurally that the thinking-refresh boot
+        # wiring sits inside its own try/except, so a daemon failure
+        # can never block boot
+        src = self._main_src()
+        i_call = src.index("module_thinking.start()")
+        i_try = src.rindex("try:", 0, i_call)
+        i_except = src.index("except Exception as e:", i_call)
+        self.assertLess(i_try, i_call)
+        self.assertLess(i_call, i_except)
+        self.assertIn("thinking_refresh_enabled", src[i_try:i_except])
 
 
 if __name__ == "__main__":

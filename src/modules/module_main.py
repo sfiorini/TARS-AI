@@ -675,5 +675,13 @@ def startup_initialization():
             start_thermal_monitoring()
         except Exception as e:
             print(f"WARNING: Thermal monitoring not available: {e}")
+        try:
+            from modules import module_thinking
+            if load_config().get('CHAR', {}).get(
+                    'thinking_refresh_enabled', False):
+                module_thinking.start()
+                queue_message("SYSTEM: Thinking phrase refresh daemon started")
+        except Exception as e:
+            queue_message(f"WARNING: Thinking refresh daemon not started: {e}")
     except Exception as e:
         queue_message(f"ERROR: Servo initialization failed - {e}")
