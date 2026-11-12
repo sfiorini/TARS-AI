@@ -4,8 +4,20 @@ import unittest
 from unittest import mock
 
 from modules import module_thinking as mt
+from modules import module_llm as llm
 from modules.module_thinking import (CATEGORIES, REGISTERS, PHRASE_BANK,
     sanitize_phrase, TOOL_CATEGORY_MAP)
+
+
+class _ImmediateThread:
+    """threading.Thread stand-in that runs the target synchronously —
+    the filler must never leak a live thread into the test run."""
+    def __init__(self, target=None, args=(), daemon=None, name=None):
+        self._t = target
+
+    def start(self):
+        if self._t:
+            self._t()
 
 
 class TestPhraseBank(unittest.TestCase):
@@ -170,6 +182,143 @@ class TestFallbackChain(unittest.TestCase):
         mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
         with mock.patch.dict(mt.PHRASE_BANK, clear=True):
             self.assertIsNone(mt.get_filler_phrase("search"))
+
+
+class TestHotPathSelection(unittest.TestCase):
+    """S-M2-01: the hot path resolves a category and walks the verified
+    fallback chain — never reaching random.choice([])."""
+
+    def setUp(self):
+        self._cfg = llm.CONFIG
+        self._mt_cfg = mt.CONFIG
+        # "TTS" key required: the real _play closure evaluates
+        # CONFIG['TTS']['ttsoption'] BEFORE calling the stubbed
+        # play_audio_chunks — without it every success-path test logs a
+        # spurious "Failed to play thinking response" and _played stays
+        # empty
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "[]"},
+                      "TTS": {"ttsoption": "piper"}}
+        # the fallback chain's config floor reads mt.CONFIG — stub it too,
+        # NEVER the repo's config.ini (it ships a non-empty floor list)
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        mt._refreshed.clear()
+        self._played = []
+
+        async def _fake_play(text, *a, **k):
+            # MUST be a coroutine: the real _play closure does
+            # asyncio.run(play_audio_chunks(...)) — a plain lambda
+            # returns a non-coroutine, asyncio.run raises ValueError,
+            # and every hot-path test would log a spurious
+            # "ERROR: Failed to play thinking response"
+            self._played.append(text)
+
+        p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
+        p.start(); self.addCleanup(p.stop)
+        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        t.start(); self.addCleanup(t.stop)
+
+    def tearDown(self):
+        llm.CONFIG = self._cfg
+        mt.CONFIG = self._mt_cfg
+        mt._refreshed.clear()
+
+    def test_tool_names_select_category_pool(self):
+        ok = llm._maybe_play_thinking_response(tool_names=["web_search"])
+        self.assertTrue(ok)
+        self.assertIn(self._played[0], mt.PHRASE_BANK["search"])
+
+    def test_empty_category_falls_through_without_indexerror(self):
+        # pin the empty-category fall-through: bank entry emptied -> general
+        # bank serves; random.choice([]) must NEVER be reached
+        with mock.patch.dict(mt.PHRASE_BANK, {"search": (), "general": ()}):
+            mt.CONFIG = {"CHAR": {"thinking_responses":
+                '["Floor phrase."]'}}
+            ok = llm._maybe_play_thinking_response(tool_names=["web_search"])
+            self.assertTrue(ok)
+            self.assertEqual(self._played[0], "Floor phrase.")
+
+    def test_disabled_returns_false(self):
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": False,
+                               "thinking_responses": "[]"}}
+        self.assertFalse(llm._maybe_play_thinking_response())
+
+    def test_all_pools_empty_returns_false(self):
+        with mock.patch.dict(mt.PHRASE_BANK, {c: () for c in mt.CATEGORIES}):
+            self.assertFalse(llm._maybe_play_thinking_response())
+
+    def test_config_garbage_returns_false(self):
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "garbage{"}}
+        # the floor lives in mt.CONFIG — the garbage must be there to
+        # exercise the json-garbage branch of the chain
+        mt.CONFIG = {"CHAR": {"thinking_responses": "garbage{"}}
+        with mock.patch.dict(mt.PHRASE_BANK, {c: () for c in mt.CATEGORIES}):
+            self.assertFalse(llm._maybe_play_thinking_response())
+
+    def test_zero_arg_call_still_works(self):
+        ok = llm._maybe_play_thinking_response()
+        self.assertTrue(ok)  # general pool
+
+
+class TestPerTurnDedup(unittest.TestCase):
+    """S-M2-02 contract through the hot path: one filler per (source,
+    epoch) turn; a suppressed second fire returns True (handled) with NO
+    second playback."""
+
+    def setUp(self):
+        mt.reset_dedup()
+        mt._refreshed.clear()
+        self._cfg = llm.CONFIG
+        # "TTS" key required — see TestHotPathSelection.setUp
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": True,
+                               "thinking_responses": "[]"},
+                      "TTS": {"ttsoption": "piper"}}
+        self._mt_cfg = mt.CONFIG
+        mt.CONFIG = {"CHAR": {"thinking_responses": "[]"}}
+        self._played = []
+
+        async def _fake_play(text, *a, **k):
+            # coroutine stub — see TestHotPathSelection.setUp (a plain
+            # lambda makes asyncio.run raise and log a spurious error)
+            self._played.append(text)
+
+        p = mock.patch("modules.module_tts.play_audio_chunks", new=_fake_play)
+        p.start(); self.addCleanup(p.stop)
+        t = mock.patch("modules.module_llm.threading.Thread", _ImmediateThread)
+        t.start(); self.addCleanup(t.stop)
+
+    def tearDown(self):
+        mt.reset_dedup()
+        llm.CONFIG = self._cfg
+        mt.CONFIG = self._mt_cfg
+        mt._refreshed.clear()
+
+    def test_second_fire_same_turn_suppressed(self):
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertEqual(len(self._played), 1)
+        # same turn again -> True (handled) but NO second playback
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertEqual(len(self._played), 1)
+
+    def test_new_epoch_plays_again(self):
+        from modules.module_toolloop import bump_epoch
+        bump_epoch("voice")
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        bump_epoch("voice")
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertEqual(len(self._played), 2)
+
+    def test_source_none_skips_dedup(self):
+        self.assertTrue(llm._maybe_play_thinking_response(source="voice"))
+        self.assertTrue(llm._maybe_play_thinking_response())
+        self.assertEqual(len(self._played), 2)
+
+    def test_disabled_never_marks(self):
+        llm.CONFIG = {"CHAR": {"enable_thinking_responses": False,
+                               "thinking_responses": "[]"}}
+        self.assertFalse(llm._maybe_play_thinking_response(source="voice"))
+        self.assertFalse(mt.already_played_this_turn("voice"))
 
 
 if __name__ == "__main__":

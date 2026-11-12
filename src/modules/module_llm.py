@@ -22,7 +22,6 @@ import threading
 import json
 import re
 import time
-import random
 import asyncio
 from modules.module_config import load_config, get_capabilities
 from modules.module_prompt import build_prompt
@@ -135,10 +134,12 @@ if CONFIG['EMOTION']['enabled'] and _emotion_method == 'classifier':
         pass
 
 
-def _maybe_play_thinking_response():
+def _maybe_play_thinking_response(user_text=None, tool_names=None, source=None):
     """Play a random thinking-response audio clip in a background thread.
 
-    Returns True when playback was started, False when the mechanism is
+    Returns True when playback was started, or when a filler already
+    played earlier in this turn (per-turn dedup — callers must then NOT
+    speak their own holding line). Returns False when the mechanism is
     disabled or has nothing to play (the tool loop uses this to decide
     whether to speak its hardcoded holding-line fallback).
     """
@@ -149,20 +150,25 @@ def _maybe_play_thinking_response():
         if not enable_thinking:
             return False
 
-        thinking_responses_raw = CONFIG["CHAR"].get('thinking_responses', '[]')
-        try:
-            thinking_responses = json.loads(thinking_responses_raw)
-        except (json.JSONDecodeError, TypeError):
-            thinking_responses = []
-        if not isinstance(thinking_responses, list):
-            thinking_responses = []
+        from modules.module_thinking import (
+            already_played_this_turn, classify_intent, get_filler_phrase,
+            mark_played_this_turn, sanitize_phrase)
 
-        if not thinking_responses:
-            return False
+        if source is not None and already_played_this_turn(source):
+            return True  # this turn already spoke a filler
 
-        thinking_text = random.choice(thinking_responses)
+        category = classify_intent(user_text, tool_names)
+        if tool_names is None and user_text and category != "general":
+            return False  # likely a tool turn — reply-0 holds the line (M3)
+
+        thinking_text = get_filler_phrase(category)
+        if thinking_text is not None:
+            thinking_text = sanitize_phrase(thinking_text)
         if not (thinking_text and isinstance(thinking_text, str) and thinking_text.strip()):
             return False
+
+        if source is not None:
+            mark_played_this_turn(source)
 
         queue_message(f"{thinking_text}")
 
