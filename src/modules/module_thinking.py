@@ -855,14 +855,27 @@ def request_manual_refresh():
             # spin outlives the caller's intent (and, in the test
             # suite, the test's cleanups: the leaked thread reacquired
             # the REAL lock and ran a full 13-category cycle against
-            # the live LLM). On expiry: do NOT run a cycle — report the
-            # already-running state and return (the daemon's cycle
-            # will settle it, or the user polls again). The deadline
-            # check is at the TOP of the loop so an expired thread
-            # never makes another acquire attempt.
+            # the live LLM). On expiry: do NOT run a cycle — SETTLE the
+            # 'running' state this thread owns and return. A give-up
+            # without a settle STRANDS it: the identity guard in
+            # _settle_refresh_state matches only a NAMED cycle (never
+            # our None marker), this thread is the only writer left,
+            # and every later click short-circuits on 'running'
+            # without spawning a thread — the badge would sit on
+            # 'Refreshing…' and the manual endpoint would be a
+            # permanent no-op. The deadline check is at the TOP of
+            # the loop so an expired thread never makes another
+            # acquire attempt.
             give_up_at = time.monotonic() + _MANUAL_CYCLE_WAIT_S
             while True:
                 if time.monotonic() >= give_up_at:
+                    with _manual_lock:
+                        if (_refresh_state["state"] == "running"
+                                and _refresh_state["cycle"] is None):
+                            _refresh_state["state"] = "error"
+                            _refresh_state["last_error"] = (
+                                "manual refresh gave up waiting for a "
+                                "free refresh cycle")
                     return
                 ok = _refresh_all_categories(respect_idle=False)
                 if ok is not None:

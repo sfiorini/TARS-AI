@@ -1081,12 +1081,16 @@ class TestCycleGuardSentinel(unittest.TestCase):
                 "from False ('nothing refreshed'), so the manual path "
                 "must not paint an error badge for it")
 
-    def test_bg_treats_lock_busy_as_running_not_error(self):
+    def test_bg_lock_busy_gives_up_terminal_not_cycle_failure(self):
         """The measured race: _refresh_state is not 'running' and
         _cycle_lock.locked() says free at click time, but a daemon cycle
-        grabs the lock before _bg's acquire. _bg must keep state
-        'running' (the daemon's cycle IS the refresh) instead of
-        setting 'no category refreshed'."""
+        grabs the lock before _bg's acquire. [F-strand] When no cycle
+        can ever be named (the stub below never frees and never takes
+        an identity), _bg's give-up must SETTLE the 'running' state it
+        owns to a terminal verdict — but NEVER as the cycle-failure
+        message: lock-busy is not a verdict that nothing refreshed
+        ('no category refreshed' painted a red Error badge for a
+        refresh that was merely waiting)."""
         class _SneakyLock:
             # locked() says free (the click's check passes) but
             # acquire() says busy (the daemon won the race)
@@ -1113,17 +1117,25 @@ class TestCycleGuardSentinel(unittest.TestCase):
         with mock.patch.object(mt, "queue_message"):
             self.assertEqual(mt.request_manual_refresh()["state"],
                              "starting")
-            # _bg runs in a daemon thread; give it a moment, then the
-            # state must STILL be 'running' (never 'error')
+            # _bg runs in a daemon thread; poll until it gives up and
+            # settles (the shrunken wait bounds this at ~0.5 s)
             for _ in range(100):
-                if mt.refresh_status()["state"] == "error":
+                if mt.refresh_status()["state"] != "running":
                     break
                 time.sleep(0.02)
         info = mt.refresh_status()
-        self.assertEqual(info["state"], "running",
-                         "a cycle already in flight is NOT an error — "
-                         "the refresh IS running")
-        self.assertIsNone(info["last_error"])
+        self.assertEqual(info["state"], "error",
+                         "a give-up on a lock that never frees must "
+                         "settle TERMINAL — a stranded 'running' can "
+                         "never be cleared (no cycle matches a None "
+                         "marker) and blocks every later click")
+        self.assertNotEqual(
+            info["last_error"], "no category refreshed",
+            "lock-busy is NOT a cycle failure — the give-up must not "
+            "paint the cycle-failure verdict on a refresh that never "
+            "ran a cycle")
+        self.assertTrue(info["last_error"],
+                        "the give-up must explain itself in last_error")
         # [F1] the leak proof: the manual thread must be GONE — an
         # unbounded spin survives the cleanups, reacquires the REAL
         # _cycle_lock and runs a full 13-category cycle against the
@@ -1139,9 +1151,12 @@ class TestCycleGuardSentinel(unittest.TestCase):
         """[F1] _bg's busy-lock retry is BOUNDED: a lock that stays
         busy with no cycle to name (a daemon in its acquire/identity
         window, or a stub that never frees) must TERMINATE the thread,
-        not spin forever. On expiry _bg reports the already-running
-        state and returns — it must never fall through to a cycle of
-        its own."""
+        not spin forever. [F-strand] On expiry _bg OWNS the 'running'
+        state (cycle is None) and must SETTLE it before returning:
+        no identity-guarded settle can ever match a None cycle, and
+        every later click short-circuits on 'running' without spawning
+        a thread — an unsettled give-up strands the badge on
+        'Refreshing…' and makes the manual endpoint a permanent no-op."""
         class _SneakyLock:
             def locked(self):
                 return False
@@ -1176,11 +1191,42 @@ class TestCycleGuardSentinel(unittest.TestCase):
                "cycle lock never frees — an unbounded spin outlives "
                "the caller, reacquires the real lock after the test's "
                "cleanups and leaks a full refresh cycle")
+        # [F-strand] the give-up must SETTLE the state it owns: the
+        # verdict is terminal (never 'running' — nothing else can ever
+        # clear a None-cycle 'running') and explains itself.
         info = mt.refresh_status()
-        self.assertEqual(info["state"], "running",
-                         "giving up on a busy lock is NOT an error — the "
-                         "refresh is reported as already running")
-        self.assertIsNone(info["last_error"])
+        self.assertNotEqual(info["state"], "running",
+                            "a give-up must not strand the manual "
+                            "refresh state at 'running' — no cycle can "
+                            "settle it and every later click becomes a "
+                            "no-op")
+        self.assertTrue(info["last_error"],
+                        "the give-up must explain itself in last_error")
+        # [F-strand] RECOVERY: with the lock free again, a later click
+        # must spawn a thread and RUN a cycle — the stranded 'running'
+        # used to short-circuit every later click into
+        # {'state': 'running'} with no thread spawned.
+        mt._cycle_lock = saved_lock  # hand the recovery click a free lock
+        calls = []
+        with mock.patch.object(
+                mt, "_refresh_once",
+                side_effect=lambda category: calls.append(category)
+                or True), \
+             mock.patch.object(mt, "queue_message"):
+            self.assertEqual(mt.request_manual_refresh()["state"],
+                             "starting",
+                             "a click after a give-up must spawn a new "
+                             "refresh thread, not report the stranded "
+                             "'running' state")
+            for _ in range(250):
+                if mt.refresh_status()["state"] in ("done", "error"):
+                    break
+                time.sleep(0.02)
+        info = mt.refresh_status()
+        self.assertEqual(info["state"], "done",
+                         "the recovery cycle must settle 'done'")
+        self.assertTrue(calls,
+                        "the recovery click must RUN a refresh cycle")
 
     def test_genuine_all_failed_still_reports_error(self):
         """Discrimination: a cycle that genuinely ran and refreshed
