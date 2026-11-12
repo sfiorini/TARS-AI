@@ -66,6 +66,9 @@ ROBOT_MOVE_IDS = {
     "right_slow": "turn_right_slow",
 }
 
+# a longer hold would trip the 30 s stuck-MOVING watchdog
+MAX_HOLD_TIME = 10.0
+
 _SRC_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _STORE_PATH = os.path.join(_SRC_DIR, "movements.json")
 _DEFAULTS_PATH = os.path.join(_SRC_DIR, "movements_defaults.json")
@@ -372,11 +375,11 @@ class MovementStore:
         # hold must not trip the 30 s stuck-MOVING watchdog (30 s stuck
         # timeout > 10 s max hold + margin; legit moves write PWM every
         # <= 0.032 s). Clamp instead of reject so hand-edited files load.
-        if hold > 10.0:
+        if hold > MAX_HOLD_TIME:
             queue_message(
-                f"WARNING: {where} hold_time {hold} clamped to 10.0 "
-                f"(max allowed)")
-            step["hold_time"] = 10.0
+                f"WARNING: {where} hold_time {hold} clamped to "
+                f"{MAX_HOLD_TIME} (max allowed)")
+            step["hold_time"] = MAX_HOLD_TIME
         ref = step["movement"]
         if ref is None:
             return
@@ -500,8 +503,17 @@ class MovementStore:
                                       step["right_forearm"],
                                       step["right_hand"],
                                       arm_speed)
-                if step["hold_time"] and step["hold_time"] > 0:
-                    time.sleep(step["hold_time"])
+                # defense in depth: chatui passes raw client steps
+                # from an HTTP payload into play_steps without
+                # validation — the bound must hold where the sleep is
+                hold = step["hold_time"]
+                if hold and hold > 0:
+                    if hold > MAX_HOLD_TIME:
+                        queue_message(
+                            f"WARNING: playback hold_time {hold} clamped "
+                            f"to {MAX_HOLD_TIME} (max allowed)")
+                        hold = MAX_HOLD_TIME
+                    time.sleep(hold)
             if tail_neutral:
                 servoctl.move_legs(50, 50, 50, 50, 0.8)
             return True

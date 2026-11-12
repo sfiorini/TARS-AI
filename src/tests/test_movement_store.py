@@ -640,6 +640,22 @@ class TestPlayback(_PlaybackTestCase):
         self.store.play_steps([_step()], tail_neutral=True)
         self.assertEqual(self.servo.legs_calls[-1], (50, 50, 50, 50, 0.8))
 
+    def test_play_steps_clamps_raw_hold_time(self):
+        # chatui's _execute_steps passes raw client steps from an HTTP
+        # payload straight into play_steps — no validation.  A POST with
+        # hold_time 60 must never reach time.sleep(60): it would sit with
+        # no PWM write and trip the 30 s stuck-MOVING watchdog mid-hold.
+        from modules import module_movementstore
+        raw = _step(legs=(10, 20, 30, 40), hold=60)
+        with mock.patch("modules.module_movementstore.queue_message") as qm:
+            ok = self.store.play_steps([raw])
+        self.assertTrue(ok)
+        self.fake_time.sleep.assert_called_once_with(
+            module_movementstore.MAX_HOLD_TIME)
+        self.assertTrue(
+            any("clamped" in str(call) for call in qm.call_args_list),
+            "clamping at playback must emit a queue_message warning")
+
 
 class TestSeeding(_StoreTestCase):
     """First start seeds movements.json from the tracked defaults (D5)."""
