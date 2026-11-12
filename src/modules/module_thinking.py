@@ -262,3 +262,122 @@ def reset_dedup():
     global _last_played_key
     with _played_lock:
         _last_played_key = None
+
+
+# --- M4: cloud refresh machinery (S-M4-03) ------------------------------
+# The refreshed pool is IN-MEMORY ONLY — never written back to
+# config.ini (the web-UI editor and the daemon must not fight).
+
+_REFRESH_TIMEOUT_S = 60  # a hung refresh call must not hold the 120 s default
+_MAX_PHRASES = 12
+
+def _validate_phrases(raw_list):
+    """Filter an LLM-produced phrase list (prior art :47-66 shape, plus
+    the charset rule): strings only -> strip -> 2..60 chars -> fixed
+    point of sanitize_phrase (the playback path plays text raw, so the
+    charset rule is enforced here) -> dedupe case-insensitively, capped.
+    Returns a filtered list; EMPTY means failure (the caller keeps the
+    old pool)."""
+    out = []
+    seen = set()
+    for p in raw_list or []:
+        if not isinstance(p, str):
+            continue
+        p = p.strip()
+        if not (2 <= len(p) <= 60):
+            continue
+        if sanitize_phrase(p) != p:
+            continue
+        if p.lower() in seen:
+            continue
+        seen.add(p.lower())
+        out.append(p)
+        if len(out) >= _MAX_PHRASES:
+            break
+    return out
+
+def _parse_phrase_payload(text):
+    """Fenced/non-greedy JSON tolerance (prior art :96-113), adapted to
+    the {"phrases": [...]} schema (json_object backends reject bare
+    arrays). ANTI-SCAVENGING: a payload that parses as {"reply": ...}
+    (the conversation schema) is REJECTED, not scavenged."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    body = text.strip()
+    m = re.search(r"```(?:json)?\s*(.+?)\s*```", body, re.DOTALL)
+    if m:
+        body = m.group(1)
+    start = body.find("{")
+    if start != -1:
+        end = body.find("}", start)          # non-greedy: first object
+        if end != -1:
+            try:
+                obj = json.loads(body[start:end + 1])
+            except json.JSONDecodeError:
+                obj = None
+            if isinstance(obj, dict):
+                if "reply" in obj:           # conversation schema — reject
+                    return None
+                phrases = obj.get("phrases")
+                return phrases if isinstance(phrases, list) else None
+            return None
+    start = body.find("[")
+    end = body.rfind("]")
+    if start != -1 and end > start:
+        try:
+            arr = json.loads(body[start:end + 1])
+            return arr if isinstance(arr, list) else None
+        except json.JSONDecodeError:
+            return None
+    return None
+
+def _build_refresh_prompt(category):
+    """Per-category prompt carrying the category's register. The allowed
+    charset matches what sanitize_phrase keeps EXACTLY — note: NO hyphens
+    (the sanitizer's `<->` is the range 0x3C-0x3E, so hyphens are
+    stripped) and no parentheses or emoji."""
+    return (
+        "Generate 12 short filler phrases a robot says out loud while it "
+        f"works on a {category} task. Register: {REGISTERS[category]}. "
+        "Rules: each phrase is 2 to 6 words, using only ASCII letters, "
+        "digits, spaces, and these punctuation marks: . , ? ! ; : ' \" < > "
+        "(the robot's sanitizer strips anything else); no emoji, no "
+        "parentheses, no hyphens or dashes. Respond with ONLY a JSON "
+        'object like {"phrases": ["phrase one", "phrase two"]}'
+    )
+
+def _refresh_once(category):
+    """One category's refresh. Returns True on success. Failure keeps
+    the old pool (never empties it). The LLM call happens OUTSIDE the
+    pool lock — the lock is held only for the atomic swap."""
+    from modules.module_llm import raw_complete_llm  # lazy both sides
+    try:
+        raw = raw_complete_llm(_build_refresh_prompt(category),
+                              timeout=_REFRESH_TIMEOUT_S)
+    except Exception as e:
+        queue_message(f"WARNING: thinking refresh LLM call failed "
+                      f"({category}): {e}")
+        return False
+    phrases = _validate_phrases(_parse_phrase_payload(raw))
+    if not phrases:
+        queue_message(f"WARNING: thinking refresh yielded no valid "
+                      f"phrases for {category}")
+        return False
+    with _pool_lock:
+        _refreshed[category] = list(phrases)  # atomic: NEW list, never mutate
+    return True
+
+def _refresh_all_categories():
+    """One full refresh cycle over every category. Survives a raising
+    category; advances _last_refresh after EVERY cycle (success or not —
+    no hammering on persistent failure)."""
+    global _last_refresh
+    ok_any = False
+    for category in CATEGORIES:
+        try:
+            if _refresh_once(category):
+                ok_any = True
+        except Exception as e:
+            queue_message(f"WARNING: thinking refresh error ({category}): {e}")
+    _last_refresh = time.time()
+    return ok_any
