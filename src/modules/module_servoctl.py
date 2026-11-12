@@ -755,7 +755,9 @@ def _reapply_engaged_positions():
 def _start_boot_current_sampler():
     """Informational INA260 logging during the boot movement (S-M2-06):
     a daemon thread samples the battery module's current every 0.5 s until
-    the returned stop-Event is set. INA260 is NOT a health signal — idle
+    the returned stop-Event is set. The value is INA260 MILLIAMPS (the
+    adafruit_ina260 library reports mA; module_battery stores and logs it
+    as mA), so the log line reports mA. INA260 is NOT a health signal — idle
     servos are deliberately de-energized and draw ~0 either way — so this
     gates nothing; a read failure is swallowed and never breaks the boot
     path. Returns None when no battery module is present (no thread)."""
@@ -767,7 +769,7 @@ def _start_boot_current_sampler():
         while not done.wait(0.5):
             try:
                 current = battery_module.current
-                queue_message(f"INFO: boot current={current:.2f}A")
+                queue_message(f"INFO: boot current={current:.0f}mA")
             except Exception:
                 pass  # logging only — never gate the boot path on INA260
 

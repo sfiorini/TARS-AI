@@ -1158,7 +1158,10 @@ class TestIna260BootSampler(ServoctlSelfHealingTestCase):
 
     def test_sampler_logs_current_and_stops(self):
         stub = mock.MagicMock()
-        stub.current = 1.23
+        # battery_module.current is INA260 milliamps (module_battery.py:146,
+        # logged as "+.0fmA" at module_battery.py:233) — 616.25 mA matches the
+        # robot's live reading; :.0f formats it as "616".
+        stub.current = 616.25
         servoctl.set_battery_module(stub)
         logged = []
         with mock.patch.object(servoctl, "queue_message",
@@ -1172,7 +1175,7 @@ class TestIna260BootSampler(ServoctlSelfHealingTestCase):
                         break
                     time.sleep(0.05)
                 self.assertTrue(
-                    any("boot current=1.23A" in str(m) for m in logged),
+                    any("boot current=616mA" in str(m) for m in logged),
                     "sampler must log informational boot-current lines")
                 # stopping the sampler halts the logging: assert the thread
                 # actually TERMINATES (join by name) instead of an exact
