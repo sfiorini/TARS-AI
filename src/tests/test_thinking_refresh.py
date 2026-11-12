@@ -503,6 +503,30 @@ class TestRefreshDaemon(_RefreshStateTestCase):
             self._run_one_tick()
         stub.assert_called_once()
 
+    def test_loop_skips_refresh_when_not_idle(self):
+        """[F3] DISCRIMINATION (mutation-tested): nothing pinned that
+        _refresh_loop CALLS _is_idle() — TestIdleGate unit-tests it in
+        isolation and test_loop_fires_when_gates_open only covers the
+        positive path, so deleting `if not _is_idle(): continue` from
+        the loop kept the suite green. Hold every OTHER gate open
+        (enabled, interval elapsed) and close ONLY the idle gate: zero
+        refresh calls — a busy robot must never burn the API key."""
+        mt._last_refresh = 0.0
+        cfg = mock.patch.object(mt, "load_config", return_value={
+            "CHAR": {"thinking_refresh_enabled": True,
+                     "thinking_refresh_minutes": 120}})
+        cfg.start()
+        self.addCleanup(cfg.stop)
+        refresh = mock.patch.object(mt, "_refresh_all_categories")
+        stub = refresh.start()
+        self.addCleanup(refresh.stop)
+        with mock.patch.object(mt, "_is_idle", return_value=False):
+            self._run_one_tick()
+        stub.assert_not_called()
+        self.assertEqual(stub.call_count, 0,
+                         "a not-idle robot must not refresh — the loop "
+                         "must consult _is_idle() before refreshing")
+
     def test_start_idempotent(self):
         saved_thread = mt._thread
         self.addCleanup(setattr, mt, "_thread", saved_thread)
