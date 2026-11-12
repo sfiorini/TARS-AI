@@ -869,7 +869,7 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
     speed.log_tool(function_name, speed.stop('tool'))
 
 
-def raw_complete_llm(user_prompt, istext=True):
+def raw_complete_llm(user_prompt, istext=True, timeout=None):
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {CONFIG['LLM']['api_key']}"
@@ -889,7 +889,7 @@ def raw_complete_llm(user_prompt, istext=True):
             try:
                 response = _http_session.post(
                     url, headers=headers, json=data,
-                    timeout=CONFIG['LLM'].get('request_timeout', 120))
+                    timeout=timeout or CONFIG['LLM'].get('request_timeout', 120))
                 response.raise_for_status()
                 return _extract_text(response.json(), istext)
             except requests.HTTPError as e:
