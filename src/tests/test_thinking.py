@@ -2,7 +2,7 @@
 tool map, classifier, fallback chain. Pure and isolated (no wiring)."""
 import unittest
 
-from modules.module_thinking import CATEGORIES, REGISTERS, PHRASE_BANK
+from modules.module_thinking import CATEGORIES, REGISTERS, PHRASE_BANK, sanitize_phrase
 
 
 class TestPhraseBank(unittest.TestCase):
@@ -22,6 +22,26 @@ class TestPhraseBank(unittest.TestCase):
 
     def test_registers_defined_for_every_category(self):
         self.assertEqual(set(REGISTERS), set(CATEGORIES))
+
+
+
+class TestSanitizePhrase(unittest.TestCase):
+    def test_every_shipped_phrase_is_fixed_point(self):
+        for cat in CATEGORIES:
+            for p in PHRASE_BANK[cat]:
+                self.assertEqual(sanitize_phrase(p), p, (cat, p))
+
+    def test_idempotent(self):
+        self.assertEqual(sanitize_phrase(sanitize_phrase("Let me… (think) 🤔")),
+                         sanitize_phrase("Let me… (think) 🤔"))
+
+    def test_strips_disallowed_chars_keeps_allowed(self):
+        self.assertEqual(sanitize_phrase("Hmm— wait (a sec): ok?"),
+                         "Hmm wait a sec: ok?")
+
+    def test_non_string_returns_empty(self):
+        self.assertEqual(sanitize_phrase(None), "")
+        self.assertEqual(sanitize_phrase(42), "")
 
 
 if __name__ == "__main__":

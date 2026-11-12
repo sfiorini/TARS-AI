@@ -31,7 +31,7 @@ PHRASE_BANK = {
     "search": ("Searching now.", "Looking that up.", "Checking the latest.",
         "Pulling results.", "Scanning sources.", "Querying the web.",
         "On it, one second.", "Fetching that for you.", "Let me verify.",
-        "Digging into it.", "Cross-referencing now.", "Fresh data, coming up."),
+        "Digging into it.", "Cross referencing now.", "Fresh data, coming up."),
     "vision": ("Let me take a look.", "Eyes on it.", "Focusing now.",
         "Checking the view.", "Looking around.", "Give me a second to see.",
         "Adjusting my optics.", "Scanning the scene.", "One look, coming right up.",
@@ -87,3 +87,14 @@ PHRASE_BANK = {
         "Let me see.", "Hmm, thinking.", "Processing.", "On it.",
         "Give me a beat."),
 }
+
+_SANITIZE_RE = re.compile(r'[^a-zA-Z0-9\s.,?!;:"\'<->]')
+
+def sanitize_phrase(text):
+    """Mirror of the follow-up TTS sanitizer (module_main.py:393). The
+    thinking path plays text RAW (module_llm.py:172-175 — no sanitizer,
+    unlike module_main.py:393 and :202-204), so every phrase that reaches
+    playback must pass through this first."""
+    if not isinstance(text, str):
+        return ""
+    return _SANITIZE_RE.sub("", text)
