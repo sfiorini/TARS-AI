@@ -24,6 +24,7 @@ from modules.module_config import CONFIG_METADATA
 # the process (module_config.py:442).
 _SRC = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 _MAIN_JS = os.path.join(_SRC, "www", "static", "js", "main.js")
+_MAIN_CSS = os.path.join(_SRC, "www", "static", "css", "main.css")
 
 _ACCESS_MARKER = "// Inject Remote Access tunnel controls"
 _CARD_MARKER = "// Inject the thinking-phrase refresh controls"
@@ -204,6 +205,29 @@ class TestDisabledEvaluatorWiring(unittest.TestCase):
         end = self.js.index("const BACKEND_URLS", start)
         block = self.js[start:end]
         self.assertIn("() => { applyDependencies(); applyDisabledDeps(); }", block)
+
+
+class TestDisabledCss(unittest.TestCase):
+    """The class alone does nothing without a rule; pin the dimming next to
+    the field-wrapper block it decorates."""
+
+    def setUp(self):
+        with open(_MAIN_CSS) as fh:
+            self.css = fh.read()
+
+    def _field_wrapper_block(self):
+        start = self.css.index(".field-wrapper {")
+        end = self.css.index(".config-group {", start)
+        return self.css[start:end]
+
+    def test_disabled_rule_dims_the_field(self):
+        block = self._field_wrapper_block()
+        self.assertIn(".is-disabled", block)
+        self.assertIn("opacity", block)
+
+    def test_disabled_field_has_no_hover_lift(self):
+        block = self._field_wrapper_block()
+        self.assertIn(".is-disabled .field-wrapper:hover", block)
 
 
 class TestRefreshCardPlacement(unittest.TestCase):
