@@ -163,6 +163,27 @@ class TestDisableWhenForwarding(unittest.TestCase):
         self.assertIn("disable_when", copied)
 
 
+class TestDisabledAttrEmission(unittest.TestCase):
+    """The evaluator can only find wrappers that carry the attribute, and
+    the attribute can only be built from the payload key. No JS executes in
+    this suite, so the emission block is pinned by string scan."""
+
+    def setUp(self):
+        with open(_MAIN_JS) as fh:
+            self.js = fh.read()
+
+    def _emission_block(self):
+        start = self.js.index("const depData =")
+        end = self.js.index("html += openTag;", start)
+        return self.js[start:end]
+
+    def test_block_reads_disable_when(self):
+        self.assertIn("disable_when", self._emission_block())
+
+    def test_block_emits_the_disabled_attribute(self):
+        self.assertIn("data-disabled-conds=", self._emission_block())
+
+
 class TestRefreshCardPlacement(unittest.TestCase):
     def setUp(self):
         with open(_MAIN_JS) as fh:

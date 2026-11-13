@@ -1702,15 +1702,21 @@ function executeAction() {
           }
 
           const depData = fi?.depends_on ? JSON.stringify(Array.isArray(fi.depends_on) ? fi.depends_on : [fi.depends_on]) : null;
+          const disData = fi?.disable_when ? JSON.stringify(Array.isArray(fi.disable_when) ? fi.disable_when : [fi.disable_when]) : null;
+          // Both attrs may coexist on one wrapper; the section is needed by
+          // whichever evaluator reads them.
+          const condAttrs = (depData ? ` data-dep-conds='${depData}'` : '')
+            + (disData ? ` data-disabled-conds='${disData}'` : '');
+          const condSection = (depData || disData) ? ` data-dep-section="${section}"` : '';
           let openTag, closeTag;
           if (fieldGroup) {
-            openTag = depData
-              ? `<div class="field-wrapper" data-dep-conds='${depData}' data-dep-section="${section}">`
+            openTag = (depData || disData)
+              ? `<div class="field-wrapper"${condAttrs}${condSection}>`
               : `<div class="field-wrapper">`;
             closeTag = '</div>';
           } else {
-            openTag = depData
-              ? `<div class="col-md-6 col-lg-4" data-dep-conds='${depData}' data-dep-section="${section}"><div class="field-wrapper">`
+            openTag = (depData || disData)
+              ? `<div class="col-md-6 col-lg-4"${condAttrs}${condSection}><div class="field-wrapper">`
               : `<div class="col-md-6 col-lg-4"><div class="field-wrapper">`;
             closeTag = '</div></div>';
           }
