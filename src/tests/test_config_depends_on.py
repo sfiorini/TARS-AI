@@ -32,16 +32,26 @@ def _dep(field, values):
     return [{"field": field, "values": values}]
 
 
-class TestThinkingFieldCascade(unittest.TestCase):
-    def test_refresh_toggle_depends_on_the_master_switch(self):
-        d = CONFIG_METADATA["CHAR"]["thinking_refresh_enabled"]
-        self.assertEqual(d.get("depends_on"),
-                         _dep("enable_thinking_responses", ["true"]))
+def _disable(field, values):
+    return [{"field": field, "values": values}]
 
-    def test_refresh_minutes_depends_on_the_refresh_toggle(self):
+
+class TestThinkingFieldCascade(unittest.TestCase):
+    """The thinking settings must never disappear — they grey out instead.
+    ``disable_when`` replaces ``depends_on`` on these two fields so the JS
+    disables them rather than hiding them."""
+
+    def test_refresh_toggle_disabled_by_the_master_switch(self):
+        d = CONFIG_METADATA["CHAR"]["thinking_refresh_enabled"]
+        self.assertEqual(d.get("disable_when"),
+                         _disable("enable_thinking_responses", ["true"]))
+        self.assertNotIn("depends_on", d)
+
+    def test_refresh_minutes_disabled_by_the_refresh_toggle(self):
         d = CONFIG_METADATA["CHAR"]["thinking_refresh_minutes"]
-        self.assertEqual(d.get("depends_on"),
-                         _dep("thinking_refresh_enabled", ["true"]))
+        self.assertEqual(d.get("disable_when"),
+                         _disable("thinking_refresh_enabled", ["true"]))
+        self.assertNotIn("depends_on", d)
 
 
 class TestDependsOnIntegrity(unittest.TestCase):
