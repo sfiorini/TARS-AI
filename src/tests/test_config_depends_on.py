@@ -81,6 +81,46 @@ class TestDependsOnIntegrity(unittest.TestCase):
         self.assertEqual(bad, [])
 
 
+def _condition_errors(metadata, attr):
+    """Shared validator: every condition under ``attr`` must name a field in
+    its OWN section and carry ``values`` or ``not_values``."""
+    bad = []
+    for section, fields in metadata.items():
+        for name, d in fields.items():
+            if not isinstance(d, dict):
+                continue
+            for cond in d.get(attr) or []:
+                if cond.get("field") not in fields:
+                    bad.append(f"{section}.{name} -> {cond.get('field')}")
+                elif not (cond.get("values") or cond.get("not_values")):
+                    bad.append(f"{section}.{name} (no values)")
+    return bad
+
+
+class TestDisableWhenIntegrity(unittest.TestCase):
+    """A typo in a disable_when target silently leaves the field enabled
+    forever, so every condition must name a real field in its OWN section.
+    The self-test proves the validator is not vacuous."""
+
+    def test_every_disable_when_target_exists_in_its_own_section(self):
+        self.assertEqual(_condition_errors(CONFIG_METADATA, "disable_when"), [])
+
+    def test_disable_when_is_actually_used(self):
+        used = [f"{s}.{n}" for s, fields in CONFIG_METADATA.items()
+                for n, d in fields.items()
+                if isinstance(d, dict) and d.get("disable_when")]
+        self.assertIn("CHAR.thinking_refresh_enabled", used)
+        self.assertIn("CHAR.thinking_refresh_minutes", used)
+
+    def test_validator_flags_a_bad_target(self):
+        metadata = {"CHAR": {
+            "a": {"disable_when": [{"field": "ghost", "values": ["true"]}]},
+            "b": {"disable_when": [{"field": "a"}]},
+        }}
+        self.assertEqual(_condition_errors(metadata, "disable_when"),
+                         ["CHAR.a -> ghost", "CHAR.b (no values)"])
+
+
 class TestRefreshCardPlacement(unittest.TestCase):
     def setUp(self):
         with open(_MAIN_JS) as fh:
