@@ -230,9 +230,22 @@ class TestDisabledEvaluatorWiring(unittest.TestCase):
         return self.js[start:end]
 
     def test_propagates_ancestor_disabled_state(self):
+        # Pin the propagation condition verbatim: a substring like
+        # "is-disabled" survives deletion of the logic it claims to protect.
         block = self._evaluator()
-        self.assertIn("closest('[data-disabled-conds]')", block)
-        self.assertIn("is-disabled", block)
+        self.assertIn("const parentWrapper = parentEl.closest('[data-disabled-conds]');",
+                      block)
+        self.assertIn("parentWrapper !== wrapper", block)
+        self.assertIn("parentWrapper.classList.contains('is-disabled')", block)
+        self.assertIn(
+            "if (parentWrapper && parentWrapper !== wrapper && "
+            "parentWrapper.classList.contains('is-disabled')) return true;",
+            block)
+
+    def test_applies_the_disabled_state_to_the_wrapper_and_controls(self):
+        block = self._evaluator()
+        self.assertIn("classList.toggle('is-disabled', disabled)", block)
+        self.assertIn("el.disabled = disabled", block)
 
     def test_fails_closed_when_parent_is_missing(self):
         self.assertIn("if (!parentEl) return true;", self._evaluator())
