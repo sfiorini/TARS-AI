@@ -230,6 +230,46 @@ class TestDisabledCss(unittest.TestCase):
         self.assertIn(".is-disabled .field-wrapper:hover", block)
 
 
+class TestThinkingLayout(unittest.TestCase):
+    """The three settings must stack on the left and the phrases/card on the
+    right. No JS runs in this suite, so the post-render layout is pinned by
+    string scan."""
+
+    def setUp(self):
+        with open(_MAIN_JS) as fh:
+            self.js = fh.read()
+
+    def _fn(self, name):
+        start = self.js.index(f"function {name}")
+        end = self.js.index("\n  function ", start + 1)
+        return self.js[start:end]
+
+    def test_layout_function_is_defined(self):
+        self.assertIn("function layoutThinkingSettings", self.js)
+
+    def test_layout_runs_from_load_configuration(self):
+        self.assertIn("layoutThinkingSettings()", self._fn("loadConfiguration"))
+
+    def test_both_grids_exist(self):
+        block = self._fn("layoutThinkingSettings")
+        self.assertIn("thinkingSettingsGrid", block)
+        self.assertIn("thinkingPhrasesGrid", block)
+
+    def test_left_grid_takes_the_three_settings(self):
+        block = self._fn("layoutThinkingSettings")
+        for fid in ("cfg_CHAR_enable_thinking_responses",
+                    "cfg_CHAR_thinking_refresh_enabled",
+                    "cfg_CHAR_thinking_refresh_minutes"):
+            self.assertIn(fid, block)
+
+    def test_phrases_and_card_move_into_the_right_grid(self):
+        block = self._fn("layoutThinkingSettings")
+        self.assertIn("cfg_CHAR_thinking_responses", block)
+        self.assertIn("thinkingRefreshBtn", block)
+        self.assertLess(block.index("thinkingPhrasesGrid"),
+                        block.index("thinkingRefreshBtn"))
+
+
 class TestRefreshCardPlacement(unittest.TestCase):
     def setUp(self):
         with open(_MAIN_JS) as fh:

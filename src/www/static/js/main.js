@@ -2011,6 +2011,7 @@ function executeAction() {
       initTunnelControls();
 
       // Thinking-phrase refresh controls
+      layoutThinkingSettings();
       initThinkingRefresh();
 
       // Password show/hide toggle (event delegation)
@@ -2209,6 +2210,51 @@ function executeAction() {
         setButtons(true);
       }
     }).catch(() => {});
+  }
+
+  /* ── Thinking-settings two-column layout ────────────────────── */
+  // Post-render move: appendChild preserves listeners and every id stays
+  // unchanged, so the evaluators and initThinkingRefresh keep working.
+  // Left (stacked): master switch, auto-refresh toggle, interval.
+  // Right (stacked): phrase list, then the refresh card.
+  function layoutThinkingSettings() {
+    const panel = document.getElementById('configPanel_CHAR');
+    if (!panel) return;
+    const row = panel.querySelector('.config-panel-body > .row');
+    if (!row) return;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'row g-3 mt-2';
+    wrap.innerHTML = '<div class="col-12 col-lg-7"><div class="row g-2" id="thinkingSettingsGrid"></div></div>'
+      + '<div class="col-12 col-lg-5"><div class="row g-2" id="thinkingPhrasesGrid"></div></div>';
+    row.appendChild(wrap);
+
+    const left = document.getElementById('thinkingSettingsGrid');
+    const right = document.getElementById('thinkingPhrasesGrid');
+
+    const move = (id, target) => {
+      const el = document.getElementById(id);
+      if (!el || !target) return;
+      const cell = el.closest('.col-md-6') || el;
+      cell.classList.remove('col-md-6', 'col-lg-4');
+      cell.classList.add('col-12');
+      target.appendChild(cell);
+    };
+
+    move('cfg_CHAR_enable_thinking_responses', left);
+    move('cfg_CHAR_thinking_refresh_enabled', left);
+    move('cfg_CHAR_thinking_refresh_minutes', left);
+    move('cfg_CHAR_thinking_responses', right);
+
+    const refreshBtn = document.getElementById('thinkingRefreshBtn');
+    if (refreshBtn) {
+      const card = refreshBtn.closest('.col-md-6');
+      if (card) {
+        card.classList.remove('col-md-6', 'col-lg-4');
+        card.classList.add('col-12');
+        right.appendChild(card);
+      }
+    }
   }
 
   /* ── Thinking-phrase refresh (manual trigger) ───────────────── */
