@@ -303,8 +303,21 @@ class TestThinkingLayout(unittest.TestCase):
         block = self._fn("layoutThinkingSettings")
         self.assertIn("cfg_CHAR_thinking_responses", block)
         self.assertIn("thinkingRefreshBtn", block)
-        self.assertLess(block.index("thinkingPhrasesGrid"),
-                        block.index("thinkingRefreshBtn"))
+        # Assert the actual append targets, not just offset ordering (F4).
+        self.assertIn("right.appendChild(card)", block)
+        self.assertIn("left.appendChild(cell)", block)
+
+    def test_wrap_is_appended_to_the_panel_body_not_the_row(self):
+        """F7: a row g-3 nested inside the row g-2 stacks negative gutters."""
+        block = self._fn("layoutThinkingSettings")
+        self.assertIn(".config-panel-body", block)
+        self.assertIn("body.appendChild(wrap)", block)
+        self.assertNotIn("row.appendChild(wrap)", block)
+
+    def test_move_does_not_fall_back_to_a_bare_element(self):
+        """F6: `|| el` would rip a bare input out of its wrapper."""
+        block = self._fn("layoutThinkingSettings")
+        self.assertNotIn("|| el", block)
 
     def test_moved_cells_are_restyled_to_full_width(self):
         """F2: every moved cell must stack (col-12) at all widths, not keep

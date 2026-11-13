@@ -2220,31 +2220,41 @@ function executeAction() {
   function layoutThinkingSettings() {
     const panel = document.getElementById('configPanel_CHAR');
     if (!panel) return;
-    const row = panel.querySelector('.config-panel-body > .row');
-    if (!row) return;
+    // Append beside the existing .row g-2, not inside it: nesting a row g-3
+    // in a row g-2 stacks negative gutters and shifts the edges (F7).
+    const body = panel.querySelector('.config-panel-body');
+    if (!body) return;
 
     const wrap = document.createElement('div');
     wrap.className = 'row g-3 mt-2';
     wrap.innerHTML = '<div class="col-12 col-lg-7"><div class="row g-2" id="thinkingSettingsGrid"></div></div>'
       + '<div class="col-12 col-lg-5"><div class="row g-2" id="thinkingPhrasesGrid"></div></div>';
-    row.appendChild(wrap);
+    body.appendChild(wrap);
 
     const left = document.getElementById('thinkingSettingsGrid');
     const right = document.getElementById('thinkingPhrasesGrid');
 
-    const move = (id, target) => {
+    // Returns the column cell, restyled to stack at every width. No bare-
+    // element fallback: a field without a column cell is left where it is (F6).
+    const cellFor = (id) => {
       const el = document.getElementById(id);
-      if (!el || !target) return;
-      const cell = el.closest('.col-md-6') || el;
+      if (!el) return null;
+      const cell = el.closest('.col-md-6');
+      if (!cell) return null;
       cell.classList.remove('col-md-6', 'col-lg-4');
       cell.classList.add('col-12');
-      target.appendChild(cell);
+      return cell;
     };
 
-    move('cfg_CHAR_enable_thinking_responses', left);
-    move('cfg_CHAR_thinking_refresh_enabled', left);
-    move('cfg_CHAR_thinking_refresh_minutes', left);
-    move('cfg_CHAR_thinking_responses', right);
+    ['cfg_CHAR_enable_thinking_responses',
+     'cfg_CHAR_thinking_refresh_enabled',
+     'cfg_CHAR_thinking_refresh_minutes'].forEach(id => {
+      const cell = cellFor(id);
+      if (cell) left.appendChild(cell);
+    });
+
+    const phrases = cellFor('cfg_CHAR_thinking_responses');
+    if (phrases) right.appendChild(phrases);
 
     const refreshBtn = document.getElementById('thinkingRefreshBtn');
     if (refreshBtn) {
