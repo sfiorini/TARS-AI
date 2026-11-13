@@ -286,9 +286,10 @@ class TestDisabledCss(unittest.TestCase):
 
 
 class TestThinkingLayout(unittest.TestCase):
-    """The three settings must stack on the left and the phrases/card on the
-    right. No JS runs in this suite, so the post-render layout is pinned by
-    string scan."""
+    """Two half-width columns: the wake-word box with the three settings
+    stacked under it on the left, the filler box with the refresh card under
+    it on the right. No JS runs in this suite, so the post-render layout is
+    pinned by string scan."""
 
     def setUp(self):
         with open(_MAIN_JS) as fh:
@@ -310,12 +311,25 @@ class TestThinkingLayout(unittest.TestCase):
         self.assertIn("thinkingSettingsGrid", block)
         self.assertIn("thinkingPhrasesGrid", block)
 
-    def test_left_grid_takes_the_three_settings(self):
+    def test_wrap_builds_two_half_width_columns(self):
+        """FU-01: the two phrase boxes sit 50/50, so both columns are
+        col-12 col-lg-6 (the old 7/5 split orphaned the wake-word box)."""
         block = self._fn("layoutThinkingSettings")
+        self.assertEqual(block.count("col-12 col-lg-6"), 2)
+        self.assertNotIn("col-lg-7", block)
+        self.assertNotIn("col-lg-5", block)
+
+    def test_left_grid_takes_the_wake_word_box_and_three_settings(self):
+        block = self._fn("layoutThinkingSettings")
+        self.assertIn("'cfg_CHAR_responses',", block)
         for fid in ("cfg_CHAR_enable_thinking_responses",
                     "cfg_CHAR_thinking_refresh_enabled",
                     "cfg_CHAR_thinking_refresh_minutes"):
             self.assertIn(fid, block)
+        # responses is appended to the LEFT grid, not the right.
+        resp = block.index("cfg_CHAR_responses")
+        self.assertLess(block.index("left.appendChild", resp),
+                        block.index("right.appendChild", resp))
 
     def test_phrases_and_card_move_into_the_right_grid(self):
         block = self._fn("layoutThinkingSettings")
@@ -324,6 +338,9 @@ class TestThinkingLayout(unittest.TestCase):
         # Assert the actual append targets, not just offset ordering (F4).
         self.assertIn("right.appendChild(card)", block)
         self.assertIn("left.appendChild(cell)", block)
+        # Filler box on top, refresh card below it.
+        self.assertLess(block.index("right.appendChild(phrases)"),
+                        block.index("right.appendChild(card)"))
 
     def test_wrap_is_appended_to_the_panel_body_not_the_row(self):
         """F7: a row g-3 nested inside the row g-2 stacks negative gutters."""

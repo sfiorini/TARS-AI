@@ -2227,8 +2227,8 @@ function executeAction() {
 
     const wrap = document.createElement('div');
     wrap.className = 'row g-3 mt-2';
-    wrap.innerHTML = '<div class="col-12 col-lg-7"><div class="row g-2" id="thinkingSettingsGrid"></div></div>'
-      + '<div class="col-12 col-lg-5"><div class="row g-2" id="thinkingPhrasesGrid"></div></div>';
+    wrap.innerHTML = '<div class="col-12 col-lg-6"><div class="row g-2" id="thinkingSettingsGrid"></div></div>'
+      + '<div class="col-12 col-lg-6"><div class="row g-2" id="thinkingPhrasesGrid"></div></div>';
     body.appendChild(wrap);
 
     const left = document.getElementById('thinkingSettingsGrid');
@@ -2246,7 +2246,9 @@ function executeAction() {
       return cell;
     };
 
-    ['cfg_CHAR_enable_thinking_responses',
+    // Left column: wake-word box on top, then the three thinking settings.
+    ['cfg_CHAR_responses',
+     'cfg_CHAR_enable_thinking_responses',
      'cfg_CHAR_thinking_refresh_enabled',
      'cfg_CHAR_thinking_refresh_minutes'].forEach(id => {
       const cell = cellFor(id);
