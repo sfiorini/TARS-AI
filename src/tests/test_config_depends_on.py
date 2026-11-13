@@ -269,6 +269,13 @@ class TestThinkingLayout(unittest.TestCase):
         self.assertLess(block.index("thinkingPhrasesGrid"),
                         block.index("thinkingRefreshBtn"))
 
+    def test_moved_cells_are_restyled_to_full_width(self):
+        """F2: every moved cell must stack (col-12) at all widths, not keep
+        the original col-md-6 col-lg-4 sizing."""
+        block = self._fn("layoutThinkingSettings")
+        self.assertIn("classList.remove('col-md-6', 'col-lg-4')", block)
+        self.assertIn("classList.add('col-12')", block)
+
 
 class TestRefreshCardPlacement(unittest.TestCase):
     def setUp(self):
