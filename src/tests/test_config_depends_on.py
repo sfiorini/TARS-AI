@@ -330,6 +330,13 @@ class TestThinkingLayout(unittest.TestCase):
         resp = block.index("cfg_CHAR_responses")
         self.assertLess(block.index("left.appendChild", resp),
                         block.index("right.appendChild", resp))
+        # and it is FIRST in the left column (wake-word box on top of
+        # the three thinking settings) — mutation: moving it to the end
+        # of the move array must fail this test.
+        first_setting = block.index("'cfg_CHAR_enable_thinking_responses'")
+        self.assertLess(resp, first_setting,
+                        "cfg_CHAR_responses must precede the three settings "
+                        "in the move array (it renders on top of the left column)")
 
     def test_phrases_and_card_move_into_the_right_grid(self):
         block = self._fn("layoutThinkingSettings")
