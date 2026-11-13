@@ -1789,11 +1789,10 @@ function executeAction() {
 
         // Inject the thinking-phrase refresh controls into the System grid
         // (they belong with thinking_responses / thinking_refresh_*). The
-        // data-dep-conds reuses applyDependencies(): refreshing phrases is
-        // pointless when fillers are never spoken, so the card hides with
-        // the master switch.
+        // data-disabled-conds greys the button out when fillers are never
+        // spoken; the badge keeps polling so status stays visible.
         if (section === 'CHAR') {
-          html += `<div class="col-md-6 col-lg-4" data-dep-conds='[{"field":"enable_thinking_responses","values":["true"]}]' data-dep-section="CHAR"><div class="field-wrapper">
+          html += `<div class="col-md-6 col-lg-4" data-disabled-conds='[{"field":"enable_thinking_responses","values":["true"]}]' data-dep-section="CHAR"><div class="field-wrapper">
 <label class="form-label d-flex align-items-center gap-1">
   <span>Thinking phrases</span>
   <span class="config-tooltip-wrap" data-tip="Ask the AI to write a fresh batch of filler phrases now. Runs in the background and never interrupts a conversation."><i class="bi bi-info-circle config-tooltip-icon"></i></span>

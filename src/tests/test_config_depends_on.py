@@ -222,10 +222,11 @@ class TestRefreshCardPlacement(unittest.TestCase):
         self.assertIn("section === 'CHAR'", block)
         self.assertIn("thinkingRefreshBtn", block)
 
-    def test_card_hides_when_fillers_are_disabled(self):
+    def test_card_greys_out_when_fillers_are_disabled(self):
         start = self.js.index(_CARD_MARKER)
         block = self.js[start:start + 2000]
-        self.assertIn("data-dep-conds", block)
+        self.assertIn("data-disabled-conds", block)
+        self.assertNotIn("data-dep-conds", block)
         self.assertIn("enable_thinking_responses", block)
 
 
