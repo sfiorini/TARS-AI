@@ -14,6 +14,7 @@ checkbox-aware — and main.js:1704-1713 already emits the
 ``data-dep-conds`` / ``data-dep-section`` attributes. This module pins the
 metadata and the card's placement.
 """
+import ast
 import os
 import unittest
 
@@ -119,6 +120,47 @@ class TestDisableWhenIntegrity(unittest.TestCase):
         }}
         self.assertEqual(_condition_errors(metadata, "disable_when"),
                          ["CHAR.a -> ghost", "CHAR.b (no values)"])
+
+
+class TestDisableWhenForwarding(unittest.TestCase):
+    """The client can only honour disable_when if module_chatui copies it
+    into the per-field payload. The suite cannot import module_chatui
+    (Pi-only board/busio via module_servoctl), so pin the copy by AST."""
+
+    def setUp(self):
+        path = os.path.join(_SRC, "modules", "module_chatui.py")
+        with open(path) as fh:
+            tree = ast.parse(fh.read())
+        self.fn = next((n for n in ast.walk(tree)
+                        if isinstance(n, ast.FunctionDef)
+                        and n.name == "get_config"), None)
+
+    def _copied_keys(self):
+        keys = set()
+        for node in ast.walk(self.fn):
+            if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+                continue
+            target = node.targets[0]
+            value = node.value
+            # field_options[field_key]['KEY'] = field_def['KEY']
+            if not (isinstance(target, ast.Subscript)
+                    and isinstance(target.value, ast.Subscript)
+                    and isinstance(value, ast.Subscript)):
+                continue
+            tkey = target.slice
+            vkey = value.slice
+            if isinstance(tkey, ast.Constant) and isinstance(vkey, ast.Constant) \
+                    and tkey.value == vkey.value:
+                keys.add(tkey.value)
+        return keys
+
+    def test_get_config_exists(self):
+        self.assertIsNotNone(self.fn, "get_config() not found in module_chatui")
+
+    def test_both_condition_keys_are_copied_into_the_payload(self):
+        copied = self._copied_keys()
+        self.assertIn("depends_on", copied)
+        self.assertIn("disable_when", copied)
 
 
 class TestRefreshCardPlacement(unittest.TestCase):

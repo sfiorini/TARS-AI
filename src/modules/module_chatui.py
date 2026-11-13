@@ -1510,6 +1510,8 @@ def get_config():
                         field_options[field_key]['type'] = field_def['type']
                     if 'depends_on' in field_def:
                         field_options[field_key]['depends_on'] = field_def['depends_on']
+                    if 'disable_when' in field_def:
+                        field_options[field_key]['disable_when'] = field_def['disable_when']
                     if 'label' in field_def:
                         field_options[field_key]['label'] = field_def['label']
                     for k in ('min', 'max', 'step', 'group', 'group_label'):
