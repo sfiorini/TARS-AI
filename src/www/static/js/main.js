@@ -1792,7 +1792,7 @@ function executeAction() {
         // data-disabled-conds greys the button out when fillers are never
         // spoken; the badge keeps polling so status stays visible.
         if (section === 'CHAR') {
-          html += `<div class="col-md-6 col-lg-4" data-disabled-conds='[{"field":"enable_thinking_responses","values":["true"]}]' data-dep-section="CHAR"><div class="field-wrapper">
+          html += `<div class="col-md-6 col-lg-4" data-disabled-conds='[{"field":"enable_thinking_responses","values":["false"]}]' data-dep-section="CHAR"><div class="field-wrapper">
 <label class="form-label d-flex align-items-center gap-1">
   <span>Thinking phrases</span>
   <span class="config-tooltip-wrap" data-tip="Ask the AI to write a fresh batch of filler phrases now. Runs in the background and never interrupts a conversation."><i class="bi bi-info-circle config-tooltip-icon"></i></span>
@@ -2370,10 +2370,14 @@ function executeAction() {
     document.querySelectorAll('[data-disabled-conds]').forEach(wrapper => {
       const conds = JSON.parse(wrapper.dataset.disabledConds);
       const section = wrapper.dataset.depSection;
-      // No cascade-skip: a disabled field's conditions stand on their own.
+      // Disable when every condition is met. A disabled ancestor propagates
+      // down (its own gate is already in force), and a missing parent fails
+      // closed so a gate that is not on screen can never leave a field live.
       const disabled = conds.every(cond => {
         const parentEl = document.getElementById(`cfg_${section}_${cond.field}`);
-        if (!parentEl) return false;
+        if (!parentEl) return true;
+        const parentWrapper = parentEl.closest('[data-disabled-conds]');
+        if (parentWrapper && parentWrapper !== wrapper && parentWrapper.classList.contains('is-disabled')) return true;
         const val = parentEl.type === 'checkbox'
           ? (parentEl.checked ? 'true' : 'false')
           : parentEl.value.toLowerCase();

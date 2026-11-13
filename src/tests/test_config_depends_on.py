@@ -46,14 +46,35 @@ class TestThinkingFieldCascade(unittest.TestCase):
     def test_refresh_toggle_disabled_by_the_master_switch(self):
         d = CONFIG_METADATA["CHAR"]["thinking_refresh_enabled"]
         self.assertEqual(d.get("disable_when"),
-                         _disable("enable_thinking_responses", ["true"]))
+                         _disable("enable_thinking_responses", ["false"]))
         self.assertNotIn("depends_on", d)
 
     def test_refresh_minutes_disabled_by_the_refresh_toggle(self):
         d = CONFIG_METADATA["CHAR"]["thinking_refresh_minutes"]
         self.assertEqual(d.get("disable_when"),
-                         _disable("thinking_refresh_enabled", ["true"]))
+                         _disable("thinking_refresh_enabled", ["false"]))
         self.assertNotIn("depends_on", d)
+
+
+class TestDisabledSemantics(unittest.TestCase):
+    """disable_when values=['false'] means 'disable this field when the
+    parent is OFF'. The earlier ['true'] direction was inverted: master ON
+    greyed everything out and master OFF left the refresh button live."""
+
+    def test_toggle_is_disabled_when_master_is_off(self):
+        conds = CONFIG_METADATA["CHAR"]["thinking_refresh_enabled"]["disable_when"]
+        self.assertEqual(conds, [{"field": "enable_thinking_responses",
+                                  "values": ["false"]}])
+
+    def test_minutes_is_disabled_when_toggle_is_off(self):
+        conds = CONFIG_METADATA["CHAR"]["thinking_refresh_minutes"]["disable_when"]
+        self.assertEqual(conds, [{"field": "thinking_refresh_enabled",
+                                  "values": ["false"]}])
+
+    def test_no_field_uses_the_inverted_true_direction(self):
+        for name in ("thinking_refresh_enabled", "thinking_refresh_minutes"):
+            for cond in CONFIG_METADATA["CHAR"][name]["disable_when"]:
+                self.assertNotEqual(cond.get("values"), ["true"])
 
 
 class TestDependsOnIntegrity(unittest.TestCase):
@@ -198,7 +219,23 @@ class TestDisabledEvaluatorWiring(unittest.TestCase):
         self.assertIn("function applyDisabledDeps", self.js)
 
     def test_evaluator_runs_at_load(self):
-        self.assertIn("applyDependencies(); applyDisabledDeps();", self.js)
+        # Pin the load-site sequence, not a substring that the change arrow
+        # also contains (F4: the loose pin was mutation-vacuous).
+        self.assertIn("applyDependencies(); applyDisabledDeps(); attachDependencyHandlers();",
+                      self.js)
+
+    def _evaluator(self):
+        start = self.js.index("function applyDisabledDeps")
+        end = self.js.index("\n  function ", start + 1)
+        return self.js[start:end]
+
+    def test_propagates_ancestor_disabled_state(self):
+        block = self._evaluator()
+        self.assertIn("closest('[data-disabled-conds]')", block)
+        self.assertIn("is-disabled", block)
+
+    def test_fails_closed_when_parent_is_missing(self):
+        self.assertIn("if (!parentEl) return true;", self._evaluator())
 
     def test_parent_change_reruns_both_evaluators(self):
         start = self.js.index("function attachDependencyHandlers")
@@ -299,6 +336,7 @@ class TestRefreshCardPlacement(unittest.TestCase):
         self.assertIn("data-disabled-conds", block)
         self.assertNotIn("data-dep-conds", block)
         self.assertIn("enable_thinking_responses", block)
+        self.assertIn('"values":["false"]', block)
 
 
 if __name__ == "__main__":

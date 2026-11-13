@@ -843,15 +843,16 @@ CONFIG_METADATA = {
         },
         'thinking_refresh_enabled': {
             'description': 'When ON, TARS periodically asks the AI to write new filler phrases in the background — only while idle (standing by, not moving, not talking, CPU under 70 degrees) and at most once per interval. New phrases live in memory only and never overwrite your list. Default OFF.',
-            # pointless when fillers are never spoken — greyed out, not hidden
+            # grey out when fillers are never spoken (master OFF); never hide
             'disable_when': [{'field': 'enable_thinking_responses',
-                              'values': ['true']}],
+                              'values': ['false']}],
         },
         'thinking_refresh_minutes': {
             'description': 'Minimum minutes between background filler-phrase refreshes (default 120 = every 2 hours). Values below 1 are treated as 1.',
-            # the interval only means something when auto-refresh is on
+            # the interval only means something when auto-refresh is on; grey
+            # out when it is OFF (ancestor propagation handles master OFF)
             'disable_when': [{'field': 'thinking_refresh_enabled',
-                              'values': ['true']}],
+                              'values': ['false']}],
         },
         'responses': {
             'description': 'When you say the wake word (like "Hey TARS"), TARS will immediately say one of these short phrases to let you know it heard you. This happens BEFORE it actually processes what you say next. Think of it like saying "Yeah?" when someone calls your name. You can change these to whatever you want, add new ones, or remove ones you do not like. The format is a list in square brackets with each phrase in quotes separated by commas. Set to [] (empty brackets) if you do not want any response.'
