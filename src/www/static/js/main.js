@@ -1973,7 +1973,7 @@ function executeAction() {
         });
       });
       initTagInputs(); initScreensaverSelects(); initConfigTooltips();
-      applyDependencies(); attachDependencyHandlers(); attachBackendUrlAutoFill();
+      applyDependencies(); applyDisabledDeps(); attachDependencyHandlers(); attachBackendUrlAutoFill();
 
       // Character edit button → open CHARACTER_EDITOR panel with the selected character
       document.querySelectorAll('.config-char-edit-btn').forEach(btn => {
@@ -2321,23 +2321,45 @@ function executeAction() {
     });
   }
 
+  function applyDisabledDeps() {
+    document.querySelectorAll('[data-disabled-conds]').forEach(wrapper => {
+      const conds = JSON.parse(wrapper.dataset.disabledConds);
+      const section = wrapper.dataset.depSection;
+      // No cascade-skip: a disabled field's conditions stand on their own.
+      const disabled = conds.every(cond => {
+        const parentEl = document.getElementById(`cfg_${section}_${cond.field}`);
+        if (!parentEl) return false;
+        const val = parentEl.type === 'checkbox'
+          ? (parentEl.checked ? 'true' : 'false')
+          : parentEl.value.toLowerCase();
+        if (cond.not_values)
+          return !cond.not_values.map(v => v.toLowerCase()).includes(val);
+        return cond.values.map(v => v.toLowerCase()).includes(val);
+      });
+      wrapper.classList.toggle('is-disabled', disabled);
+      wrapper.querySelectorAll('input, select, button').forEach(el => { el.disabled = disabled; });
+    });
+  }
+
   function attachDependencyHandlers() {
     const attached = new Set();
-    document.querySelectorAll('[data-dep-conds]').forEach(wrapper => {
-      const conds = JSON.parse(wrapper.dataset.depConds);
+    // Parents can drive either evaluator, so both attribute sets are walked;
+    // the shared set keeps one listener per parent field.
+    const attach = (wrapper, datasetKey) => {
+      const conds = JSON.parse(wrapper.dataset[datasetKey]);
       const section = wrapper.dataset.depSection;
       conds.forEach(cond => {
         const parentId = `cfg_${section}_${cond.field}`;
-        if (!attached.has(parentId)) {
-          attached.add(parentId);
-          const parentEl = document.getElementById(parentId);
-          if (parentEl) {
-            parentEl.addEventListener('change', applyDependencies);
-            if (parentEl.type === 'range') parentEl.addEventListener('input', applyDependencies);
-          }
-        }
+        if (attached.has(parentId)) return;
+        attached.add(parentId);
+        const parentEl = document.getElementById(parentId);
+        if (!parentEl) return;
+        parentEl.addEventListener('change', () => { applyDependencies(); applyDisabledDeps(); });
+        if (parentEl.type === 'range') parentEl.addEventListener('input', () => { applyDependencies(); applyDisabledDeps(); });
       });
-    });
+    };
+    document.querySelectorAll('[data-dep-conds]').forEach(w => attach(w, 'depConds'));
+    document.querySelectorAll('[data-disabled-conds]').forEach(w => attach(w, 'disabledConds'));
   }
 
   const BACKEND_URLS = {

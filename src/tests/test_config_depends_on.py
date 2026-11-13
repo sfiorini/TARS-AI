@@ -184,6 +184,28 @@ class TestDisabledAttrEmission(unittest.TestCase):
         self.assertIn("data-disabled-conds=", self._emission_block())
 
 
+class TestDisabledEvaluatorWiring(unittest.TestCase):
+    """No test in this suite executes JS. If the change callback runs only
+    applyDependencies(), the disabled state goes stale on every parent
+    toggle and every gate stays green — so pin both evaluators explicitly."""
+
+    def setUp(self):
+        with open(_MAIN_JS) as fh:
+            self.js = fh.read()
+
+    def test_evaluator_is_defined(self):
+        self.assertIn("function applyDisabledDeps", self.js)
+
+    def test_evaluator_runs_at_load(self):
+        self.assertIn("applyDependencies(); applyDisabledDeps();", self.js)
+
+    def test_parent_change_reruns_both_evaluators(self):
+        start = self.js.index("function attachDependencyHandlers")
+        end = self.js.index("const BACKEND_URLS", start)
+        block = self.js[start:end]
+        self.assertIn("() => { applyDependencies(); applyDisabledDeps(); }", block)
+
+
 class TestRefreshCardPlacement(unittest.TestCase):
     def setUp(self):
         with open(_MAIN_JS) as fh:
