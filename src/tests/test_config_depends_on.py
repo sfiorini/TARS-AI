@@ -266,6 +266,11 @@ class TestDisabledCss(unittest.TestCase):
         block = self._field_wrapper_block()
         self.assertIn(".is-disabled .field-wrapper:hover", block)
 
+    def test_dead_label_rule_is_gone(self):
+        """F5: `.config-panel-body .form-label !important` outranks this rule,
+        so it never applied — dead code, removed."""
+        self.assertNotIn(".is-disabled .form-label", self.css)
+
 
 class TestThinkingLayout(unittest.TestCase):
     """The three settings must stack on the left and the phrases/card on the
