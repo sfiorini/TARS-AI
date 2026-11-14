@@ -386,6 +386,27 @@ def test_dirty_guards_on_in_app_navigation():
     assert "'beforeunload'" in JS
 
 
+def test_editor_overflow_menu_contract():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    render = function_source("renderOverflowMenu")
+    gate = function_source("shouldShowRestoreDefault")
+    assert 'id="meOverflowBtn"' in html and 'id="meOverflowMenu"' in html
+    for action in ("duplicate", "delete", "restore-default", "close"):
+        assert f"'{action}'" in render
+    assert "defaultsOk" in gate and "defaultsData" in gate
+    assert "stableStringify(draft.entry) !== stableStringify(defaultsData[draft.id])" in gate
+
+
+def test_restore_default_puts_default_entry_with_confirm():
+    restore = function_source("restoreDefault")
+    confirm = function_source("showRestoreDefaultConfirm")
+    assert "var defaultEntry = defaultsData[id]" in restore
+    assert "name: defaultEntry.name" in restore and "steps_arms: deepCopy(defaultEntry.steps_arms)" in restore
+    assert "method: 'PUT'" in restore and "fetch('/movements/'" in restore
+    assert "Restore '" in confirm and "to the shipped default" in confirm and "Your edits are lost." in confirm
+    assert "strip.textContent = res.d.error" in restore
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

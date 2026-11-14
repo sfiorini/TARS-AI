@@ -481,6 +481,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setSaveState('CLEAN');
     updateIdStatus();
     renderTimeline();
+    renderOverflowMenu();
   }
   function handleMetadataInput(event) {
     if (!draft) return;
@@ -1245,11 +1246,13 @@ document.addEventListener('DOMContentLoaded', function () {
       defaultsOk = true;
       defaultsFailureNotified = false;
       applyBadges();
+      renderOverflowMenu();
       return true;
     }).catch(function () {
       defaultsData = null;
       defaultsOk = false;
       applyBadges();
+      renderOverflowMenu();
       if (!defaultsFailureNotified) {
         defaultsFailureNotified = true;
         notify('Movement defaults unavailable; status badges are hidden.', 'error');
@@ -1279,9 +1282,9 @@ document.addEventListener('DOMContentLoaded', function () {
   function deepCopy(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
   }
-  function duplicateMovement(id, button, discarded) {
+  function duplicateMovement(id, button, discarded, openAfter) {
     if (!discarded && draft && draft.id === id && (isDirty() || rawDirty())) {
-      return meConfirmDiscard(function () { duplicateMovement(id, button, true); });
+      return meConfirmDiscard(function () { duplicateMovement(id, button, true, openAfter); });
     }
     var entry = pool[id];
     if (!entry) { notify('Movement is no longer in the library.', 'error'); return; }
@@ -1307,7 +1310,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }).then(function (res) {
       if (!res.ok) { notify(res.d.error || 'Duplicate failed.', 'error'); return false; }
       notify('Duplicated as ' + newId, 'success');
-      return fetchPool();
+      return fetchPool().then(function () {
+        if (openAfter && Object.prototype.hasOwnProperty.call(pool, newId)) openForEdit(newId, true);
+        return true;
+      });
     }).catch(function (error) {
       notify(error && error.message ? error.message : 'Duplicate failed.', 'error');
       return false;
@@ -1349,6 +1355,109 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!strip) return;
     strip.innerHTML = ''; strip.hidden = true; strip.className = 'me-confirm-strip bld-overwrite-confirm';
   }
+  function shouldShowRestoreDefault() {
+    return !!(draft && !isCreating && defaultsOk && defaultsData &&
+      Object.prototype.hasOwnProperty.call(defaultsData, draft.id) &&
+      stableStringify(draft.entry) !== stableStringify(defaultsData[draft.id]));
+  }
+  function renderOverflowMenu() {
+    var menu = el('meOverflowMenu');
+    if (!menu) return;
+    menu.innerHTML = '';
+    var actions = {
+      duplicate: 'Duplicate',
+      delete: 'Delete',
+      'restore-default': 'Restore default',
+      close: 'Close'
+    };
+    var visible = draft && draft.id ? ['duplicate', 'delete'] : [];
+    if (shouldShowRestoreDefault()) visible.push('restore-default');
+    if (draft) visible.push('close');
+    visible.forEach(function (action) {
+      var item = document.createElement('button');
+      item.type = 'button'; item.setAttribute('role', 'menuitem');
+      item.setAttribute('data-action', action); item.textContent = actions[action];
+      menu.appendChild(item);
+    });
+  }
+  function handleOverflowClick(event) {
+    if (event.target.closest('#meOverflowBtn')) {
+      var menu = el('meOverflowMenu');
+      menu.hidden = !menu.hidden;
+      el('meOverflowBtn').setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
+      return;
+    }
+    var item = event.target.closest('#meOverflowMenu [data-action]');
+    if (!item || !draft) return;
+    var action = item.getAttribute('data-action');
+    el('meOverflowMenu').hidden = true;
+    el('meOverflowBtn').setAttribute('aria-expanded', 'false');
+    if (action === 'duplicate') duplicateMovement(draft.id, null, false, true);
+    else if (action === 'delete') deleteMovement(draft.id);
+    else if (action === 'restore-default') showRestoreDefaultConfirm(draft.id);
+    else if (action === 'close') closeEditor();
+  }
+  function handleOverflowOutsideClick(event) {
+    var menu = el('meOverflowMenu');
+    if (!menu || menu.hidden) return;
+    if (!event.target.closest('#meOverflowBtn') && !event.target.closest('#meOverflowMenu')) {
+      menu.hidden = true;
+      el('meOverflowBtn').setAttribute('aria-expanded', 'false');
+    }
+  }
+  function showRestoreDefaultConfirm(id) {
+    if (!shouldShowRestoreDefault() || id !== draft.id) return false;
+    pendingAction = {type: 'restore-default', id: id};
+    showConfirmStrip("Restore '" + draft.entry.name + "' to the shipped default? Your edits are lost.", [
+      {label: 'Restore', action: 'confirm-restore-default', danger: true},
+      {label: 'Cancel', action: 'cancel'}
+    ], true);
+    return true;
+  }
+  function restoreDefault(id) {
+    if (!defaultsOk || !defaultsData || !Object.prototype.hasOwnProperty.call(defaultsData, id)) return false;
+    var defaultEntry = defaultsData[id];
+    var payload = {
+      name: defaultEntry.name,
+      type: defaultEntry.type,
+      description: defaultEntry.description,
+      steps: deepCopy(defaultEntry.steps),
+      steps_arms: deepCopy(defaultEntry.steps_arms)
+    };
+    return fetch('/movements/' + encodeURIComponent(id), {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (d) { return {ok: r.ok, d: d}; });
+    }).then(function (res) {
+      if (!res.ok) {
+        var strip = el('meErrorStrip');
+        strip.hidden = false;
+        strip.textContent = res.d.error;
+        if (!strip.textContent) strip.textContent = 'Restore failed.';
+        notify(res.d.error || 'Restore failed.', 'error');
+        return false;
+      }
+      clearDraft();
+      clearConfirmStrip();
+      return fetchPool().then(function () {
+        var restored = pool[id] || defaultEntry;
+        el('meErrorStrip').hidden = true;
+        el('meErrorStrip').textContent = '';
+        isCreating = false;
+        draft = {id: id, entry: deepCopy(restored), baseSnapshot: deepCopy(restored)};
+        savedSnapshot = stableStringify(draft.entry);
+        renderEditor();
+        notify('Restored default', 'success');
+        return true;
+      });
+    }).catch(function (error) {
+      var strip = el('meErrorStrip');
+      strip.hidden = false;
+      strip.textContent = error && error.message ? error.message : 'Restore failed.';
+      notify(strip.textContent, 'error');
+      return false;
+    });
+  }
   function handleConfirmClick(event) {
     var button = event.target.closest('[data-action]');
     if (!button) return;
@@ -1371,6 +1480,13 @@ document.addEventListener('DOMContentLoaded', function () {
     if (action === 'keep-editing') {
       pendingGuardAction = null;
       clearConfirmStrip();
+      return;
+    }
+    if (action === 'confirm-restore-default' && pendingAction && pendingAction.type === 'restore-default') {
+      var restoreId = pendingAction.id;
+      pendingAction = null;
+      clearConfirmStrip();
+      restoreDefault(restoreId);
       return;
     }
     if (action === 'raw-discard-pending') {
@@ -1515,6 +1631,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
   if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
+  document.addEventListener('click', handleOverflowOutsideClick);
   if (el('meLibSearch')) el('meLibSearch').addEventListener('input', renderLibrary);
   if (el('meLibSort')) el('meLibSort').addEventListener('change', function () {
     selectedSort = el('meLibSort').value || 'id'; renderLibrary();
@@ -1527,6 +1644,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
     el('meEditor').addEventListener('click', handleModeClick);
+    el('meEditor').addEventListener('click', handleOverflowClick);
   }
   if (el('meTimeline')) {
     el('meTimeline').addEventListener('click', handleTimelineClick);
