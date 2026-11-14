@@ -861,7 +861,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var label = document.createElement('label'); label.textContent = 'Arm speed';
     var autoLabel = document.createElement('label'); autoLabel.className = 'me-arm-speed-auto-label';
     var auto = document.createElement('input'); auto.id = 'meArmSpeedAuto'; auto.type = 'checkbox';
-    auto.checked = step.arm_speed === null || step.arm_speed === undefined;
+    auto.checked = step.arm_speed === null || step.arm_speed === undefined || !showCustom;
     auto.disabled = !showCustom;
     autoLabel.appendChild(auto); autoLabel.appendChild(document.createTextNode('Auto (= speed)'));
     var controls = document.createElement('span'); controls.className = 'me-arm-speed-controls';

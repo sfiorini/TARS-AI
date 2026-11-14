@@ -608,6 +608,9 @@ def test_arms_group_gated_by_arms_present():
     assert "Arm values play on PLAY — live preview is legs-only in this version." in render
     assert "steps_arms: deepCopy(draft.entry.steps_arms)" in function_source("saveEntry")
     assert "steps_arms" in function_source("rawEntryFromDraft")
+    # M2 audit-B F2 (E5 data-loss): the save path must NEVER consult the
+    # hardware flag — arms are stored even when not installed.
+    assert "armsPresent" not in function_source("saveEntry")
 
 
 def test_hold_mode_stores_minus_one():
@@ -637,6 +640,10 @@ def test_arm_speed_ui_and_null_auto():
     assert "slider.min = '0'" in arm_speed and "slider.max = '1'" in arm_speed and "slider.step = '0.05'" in arm_speed
     assert "number.min = '0'" in arm_speed and "number.max = '1'" in arm_speed
     assert "branch === 'steps_arms' || hasArmValue" in arm_speed
+    # M2 audit-B F4: collapsed presentation is Auto (checked) when custom is
+    # hidden — a stored arm_speed on a BASE step without arm values stays
+    # visible-as-Auto and preserved, never an unchecked disabled limbo.
+    assert "auto.checked = step.arm_speed === null || step.arm_speed === undefined || !showCustom;" in arm_speed
 
 
 def test_import_from_cached_pool_per_branch():
@@ -657,7 +664,8 @@ def test_import_from_cached_pool_per_branch():
     append_path = apply_import.split("else if (action.kind === 'append')", 1)[1]
     assert "kind === 'append'" in apply_import and "target.concat(imported)" in append_path
     assert "selected.index" not in append_path
-    assert "'/get_movement_steps'" not in JS and '"/get_movement_steps"' not in JS
+    # M2 audit-B F3: substring ban covers query-string/concatenation variants.
+    assert not re.search(r"get_movement_steps", JS)
 
 
 def test_ref_cards_expose_no_timing_controls():
@@ -669,6 +677,11 @@ def test_ref_cards_expose_no_timing_controls():
     assert "renderRefPanel(step, panel, 'Timing belongs to the referenced movement — this step\\'s stored hold/speed are not applied at playback.')" in render
     for timing_id in ("meHoldSlider", "meSpeedSlider", "meArmSpeedSlider"):
         assert timing_id not in ref_panel
+    # M2 audit-B F1: the ref RENDER PATH (everything before the non-ref guard)
+    # must not emit timing controls — pins the hoist mutation, not just the
+    # structurally-timing-free renderRefPanel helper.
+    ref_path = render.split("if (!step.movement) {", 1)[0]
+    assert "TIMING_FIELDS.forEach" not in ref_path and "renderArmSpeedField" not in ref_path
     assert "plays " in step_summary and "playableSteps(reference)" in step_summary
     validate = function_source("validateEntry")
     assert "stored, not applied at playback" in validate
