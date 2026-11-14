@@ -696,3 +696,14 @@ def test_ref_step_neutral_keys_and_open_link():
     assert "openForEdit(open.getAttribute('data-ref-id'))" in pose_click
 
 
+def test_ref_validation_client_dfs():
+    validate = function_source("validateEntry")
+    find_cycle = function_source("findCycle")
+    assert "function findCycle(startId, entries)" in find_cycle
+    assert "visited" in find_cycle and "active" in find_cycle
+    assert "['steps', 'steps_arms']" in find_cycle
+    assert "findCycle(id, cycleEntries)" in validate
+    assert "step.movement === id" in validate
+    assert "path: branchName + '[' + index + '].movement'" in validate
+
+

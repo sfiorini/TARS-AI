@@ -465,6 +465,31 @@ document.addEventListener('DOMContentLoaded', function () {
   function idTaken(id) {
     return Object.prototype.hasOwnProperty.call(pool, id);
   }
+  function findCycle(startId, entries) {
+    var visited = Object.create(null);
+    var active = Object.create(null);
+    var path = [];
+    function visit(id) {
+      if (active[id]) return path.concat(id);
+      if (visited[id] || !entries[id]) return null;
+      active[id] = true;
+      path.push(id);
+      var cycle = null;
+      ['steps', 'steps_arms'].some(function (branchName) {
+        var steps = Array.isArray(entries[id][branchName]) ? entries[id][branchName] : [];
+        return steps.some(function (step) {
+          if (!step || typeof step.movement !== 'string' || !step.movement) return false;
+          cycle = visit(step.movement);
+          return !!cycle;
+        });
+      });
+      path.pop();
+      delete active[id];
+      visited[id] = true;
+      return cycle;
+    }
+    return startId ? visit(startId) : null;
+  }
   function validateEntry(entry, ctx) {
     ctx = ctx || {};
     entry = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
@@ -544,7 +569,7 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (step.hold_time > 10) {
           warnings.push({path: path + '.hold_time', msg: 'clamped to 10 on save'});
         }
-            if (step.movement !== null) {
+        if (step.movement !== null) {
           if (typeof step.movement !== 'string' || step.movement === id) {
             errors.push({path: path + '.movement', msg: 'must reference another existing movement'});
           } else if (!Object.prototype.hasOwnProperty.call(existingIds, step.movement) && step.movement !== id) {
@@ -559,6 +584,22 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     validateSteps('steps', normalized.steps);
     validateSteps('steps_arms', normalized.steps_arms);
+    var cycleEntries = {};
+    Object.keys(existingIds).forEach(function (existingId) { cycleEntries[existingId] = existingIds[existingId]; });
+    if (id) cycleEntries[id] = normalized;
+    var cyclePath = findCycle(id, cycleEntries);
+    if (cyclePath && cyclePath.length > 1 && cyclePath[1] !== id) {
+      var firstReference = cyclePath[1];
+      ['steps', 'steps_arms'].some(function (branchName) {
+        var steps = normalized[branchName];
+        if (!Array.isArray(steps)) return false;
+        return steps.some(function (step, index) {
+          if (!step || step.movement !== firstReference) return false;
+          errors.push({path: branchName + '[' + index + '].movement', msg: 'reference cycle: ' + cyclePath.join(' → ')});
+          return true;
+        });
+      });
+    }
     var notice = filledCount ? 'Filled ' + filledCount + ' missing step fields.' : '';
     return {ok: errors.length === 0, errors: errors, warnings: warnings, filledCount: filledCount, notice: notice, entry: normalized};
   }
