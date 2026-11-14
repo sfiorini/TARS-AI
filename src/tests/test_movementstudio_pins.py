@@ -379,6 +379,13 @@ def test_draft_drift_and_quota_degrade():
     assert "restoreDraft(" not in check
 
 
+def test_dirty_guards_on_in_app_navigation():
+    assert "Discard unsaved changes to" in JS
+    for name in ("openForEdit", "openCreate", "closeEditor", "duplicateMovement", "deleteMovement"):
+        assert "meConfirmDiscard(" in function_source(name), f"{name} must guard dirty navigation"
+    assert "'beforeunload'" in JS
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

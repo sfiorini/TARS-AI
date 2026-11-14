@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var defaultsFailureNotified = false;
   var pendingAction = null;
   var pendingClearSnapshot = null;
+  var pendingGuardAction = null;
   var draft = null;
   var savedSnapshot = null;
   var savedFlashTimer = null;
@@ -1122,7 +1123,48 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   }
-  function openForEdit(id) {
+  function meConfirmDiscard(action) {
+    if (!draft || (!isDirty() && !rawDirty())) { action(); return true; }
+    pendingGuardAction = action;
+    var name = draft.entry.name || draft.id || 'new movement';
+    showConfirmStrip('Discard unsaved changes to "' + name + '"?', [
+      {label: 'Discard', action: 'discard-unsaved', danger: true},
+      {label: 'Keep editing', action: 'keep-editing'}
+    ], true);
+    return false;
+  }
+  function discardCurrentEdits() {
+    if (draft) {
+      var savedEntry = draft.id && pool[draft.id] ? deepCopy(pool[draft.id]) :
+        (draft.baseSnapshot ? deepCopy(draft.baseSnapshot) : null);
+      if (savedEntry) {
+        draft.entry = savedEntry;
+        isCreating = false;
+      } else {
+        draft.id = '';
+        isCreating = true;
+        draft.entry = {name: '', type: 'legs_only', description: '', steps: [DEFAULT_STEP()], steps_arms: null};
+      }
+      savedSnapshot = stableStringify(draft.entry);
+      if (el('meRawText')) el('meRawText').value = rawSnapshot;
+      rawSnapshot = '';
+      el('meDirtyDot').hidden = true;
+      setSaveState('CLEAN');
+      renderTimeline();
+    }
+    clearDraft();
+  }
+  function handleBeforeUnload(event) {
+    if (draft && (isDirty() || rawDirty())) {
+      event.preventDefault();
+      event.returnValue = '';
+      return '';
+    }
+  }
+  function openForEdit(id, discarded) {
+    if (!discarded && draft && (draft.id !== id || isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { openForEdit(id, true); });
+    }
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
     isCreating = false;
     idManuallyEdited = false;
@@ -1132,7 +1174,10 @@ document.addEventListener('DOMContentLoaded', function () {
     renderEditor();
     return true;
   }
-  function openCreate() {
+  function openCreate(discarded) {
+    if (!discarded && draft && (isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { openCreate(true); });
+    }
     isCreating = true;
     idManuallyEdited = false;
     draft = {id: '', entry: {
@@ -1143,11 +1188,16 @@ document.addEventListener('DOMContentLoaded', function () {
     renderEditor();
     return true;
   }
-  function closeEditor() {
+  function closeEditor(discarded) {
+    if (!discarded && draft && (isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { closeEditor(true); });
+    }
     var pane = el('meEditor');
     if (pane) pane.hidden = true;
+    clearDraft();
     draft = null;
     savedSnapshot = null;
+    return true;
   }
   function notify(message, type) {
     if (window.showToast) window.showToast(message, type || 'info');
@@ -1229,7 +1279,10 @@ document.addEventListener('DOMContentLoaded', function () {
   function deepCopy(value) {
     return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
   }
-  function duplicateMovement(id, button) {
+  function duplicateMovement(id, button, discarded) {
+    if (!discarded && draft && draft.id === id && (isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { duplicateMovement(id, button, true); });
+    }
     var entry = pool[id];
     if (!entry) { notify('Movement is no longer in the library.', 'error'); return; }
     var newId = id + '_copy';
@@ -1307,6 +1360,19 @@ document.addEventListener('DOMContentLoaded', function () {
       if (applied.ok && applyNext === 'save') saveEntry();
       return;
     }
+    if (action === 'discard-unsaved') {
+      var proceed = pendingGuardAction;
+      pendingGuardAction = null;
+      clearConfirmStrip();
+      discardCurrentEdits();
+      if (proceed) proceed();
+      return;
+    }
+    if (action === 'keep-editing') {
+      pendingGuardAction = null;
+      clearConfirmStrip();
+      return;
+    }
     if (action === 'raw-discard-pending') {
       var discardNext = rawPendingAction;
       el('meRawText').value = rawSnapshot;
@@ -1335,7 +1401,10 @@ document.addEventListener('DOMContentLoaded', function () {
       pendingAction = null; clearConfirmStrip(); performReset(true);
     }
   }
-  function deleteMovement(id) {
+  function deleteMovement(id, discarded) {
+    if (!discarded && draft && draft.id === id && (isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { deleteMovement(id, true); });
+    }
     var refs = findReferrers(id, pool);
     if (refs.length) {
       var refNames = refs.map(function (ref) {
@@ -1372,6 +1441,7 @@ document.addEventListener('DOMContentLoaded', function () {
         return false;
       }
       clearConfirmStrip(); notify('Deleted "' + id + '"', 'success');
+      if (draft && draft.id === id) closeEditor(true);
       return fetchPool();
     }).catch(function (error) {
       showConfirmStrip(error && error.message ? error.message : 'Delete failed.', [
@@ -1452,6 +1522,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
+  window.addEventListener('beforeunload', handleBeforeUnload);
   if (el('meEditor')) {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
