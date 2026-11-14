@@ -47,8 +47,11 @@ def test_web_ui_documents_movements_routes():
 
 
 def _section(text: str, heading: str) -> str:
-    assert heading in text, f"document lost the section heading '{heading}'"
-    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+    # Anchored to a whole heading line: a re-leveled heading (### instead of ##)
+    # would otherwise slip past the window's "\n## " boundary and widen it.
+    match = re.search(rf"^{re.escape(heading)}[ \t]*$", text, re.MULTILINE)
+    assert match, f"document lost the section heading '{heading}'"
+    return text[match.end():].split("\n## ", 1)[0]
 
 
 def _line_starting_with(section: str, prefix: str) -> str:
@@ -76,5 +79,8 @@ def test_docs_home_documents_movement_studio():
         assert needle in row, f"docs home Studio row lost '{needle}'"
     assert "the Movement Studio" in _section(index, "## Documentation map"), \
         "docs home documentation map lost the Movement Studio"
+    # Deliberately broad: this page must not advertise the removed tab, so even
+    # historical prose has to avoid the bigram (say "the old Builder tab", as
+    # the delta row does, or name it without "the").
     assert not re.search(r"the\s+builder", index, re.IGNORECASE), \
         "docs home page still advertises the removed Builder tab"
