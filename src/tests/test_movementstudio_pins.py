@@ -386,6 +386,8 @@ def test_dirty_guards_on_in_app_navigation():
     assert "Discard unsaved changes to" in JS
     for name in ("openForEdit", "openCreate", "closeEditor", "duplicateMovement", "deleteMovement"):
         assert "meConfirmDiscard(" in function_source(name), f"{name} must guard dirty navigation"
+    delete = function_source("deleteMovement")
+    assert delete.index("findReferrers(id, pool)") < delete.index("meConfirmDiscard(")
     assert "'beforeunload'" in JS
 
 

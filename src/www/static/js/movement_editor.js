@@ -1521,9 +1521,6 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
   function deleteMovement(id, discarded) {
-    if (!discarded && draft && draft.id === id && (isDirty() || rawDirty())) {
-      return meConfirmDiscard(function () { deleteMovement(id, true); });
-    }
     var refs = findReferrers(id, pool);
     if (refs.length) {
       var refNames = refs.map(function (ref) {
@@ -1534,6 +1531,9 @@ document.addEventListener('DOMContentLoaded', function () {
         {label: 'Cancel', action: 'cancel-delete'}
       ], true);
       return;
+    }
+    if (!discarded && draft && draft.id === id && (isDirty() || rawDirty())) {
+      return meConfirmDiscard(function () { deleteMovement(id, true); });
     }
     pendingAction = {type: 'delete', id: id};
     if (defaultsOk && Object.prototype.hasOwnProperty.call(defaultsData, id)) {
