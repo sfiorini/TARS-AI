@@ -95,6 +95,9 @@ class MovementStore:
         # into execute() -> play_steps() while this thread already holds
         # the MOVING claim — the inner call must not re-acquire it
         self._tls = threading.local()
+        # import-vs-import serialization only (D7): one whole-set import
+        # at a time; CRUD races remain last-write-wins (T-04 / PL-2)
+        self._import_lock = threading.Lock()
 
     # ------------------------------------------------------------------
     # loading
@@ -303,6 +306,106 @@ class MovementStore:
         self.save()
         self._refresh_registry()
         return []
+
+    def import_entries(self, entries, mode="replace", on_conflict="overwrite"):
+        """Import a movements dict into the pool — all or nothing.
+
+        mode="replace": the pool becomes exactly `entries` (refs resolve
+        within the file — existing import_from semantics).  mode="merge":
+        `entries` is unioned onto the current pool (refs resolve against
+        current+imported ids); colliding ids are overwritten or skipped
+        per on_conflict.
+
+        Returns a result dict:
+          {"ok": bool, "errors": [str, ...],
+           "added": [...sorted...], "overwritten": [...], "skipped": [...],
+           "count": int}          # count = len(self.movements) after the call
+        On failure nothing is committed: the live pool and the store file
+        are untouched.  Raises ValueError on a bad mode/on_conflict or a
+        non-dict `entries` (caller-validated at the boundaries).
+        """
+        if mode not in ("replace", "merge"):
+            raise ValueError("mode must be 'replace' or 'merge'")
+        if on_conflict not in ("overwrite", "skip"):
+            raise ValueError("on_conflict must be 'overwrite' or 'skip'")
+        if not isinstance(entries, dict) or not entries:
+            raise ValueError("entries must be a non-empty dict")
+
+        with self._import_lock:             # D7: import-vs-import only
+            errors = []
+            if mode == "replace":
+                known = set(entries)
+            else:
+                known = set(self.movements) | set(entries)
+            # audit F1: normalize BEFORE validating so the hold_time clamp
+            # persists — identical loop to import_from's (store:283-292)
+            normalized = {}
+            for mid, entry in entries.items():
+                try:
+                    entry = self._normalize_steps(entry)
+                    self.validate_entry(mid, entry, known_ids=known)
+                    normalized[mid] = entry
+                except ValueError as exc:
+                    errors.append(f"{mid}: {exc}")
+            if errors:
+                return {"ok": False, "errors": errors, "added": [],
+                        "overwritten": [], "skipped": [],
+                        "count": len(self.movements)}
+
+            # classify DURING the merge (D3) and build the merged map
+            added, overwritten, skipped = [], [], []
+            if mode == "replace":
+                merged = normalized
+                for mid in normalized:
+                    if mid in self.movements:
+                        overwritten.append(mid)
+                    else:
+                        added.append(mid)
+            else:
+                merged = copy.deepcopy(self.movements)
+                for mid, entry in normalized.items():
+                    if mid in merged:
+                        if on_conflict == "overwrite":
+                            merged[mid] = entry
+                            overwritten.append(mid)
+                        else:
+                            skipped.append(mid)      # local version stays
+                    else:
+                        merged[mid] = entry
+                        added.append(mid)
+
+            # audit A2: acyclic over the MERGED map — a cycle can span sets
+            for mid in merged:
+                try:
+                    self._check_acyclic(mid, entries=merged)
+                except ValueError as exc:
+                    return {"ok": False, "errors": [str(exc)],
+                            "added": [], "overwritten": [],
+                            "skipped": [], "count": len(self.movements)}
+
+            # commit (D7: rollback on save failure — memory never
+            # diverges).  Catch Exception, not just OSError (audit
+            # R1-F14): a direct Python caller can pass a non-serializable
+            # value under an unknown top-level key (validation ignores
+            # those) -> json.dumps TypeError AFTER the assignment; the
+            # rollback must cover that corner too.  HTTP/CLI payloads are
+            # JSON-derived and only ever raise OSError here.
+            before = self.movements
+            self.movements = copy.deepcopy(merged)
+            try:
+                self.save()
+            except Exception as exc:
+                self.movements = before
+                return {"ok": False,
+                        "errors": [f"save failed: {exc}"],
+                        "added": [], "overwritten": [], "skipped": [],
+                        "count": len(self.movements)}
+            self._refresh_registry()
+            return {"ok": True, "errors": [],
+                    "added": sorted(added),
+                    "overwritten": sorted(overwritten),
+                    "skipped": sorted(skipped),
+                    "count": len(self.movements)}
 
     # ------------------------------------------------------------------
     # validation

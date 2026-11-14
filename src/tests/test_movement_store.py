@@ -746,6 +746,415 @@ class TestRegistryShim(_StoreTestCase):
         self.assertIn("binding_probe", bound)
 
 
+def _ref_entry(ref_id):
+    """A valid entry whose step references another movement (merge tests)."""
+    entry = _valid_entry()
+    entry["name"] = "Ref Move"
+    entry["description"] = "references " + ref_id
+    entry["steps"][0]["movement"] = ref_id
+    return entry
+
+
+def _as_stored(entry):
+    """The entry as the store persists it (full step schema, incl. arm_speed)."""
+    from modules.module_movementstore import MovementStore
+    return MovementStore._normalize_steps(entry)
+
+
+class TestMerge(_StoreTestCase):
+    """Whole-set import: import_entries modes/policies (S-M2-08).
+
+    mode="replace" keeps the file-only ref semantics of import_from;
+    mode="merge" unions refs onto the live pool, classifies every
+    imported id DURING the merge (added/overwritten/skipped — never
+    post-hoc set diffs), checks acyclicity over the MERGED map, and is
+    all-or-nothing: on any error the live pool and the store file are
+    untouched.  The import lock serializes import-vs-import; a failed
+    save() rolls the in-memory pool back.
+    """
+
+    def _fresh_store(self, name):
+        from modules.module_movementstore import MovementStore
+        store = MovementStore(store_path=os.path.join(self.tmp, name),
+                              defaults_path=_DEFAULTS_PATH)
+        store.load()
+        return store
+
+    def test_merge_adds_new_ids_leaving_others_untouched(self):
+        self.store.load()
+        before = self.store.get_all()
+        result = self.store.import_entries({"new_move": _valid_entry()},
+                                           mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["added"], ["new_move"])
+        self.assertEqual(result["overwritten"], [])
+        self.assertEqual(result["skipped"], [])
+        self.assertIsNotNone(self.store.get("new_move"))
+        for mid in before:
+            self.assertEqual(self.store.get(mid), before[mid],
+                             f"untouched id '{mid}' changed")
+
+    def test_merge_collision_overwrite_lands_file_version(self):
+        self.store.load()
+        before_count = len(self.store.movements)
+        file_bow = _valid_entry()
+        file_bow["name"] = "File Bow"
+        result = self.store.import_entries({"bow": file_bow}, mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["overwritten"], ["bow"])
+        self.assertEqual(result["added"], [])
+        self.assertEqual(self.store.get("bow"), _as_stored(file_bow))
+        self.assertEqual(len(self.store.movements), before_count)
+
+    def test_merge_collision_skip_keeps_local_version_and_content(self):
+        self.store.load()
+        local_bow = json.loads(json.dumps(self.store.get("bow")))
+        file_bow = _valid_entry()
+        file_bow["name"] = "File Bow"
+        result = self.store.import_entries(
+            {"bow": file_bow}, mode="merge", on_conflict="skip")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["skipped"], ["bow"])
+        self.assertEqual(result["overwritten"], [])
+        self.assertEqual(self.store.get("bow"), local_bow)
+        self.assertNotEqual(self.store.get("bow")["name"], "File Bow")
+        for entry in self.store.get_all().values():
+            self.assertNotEqual(entry["name"], "File Bow")
+
+    def test_merge_skip_ref_resolves_to_kept_local_entry(self):
+        self.store.load()
+        entry_a = _valid_entry()
+        entry_a["name"] = "Leaf A"
+        self.store.add("leaf_a", entry_a)
+        local_a = json.loads(json.dumps(self.store.get("leaf_a")))
+        file_b = _valid_entry()
+        file_b["name"] = "File B"
+        pack = {"leaf_a": file_b, "c": _ref_entry("leaf_a")}
+        result = self.store.import_entries(pack, mode="merge",
+                                           on_conflict="skip")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["skipped"], ["leaf_a"])
+        self.assertEqual(self.store.get("leaf_a"), local_a)
+        self.assertIn("c", self.store.movements)
+        self.assertEqual(self.store.get("c")["steps"][0]["movement"],
+                         "leaf_a")
+
+    def test_imported_ref_to_existing_id_merge_vs_replace(self):
+        self.store.load()
+        before = self.store.get_all()
+        pack = {"new_move": _ref_entry("bow")}
+        result = self.store.import_entries(json.loads(json.dumps(pack)),
+                                           mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIn("new_move", self.store.movements)
+        # replace keeps file-only ref resolution: 'bow' is unknown inside
+        # the file
+        reloaded = self._fresh_store("replace_probe.json")
+        before_reloaded = reloaded.get_all()
+        result = reloaded.import_entries(pack, mode="replace")
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any("references unknown movement 'bow'" in e
+                for e in result["errors"]), result["errors"])
+        self.assertEqual(reloaded.get_all(), before_reloaded)
+        self.assertEqual(reloaded.movements, before_reloaded)
+
+    def test_cross_set_cycle_rejected_all_or_nothing(self):
+        self.store.load()
+        entry_a = _valid_entry()
+        entry_a["name"] = "Leaf A"
+        self.store.add("leaf_a", entry_a)
+        with open(self.store_path, "rb") as fh:
+            file_bytes = fh.read()
+        pack = {
+            "new_ref": _ref_entry("leaf_a"),
+            "leaf_a": _ref_entry("new_ref"),
+        }
+        result = self.store.import_entries(pack, mode="merge")
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any("reference cycle" in e for e in result["errors"]),
+            result["errors"])
+        self.assertIsNone(self.store.get("new_ref"))
+        self.assertEqual(self.store.get("leaf_a"), _as_stored(entry_a))
+        with open(self.store_path, "rb") as fh:
+            self.assertEqual(fh.read(), file_bytes,
+                             "the store file changed despite the cycle")
+
+    def test_self_ref_rejected_under_replace_and_merge_overwrite(self):
+        self.store.load()
+        before = self.store.get_all()
+        pack = {"selfish": _ref_entry("selfish")}
+        result = self.store.import_entries(json.loads(json.dumps(pack)),
+                                           mode="replace")
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.store.get_all(), before)
+        reloaded = self._fresh_store("merge_probe.json")
+        before_merge = reloaded.get_all()
+        result = reloaded.import_entries(pack, mode="merge")
+        self.assertFalse(result["ok"])
+        self.assertEqual(reloaded.get_all(), before_merge)
+
+    def test_colliding_self_ref_accepted_under_merge_skip(self):
+        self.store.load()
+        local_bow = json.loads(json.dumps(self.store.get("bow")))
+        pack = {"bow": _ref_entry("bow")}
+        result = self.store.import_entries(json.loads(json.dumps(pack)),
+                                           mode="merge", on_conflict="skip")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["skipped"], ["bow"])
+        self.assertEqual(self.store.get("bow"), local_bow)
+        # the same file under overwrite lands the self-ref -> rejected
+        reloaded = self._fresh_store("overwrite_probe.json")
+        result = reloaded.import_entries(pack, mode="merge")
+        self.assertFalse(result["ok"])
+
+    def test_skip_cycle_e23_three_policies(self):
+        self.store.load()
+        leaf_b = _valid_entry()
+        leaf_b["name"] = "Leaf B"
+        self.store.add("leaf_b", leaf_b)
+        ref_a = _ref_entry("leaf_b")
+        ref_a["name"] = "Ref A"
+        self.store.add("ref_a", ref_a)
+        file_b = _ref_entry("ref_a")
+        file_b["name"] = "File B"
+        # skip: the local leaf wins, the merged graph stays acyclic
+        result = self.store.import_entries({"leaf_b": file_b},
+                                           mode="merge", on_conflict="skip")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(result["skipped"], ["leaf_b"])
+        self.assertEqual(self.store.get("leaf_b"), _as_stored(leaf_b))
+        # overwrite: the file version lands and closes a -> b -> a
+        reloaded = self._fresh_store("e23_overwrite.json")
+        reloaded.add("leaf_b", json.loads(json.dumps(leaf_b)))
+        reloaded.add("ref_a", json.loads(json.dumps(ref_a)))
+        result = reloaded.import_entries({"leaf_b": file_b},
+                                         mode="merge")
+        self.assertFalse(result["ok"])
+        self.assertEqual(reloaded.get("leaf_b"), _as_stored(leaf_b))
+        # replace: the file refs 'ref_a' which is not in the file
+        reloaded = self._fresh_store("e23_replace.json")
+        errors = reloaded.import_from(self._cycle_file({"leaf_b": file_b}))
+        self.assertTrue(
+            any("references unknown movement 'ref_a'" in e
+                for e in errors), errors)
+        self.assertIsNone(reloaded.get("leaf_b"))
+
+    def _cycle_file(self, movements):
+        path = os.path.join(self.tmp, "cycle.json")
+        with open(path, "w") as fh:
+            json.dump({"version": 1, "movements": movements}, fh)
+        return path
+
+    def test_hold_time_clamp_persists_on_merge(self):
+        entry = _valid_entry()
+        entry["steps"][0]["hold_time"] = 60
+        self.store.load()
+        with mock.patch("modules.module_movementstore.queue_message"):
+            result = self.store.import_entries({"hold_pack": entry},
+                                               mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        step = self.store.get("hold_pack")["steps"][0]
+        self.assertEqual(step["hold_time"], 10.0)
+        from modules.module_movementstore import MovementStore
+        reloaded = MovementStore(store_path=self.store_path,
+                                 defaults_path=_DEFAULTS_PATH)
+        reloaded.load()
+        self.assertEqual(
+            reloaded.get("hold_pack")["steps"][0]["hold_time"], 10.0,
+            "the clamped value must persist to movements.json")
+
+    def test_import_entries_rejects_bad_arguments(self):
+        self.store.load()
+        with self.assertRaises(ValueError):
+            self.store.import_entries({"x": _valid_entry()}, mode="flurb")
+        with self.assertRaises(ValueError):
+            self.store.import_entries({"x": _valid_entry()},
+                                      on_conflict="rename")
+        with self.assertRaises(ValueError):
+            self.store.import_entries([])
+        with self.assertRaises(ValueError):
+            self.store.import_entries("nope")
+
+    def test_full_pack_merge_into_fresh_store_equals_file(self):
+        export_path = os.path.join(self.tmp, "pack.json")
+        self.store.load()
+        self.store.export_to(export_path)
+        fresh = self._fresh_store("fresh.json")
+        with open(export_path) as fh:
+            pack = json.load(fh)["movements"]
+        result = fresh.import_entries(pack, mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(set(fresh.movements), set(pack))
+        self.assertEqual(
+            sorted(result["added"] + result["overwritten"]), sorted(pack))
+
+    def test_merge_refreshes_registry_and_keeps_bindings_live(self):
+        from modules import module_movement_registry as registry
+        from modules import module_movementstore
+        bound = registry.MOVEMENTS
+        self.store.load()
+        with mock.patch.object(module_movementstore, "get_movement_store",
+                               return_value=self.store):
+            result = self.store.import_entries({"binding_probe": _valid_entry()},
+                                               mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertIn("binding_probe", registry.MOVEMENTS)
+        self.assertIs(registry.MOVEMENTS, bound)
+        registry.reload_from_store()
+
+    def test_export_merge_export_roundtrip_deep_equal(self):
+        import_path = os.path.join(self.tmp, "p1.json")
+        self.store.load()
+        self.store.export_to(import_path)
+        other = self._fresh_store("other.json")
+        with open(import_path) as fh:
+            pack = json.load(fh)["movements"]
+        result = other.import_entries(pack, mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        out_path = os.path.join(self.tmp, "p2.json")
+        other.export_to(out_path)
+        with open(import_path) as f1, open(out_path) as f2:
+            self.assertEqual(json.load(f1), json.load(f2))
+
+    def test_result_lists_invariant(self):
+        pool = self._fresh_store("inv_replace.json")
+        base = json.loads(json.dumps(pool.get_all()))
+        entries = {
+            "pack_new": _valid_entry(),
+            "bow": _valid_entry(),
+            "pack_ref": _ref_entry("bow"),
+        }
+        file_pack = json.loads(json.dumps(entries))
+        # replace: everything from the file; refs resolve file-only
+        result = pool.import_entries(json.loads(json.dumps(file_pack)),
+                                     mode="replace")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(
+            sorted(result["added"] + result["overwritten"] +
+                   result["skipped"]) == sorted(entries))
+        self.assertEqual(result["skipped"], [])
+        self.assertEqual(result["count"], len(pool.movements))
+        # merge overwrite
+        pool = self._fresh_store("inv_overwrite.json")
+        result = pool.import_entries(json.loads(json.dumps(file_pack)),
+                                     mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(
+            sorted(result["added"] + result["overwritten"] +
+                   result["skipped"]) == sorted(entries))
+        self.assertEqual(result["skipped"], [])
+        self.assertEqual(result["count"], len(pool.movements))
+        self.assertEqual(pool.get("bow"), _as_stored(file_pack["bow"]))
+        # merge skip: the local bow stays, the ref resolves to it
+        pool = self._fresh_store("inv_skip.json")
+        result = pool.import_entries(json.loads(json.dumps(file_pack)),
+                                     mode="merge", on_conflict="skip")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertTrue(
+            sorted(result["added"] + result["overwritten"] +
+                   result["skipped"]) == sorted(entries))
+        self.assertEqual(result["count"], len(pool.movements))
+        self.assertEqual(pool.get("bow"), base["bow"])
+
+    def test_save_oserror_rolls_back_memory(self):
+        self.store.load()
+        before = self.store.get_all()
+        pack = {"pack_one": _valid_entry(), "pack_two": _valid_entry()}
+        with mock.patch.object(self.store, "save",
+                               side_effect=OSError("disk full")):
+            result = self.store.import_entries(pack, mode="merge")
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any("save failed:" in e for e in result["errors"]),
+            result["errors"])
+        self.assertEqual(self.store.movements, before)
+        from modules.module_movementstore import MovementStore
+        reloaded = MovementStore(store_path=self.store_path,
+                                 defaults_path=_DEFAULTS_PATH)
+        reloaded.load()
+        self.assertEqual(reloaded.movements, self.store.movements)
+
+    def test_save_typeerror_rolls_back_memory(self):
+        self.store.load()
+        before = self.store.get_all()
+        entry = _valid_entry()
+        entry["author"] = object()  # validation ignores unknown keys; save() chokes
+        result = self.store.import_entries({"odd_entry": entry},
+                                           mode="merge")
+        self.assertFalse(result["ok"])
+        self.assertTrue(
+            any("save failed:" in e for e in result["errors"]),
+            result["errors"])
+        self.assertEqual(self.store.movements, before)
+        from modules.module_movementstore import MovementStore
+        reloaded = MovementStore(store_path=self.store_path,
+                                 defaults_path=_DEFAULTS_PATH)
+        reloaded.load()
+        self.assertEqual(reloaded.movements, self.store.movements)
+
+    def test_unknown_top_level_keys_tolerated_e24(self):
+        self.store.load()
+        entry = _valid_entry()
+        entry["author"] = "me"
+        result = self.store.import_entries({"annotated": entry},
+                                           mode="merge")
+        self.assertTrue(result["ok"], result["errors"])
+        self.assertEqual(self.store.get("annotated")["author"], "me")
+
+    def test_import_vs_import_interleaving_serialized_by_lock(self):
+        import threading
+        self.store.load()
+        before = json.loads(json.dumps(self.store.movements))
+
+        a_in_save = threading.Event()
+        b_in_save = threading.Event()
+        release = threading.Event()
+        original_save = self.store.save
+        save_calls = []
+
+        def scripted_save():
+            save_calls.append(1)
+            if len(save_calls) == 1:
+                a_in_save.set()
+                release.wait(timeout=5)
+            else:
+                b_in_save.set()
+            return original_save()
+
+        results = {}
+
+        def run_pack(key, pack):
+            with mock.patch.object(self.store, "save",
+                                   side_effect=scripted_save):
+                results[key] = self.store.import_entries(pack, mode="merge")
+
+        pack_a = {"pack_a_1": _valid_entry(), "pack_a_2": _valid_entry()}
+        pack_b = {"pack_b_1": _valid_entry()}
+        thread_a = threading.Thread(target=run_pack, args=("a", pack_a))
+        thread_b = threading.Thread(target=run_pack, args=("b", pack_b))
+        thread_a.start()
+        self.assertTrue(a_in_save.wait(1), "A's save never started")
+        thread_b.start()
+        self.assertFalse(
+            b_in_save.wait(0.3),
+            "import B reached save() while import A held the import lock")
+        release.set()
+        thread_a.join(10)
+        thread_b.join(10)
+        self.assertFalse(thread_a.is_alive() or thread_b.is_alive())
+        self.assertTrue(results["a"]["ok"], results["a"])
+        self.assertTrue(results["b"]["ok"], results["b"])
+        expected = set(before) | set(pack_a) | set(pack_b)
+        self.assertEqual(set(self.store.movements), expected)
+        from modules.module_movementstore import MovementStore
+        reloaded = MovementStore(store_path=self.store_path,
+                                 defaults_path=_DEFAULTS_PATH)
+        reloaded.load()
+        self.assertEqual(reloaded.movements, self.store.movements)
+
+
 def _chatui_source():
     with open(os.path.join(_SRC, "modules", "module_chatui.py"),
               encoding="utf-8") as fh:
