@@ -963,3 +963,18 @@ def test_studio_registers_leave_guard_and_desktop_intercept():
     assert "clearConfirmStrip();" in keep and "delete window._meTabLeaveGuard" not in keep
 
 
+def test_motion_builder_references_all_removed():
+    motion_html = (TEMPLATE_ROOT / "tabs" / "motion.html").read_text()
+    assert "motionBuilder" not in motion_html
+    assert "builder_content" not in motion_html
+    assert "bldStepList" not in MAIN_JS
+    assert "'/save_sequence'" not in MAIN_JS
+    assert "window.switchTab" not in MAIN_JS
+
+
+def test_builder_orphan_templates_deleted():
+    orphan_templates = ("builder.html", "body.html", "arms.html", "legs.html", "builder_content.html")
+    for template in orphan_templates:
+        assert not (TEMPLATE_ROOT / "tabs" / template).exists(), f"orphan template remains: {template}"
+
+
