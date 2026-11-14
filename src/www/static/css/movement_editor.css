@@ -112,6 +112,7 @@
 .me-confirm-actions { display: inline-flex; flex-wrap: wrap; gap: 0.4rem; }
 .me-confirm-actions .hud-btn { min-height: 32px; }
 
+.me-studio-layout > #meConfirmStrip { grid-column: 1 / -1; }
 .me-studio-layout {
   display: grid;
   grid-template-columns: minmax(17rem, 0.85fr) minmax(0, 1.6fr);

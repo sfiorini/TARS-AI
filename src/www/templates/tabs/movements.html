@@ -1,5 +1,6 @@
 <div class="tab-pane fade" id="movements" role="tabpanel">
   <div class="me-studio-layout">
+    <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
     <div class="me-library body-panel me-view-library">
       <div class="me-toolbar">
         <input id="meLibSearch" class="hud-input" type="search" placeholder="Search movements…" aria-label="Search movements">
@@ -16,7 +17,6 @@
         <button type="button" id="meResetBtn" class="hud-btn hud-btn-secondary" title="Restore every default movement; user movements are kept">↺ Reset</button>
         <button type="button" id="mePruneBtn" class="hud-btn hud-btn-danger" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
       </div>
-      <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
       <div id="meDraftBanner" class="me-draft-banner" hidden></div>
       <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
     </div>

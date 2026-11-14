@@ -879,8 +879,10 @@ def test_mobile_stacked_views_and_sticky_bar():
     close = function_source("closeEditor")
     back = function_source("handleLibraryClick")
     assert "me-view-library" in html and "me-view-editor" in html
+    assert html.index('id="meConfirmStrip"') < html.index('me-view-library')
+    assert "#meConfirmStrip { grid-column: 1 / -1;" in css
     assert "function showView(view)" in show and "setAttribute('data-me-view', view)" in show
-    assert "scrollTop = 0" in show and "window.scrollTo(0, 0)" in show
+    assert "pane.scrollTop = 0;" in show and "scrollTop = 0" in show and "window.scrollTo(0, 0)" in show
     assert "showView('editor');" in open_edit and "showView('editor');" in open_create
     assert "showView('library');" in close
     assert 'id="meBackBtn"' in html and "‹ Library" in html
@@ -915,6 +917,7 @@ def test_nav_guard_hooks_present_in_swipe_iife():
 
 def test_studio_registers_leave_guard_and_desktop_intercept():
     update_guard = function_source("updateTabLeaveGuard")
+    restore_swipe = function_source("restoreSwipeTrack")
     show_confirm = function_source("showTabLeaveConfirm")
     desktop = function_source("handleDesktopTabClick")
     close = function_source("closeEditor")
@@ -923,11 +926,15 @@ def test_studio_registers_leave_guard_and_desktop_intercept():
     assert "window._meTabLeaveGuard = function (nextIndex)" in update_guard
     assert "if (draft && (isDirty() || rawDirty()))" in update_guard
     assert "pendingTabIndex = nextIndex;" in update_guard and "showTabLeaveConfirm(nextIndex);" in update_guard
+    assert "restoreSwipeTrack();" in update_guard
     assert "delete window._meTabLeaveGuard;" in update_guard
     assert "return false;" in update_guard
+    assert "getElementById('swipeTrack')" in restore_swipe
+    assert "classList.contains('active')" in restore_swipe and "translateX(-" in restore_swipe
     assert "updateTabLeaveGuard();" in mark_dirty
     assert "el('meRawText').addEventListener('input', updateTabLeaveGuard)" in JS
     assert "pendingIndex" in show_confirm and "discard-tab-leave" in show_confirm and "keep-tab-editing" in show_confirm
+    assert "strip.scrollIntoView({block: 'nearest'});" in show_confirm
     assert "getElementById('myTab')" in JS
     assert "myTab.addEventListener('click', handleDesktopTabClick, true)" in JS
     assert "if (!draft || (!isDirty() && !rawDirty())) return;" in desktop

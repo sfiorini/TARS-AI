@@ -477,10 +477,22 @@ document.addEventListener('DOMContentLoaded', function () {
     updateTabLeaveGuard();
     renderLibrary();
   }
+  function restoreSwipeTrack() {
+    var track = document.getElementById('swipeTrack');
+    var myTab = document.getElementById('myTab');
+    if (!track || !myTab) return;
+    var tabs = myTab.querySelectorAll('.custom-tab[data-bs-toggle="tab"]');
+    var activeIndex = -1;
+    Array.prototype.forEach.call(tabs, function (tab, index) {
+      if (tab.classList.contains('active')) activeIndex = index;
+    });
+    if (activeIndex >= 0) track.style.transform = 'translateX(-' + (activeIndex * 100) + '%)';
+  }
   function updateTabLeaveGuard() {
     if (draft && (isDirty() || rawDirty())) {
       window._meTabLeaveGuard = function (nextIndex) {
         pendingTabIndex = nextIndex;
+        restoreSwipeTrack();
         showTabLeaveConfirm(nextIndex);
         return false;
       };
@@ -495,6 +507,8 @@ document.addEventListener('DOMContentLoaded', function () {
       {label: 'Discard', action: 'discard-tab-leave', danger: true},
       {label: 'Keep editing', action: 'keep-tab-editing'}
     ], true);
+    var strip = el('meConfirmStrip');
+    if (strip && strip.scrollIntoView) strip.scrollIntoView({block: 'nearest'});
   }
   function handleDesktopTabClick(event) {
     if (!draft || (!isDirty() && !rawDirty())) return;
@@ -1984,6 +1998,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var editor = pane && pane.querySelector('.me-view-editor');
     if (!pane || !library || !editor) return false;
     pane.setAttribute('data-me-view', view);
+    pane.scrollTop = 0;
     library.scrollTop = 0;
     editor.scrollTop = 0;
     if (el('meLibList')) el('meLibList').scrollTop = 0;
