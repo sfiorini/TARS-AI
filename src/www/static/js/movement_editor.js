@@ -12,6 +12,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var armsStatusFailureNotified = false;
   var typeNotice = null;
   var draft = null;
+  var playInFlight = false;
+  var robotMoving = false;
   var savedSnapshot = null;
   var savedFlashTimer = null;
   var rawSnapshot = '';
@@ -163,6 +165,7 @@ document.addEventListener('DOMContentLoaded', function () {
     selected.index = steps.length ? Math.max(0, Math.min(selected.index, steps.length - 1)) : 0;
     renderBranchBar();
     renderBranchStatus();
+    renderPlayButton();
     renderTimeline();
     if (timeline) timeline.scrollTop = branchState[name].scrollTop;
     return true;
@@ -644,8 +647,97 @@ document.addEventListener('DOMContentLoaded', function () {
     updateIdStatus();
     renderBranchBar();
     renderBranchStatus();
+    renderPlayButton();
     renderTimeline();
     renderOverflowMenu();
+  }
+  function renderPlayButton() {
+    var playButton = el('mePlayBtn');
+    if (!playButton) return;
+    playButton.textContent = playInFlight ? 'PLAYING…' : (branch === 'steps' ? 'PLAY BASE' : 'PLAY ARMS');
+    playButton.disabled = playInFlight || robotMoving;
+    playButton.classList.toggle('me-play-pulse', playInFlight);
+  }
+  function startBusyPoll() {
+    return fetch('/servo_status').then(function (r) {
+      if (!r.ok) throw new Error('Failed to read servo status.');
+      return r.json();
+    }).then(function (status) {
+      robotMoving = status.moving === true;
+      var chip = el('meBusyChip');
+      if (chip) { chip.hidden = !robotMoving; chip.textContent = 'ROBOT BUSY'; }
+      renderPlayButton();
+      return robotMoving;
+    }).catch(function (error) {
+      notify(error && error.message ? error.message : 'Failed to read servo status.', 'error');
+      return false;
+    });
+  }
+  function playActiveBranch() {
+    if (!draft || playInFlight || robotMoving) return false;
+    var playBranch = activeBranch();
+    var playSteps = deepCopy(branchSteps(playBranch));
+    var validationEntry = {
+      name: draft.entry.name || 'Movement',
+      type: draft.entry.type,
+      description: draft.entry.description || 'Movement',
+      steps: deepCopy(playSteps),
+      steps_arms: null
+    };
+    var validation = validateEntry(validationEntry, {
+      id: draft.id || 'movement_studio_unsaved',
+      existingIds: pool
+    });
+    var errorStrip = el('meErrorStrip');
+    if (errorStrip) { errorStrip.hidden = true; errorStrip.textContent = ''; }
+    var timeline = el('meTimeline');
+    if (timeline) Array.prototype.forEach.call(timeline.querySelectorAll('.me-card-error'), function (card) {
+      card.classList.remove('me-card-error');
+    });
+    if (!validation.ok) {
+      var firstError = validation.errors[0];
+      var badStep = firstError && firstError.path.match(/^steps\[(\d+)\]/);
+      if (badStep) {
+        selected.index = Number(badStep[1]);
+        renderTimeline();
+        var badCard = timeline && timeline.querySelector('[data-step-index="' + selected.index + '"]');
+        if (badCard) badCard.classList.add('me-card-error');
+      }
+      if (errorStrip) {
+        errorStrip.hidden = false;
+        errorStrip.textContent = firstError ? firstError.path + ': ' + firstError.msg : 'Playback validation failed.';
+      }
+      return false;
+    }
+    playInFlight = true;
+    renderPlayButton();
+    var body = JSON.stringify({steps: playSteps});
+    return fetch('/play_sequence', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: body
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        return {ok: r.ok, status: r.status, d: d};
+      });
+    }).then(function (res) {
+      if (res.status === 409) {
+        notify('Robot is already moving', 'warning');
+        startBusyPoll();
+        return false;
+      }
+      if (!res.ok) {
+        if (errorStrip) { errorStrip.hidden = false; errorStrip.textContent = res.d.error || 'Playback failed.'; }
+        return false;
+      }
+      return true;
+    }).catch(function (error) {
+      if (errorStrip) { errorStrip.hidden = false; errorStrip.textContent = error && error.message ? error.message : 'Playback failed.'; }
+      return false;
+    }).finally(function () {
+      playInFlight = false;
+      renderPlayButton();
+    });
   }
   function renderTypeNotice() {
     var container = el('meTypeNotice');
@@ -2147,6 +2239,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
+  if (el('mePlayBtn')) el('mePlayBtn').addEventListener('click', playActiveBranch);
   window.addEventListener('beforeunload', handleBeforeUnload);
   if (el('meEditor')) {
     el('meEditor').addEventListener('click', handleBranchClick);

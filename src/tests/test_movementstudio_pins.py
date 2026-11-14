@@ -745,3 +745,29 @@ def test_promotion_demotion_flows_keep_variant():
     assert "steps_arms: deepCopy(draft.entry.steps_arms)" in save
 
 
+def test_play_sequence_branch_labeled_preflight_and_409():
+    play = function_source("playActiveBranch")
+    render_label = function_source("renderPlayButton")
+    assert "el('mePlayBtn').addEventListener('click', playActiveBranch)" in JS
+    assert "var playBranch = activeBranch();" in play
+    assert "var playSteps = deepCopy(branchSteps(playBranch));" in play
+    assert "steps: deepCopy(playSteps)," in play
+    assert "var validation = validateEntry(validationEntry" in play
+    assert "fetch('/play_sequence'" in play
+    assert play.index("validateEntry(validationEntry") < play.index("fetch('/play_sequence'")
+    assert "if (!validation.ok)" in play and "me-card-error" in play
+    assert "selected.index = Number(badStep[1]);" in play
+    assert "badCard.classList.add('me-card-error')" in play
+    assert "firstError.path + ': ' + firstError.msg" in play
+    assert "JSON.stringify({steps: playSteps})" in play
+    assert "playInFlight = true;" in play and "playInFlight = false;" in play
+    assert "playButton.disabled = playInFlight || robotMoving;" in render_label
+    assert "res.status === 409" in play and "Robot is already moving" in play
+    assert "startBusyPoll()" in play
+    assert "branch === 'steps' ? 'PLAY BASE' : 'PLAY ARMS'" in render_label
+    assert "renderPlayButton();" in function_source("renderEditor")
+    assert "renderPlayButton();" in function_source("setBranch")
+    movement_css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
+    assert ".meStepCard.me-card-error" in movement_css and "var(--red)" in movement_css
+
+

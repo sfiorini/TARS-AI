@@ -133,6 +133,9 @@
 .me-overflow-menu button { min-height: 36px; padding: 0.45rem 0.65rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; cursor: pointer; font: 0.78rem var(--font-hud); }
 .me-overflow-menu button:hover, .me-overflow-menu button:focus-visible { background: rgba(var(--accent-rgb), 0.12); color: rgb(var(--accent-rgb)); }
 .me-dirty-dot { color: var(--orange); }
+.me-play-button.me-play-pulse { animation: me-play-pulse 1s ease-in-out infinite alternate; }
+@keyframes me-play-pulse { to { box-shadow: 0 0 0.75rem rgba(var(--accent-rgb), 0.7); } }
+.meStepCard.me-card-error { border-color: var(--red); box-shadow: 0 0 0 2px var(--red); }
 .me-metadata-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.55fr); gap: 0.7rem; margin: 1rem 0; }
 .me-metadata-grid label { display: grid; gap: 0.3rem; color: var(--text-dim); font: 0.8rem var(--font-hud); }
 .me-metadata-grid .me-description-field { grid-column: 1 / -1; }
