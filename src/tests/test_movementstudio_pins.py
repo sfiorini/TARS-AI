@@ -894,3 +894,12 @@ def test_mobile_stacked_views_and_sticky_bar():
     assert "grid-template-areas" in css and "me-servo-label" in css and "me-mode-chips" in css
 
 
+def test_swipe_suppression_includes_me_editor():
+    touch_start = MAIN_JS.split("tabContent.addEventListener('touchstart',", 1)[1].split("tabContent.addEventListener('touchmove',", 1)[0]
+    touch_move = MAIN_JS.split("tabContent.addEventListener('touchmove',", 1)[1].split("function onTouchFinish()", 1)[0]
+    selectors = re.findall(r"\.closest\('([^']+)'\)", touch_start)
+    assert any(set(selector.split(', ')) == {'.me-editor', '.servo-card', '.body-speed'} for selector in selectors)
+    assert "touchOnSlider = (el.tagName === 'INPUT' && el.type === 'range') ||" in touch_start
+    assert "if (!isMobile || touchOnSlider) return;" in touch_move
+
+

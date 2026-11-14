@@ -2929,7 +2929,7 @@ window.showToast = function (message, type, duration) {
       // skip swipe when touching range sliders or their containers
       var el = e.target;
       touchOnSlider = (el.tagName === 'INPUT' && el.type === 'range') ||
-                      !!(el.closest && el.closest('.servo-card, .body-speed'));
+                      !!(el.closest && el.closest('.me-editor, .servo-card, .body-speed'));
       direction = null;
       isSwiping = false;
       touchStartX = e.touches[0].clientX;
