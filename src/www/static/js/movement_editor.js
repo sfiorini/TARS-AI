@@ -14,6 +14,10 @@ document.addEventListener('DOMContentLoaded', function () {
   var draft = null;
   var playInFlight = false;
   var robotMoving = false;
+  var busyTimer = null;
+  var busyPollInFlight = false;
+  var playRecently = false;
+  var pcaAlive = null;
   var savedSnapshot = null;
   var savedFlashTimer = null;
   var rawSnapshot = '';
@@ -313,6 +317,7 @@ document.addEventListener('DOMContentLoaded', function () {
         clear.textContent = 'Clear filters'; empty.appendChild(clear);
       }
       list.appendChild(empty);
+      refreshBusyUI();
       return;
     }
     filtered.forEach(function (item) {
@@ -340,6 +345,7 @@ document.addEventListener('DOMContentLoaded', function () {
       row.appendChild(heading); row.appendChild(detail); row.appendChild(actions); list.appendChild(row);
     });
     applyBadges();
+    refreshBusyUI();
   }
   function DEFAULT_STEP() {
     return {
@@ -655,23 +661,72 @@ document.addEventListener('DOMContentLoaded', function () {
     var playButton = el('mePlayBtn');
     if (!playButton) return;
     playButton.textContent = playInFlight ? 'PLAYING…' : (branch === 'steps' ? 'PLAY BASE' : 'PLAY ARMS');
-    playButton.disabled = playInFlight || robotMoving;
     playButton.classList.toggle('me-play-pulse', playInFlight);
+    refreshBusyUI();
+  }
+  function refreshBusyUI() {
+    var busyChip = el('meBusyChip');
+    if (busyChip) {
+      busyChip.hidden = !robotMoving;
+      busyChip.textContent = robotMoving ? 'ROBOT BUSY' : '';
+      busyChip.classList.toggle('me-busy-active', robotMoving);
+    }
+    var offlineChip = el('meServoOfflineChip');
+    if (offlineChip) offlineChip.hidden = pcaAlive !== false;
+    var playButton = el('mePlayBtn');
+    if (playButton) playButton.disabled = robotMoving || playInFlight;
+    var libraryButtons = el('meLibList') ? el('meLibList').querySelectorAll('[data-action="play"]') : [];
+    Array.prototype.forEach.call(libraryButtons, function (button) {
+      button.disabled = robotMoving || playInFlight;
+    });
+  }
+  function stopBusyPoll() {
+    if (busyTimer !== null) {
+      clearTimeout(busyTimer);
+      busyTimer = null;
+    }
+  }
+  function scheduleBusyPoll() {
+    if (busyTimer !== null) return;
+    if (document.hidden || (!playInFlight && !robotMoving && !playRecently)) return;
+    busyTimer = setTimeout(pollBusy, 1500);
   }
   function startBusyPoll() {
+    if (busyTimer !== null) return;
+    if (busyPollInFlight || document.hidden) return;
+    if (!playInFlight && !robotMoving && !playRecently) return;
+    scheduleBusyPoll();
+  }
+  function pollBusy() {
+    busyTimer = null;
+    if (document.hidden) return false;
+    if (busyPollInFlight) { scheduleBusyPoll(); return false; }
+    busyPollInFlight = true;
     return fetch('/servo_status').then(function (r) {
       if (!r.ok) throw new Error('Failed to read servo status.');
       return r.json();
     }).then(function (status) {
       robotMoving = status.moving === true;
-      var chip = el('meBusyChip');
-      if (chip) { chip.hidden = !robotMoving; chip.textContent = 'ROBOT BUSY'; }
-      renderPlayButton();
+      pcaAlive = status.pca_alive;
+      if (!robotMoving && !playInFlight) playRecently = false;
+      refreshBusyUI();
       return robotMoving;
     }).catch(function (error) {
-      notify(error && error.message ? error.message : 'Failed to read servo status.', 'error');
+      console.warn('Servo status poll failed.', error);
+      if (!robotMoving && !playInFlight) playRecently = false;
       return false;
+    }).finally(function () {
+      busyPollInFlight = false;
+      if (document.hidden || (!robotMoving && !playInFlight && !playRecently)) stopBusyPoll();
+      else scheduleBusyPoll();
     });
+  }
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      stopBusyPoll();
+      return;
+    }
+    if (playInFlight || robotMoving || playRecently) startBusyPoll();
   }
   function playActiveBranch() {
     if (!draft || playInFlight || robotMoving) return false;
@@ -710,7 +765,9 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     }
     playInFlight = true;
+    playRecently = true;
     renderPlayButton();
+    startBusyPoll();
     var body = JSON.stringify({steps: playSteps});
     return fetch('/play_sequence', {
       method: 'POST',
@@ -722,6 +779,9 @@ document.addEventListener('DOMContentLoaded', function () {
       });
     }).then(function (res) {
       if (res.status === 409) {
+        robotMoving = true;
+        playRecently = true;
+        refreshBusyUI();
         notify('Robot is already moving', 'warning');
         startBusyPoll();
         return false;
@@ -737,6 +797,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }).finally(function () {
       playInFlight = false;
       renderPlayButton();
+      if (playRecently || robotMoving) startBusyPoll();
     });
   }
   function renderTypeNotice() {
@@ -1847,22 +1908,35 @@ document.addEventListener('DOMContentLoaded', function () {
     });
   }
   function playMovement(id, button) {
-    if (button && button.disabled) return;
+    if ((button && button.disabled) || playInFlight || robotMoving) return false;
+    playInFlight = true;
+    playRecently = true;
     if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    refreshBusyUI();
+    startBusyPoll();
     return fetch('/play_saved_sequence', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({name: id})
     }).then(function (r) {
-      if (!r.ok) return r.json().then(function (d) { return {ok: false, d: d}; });
-      return r.json().then(function (d) { return {ok: true, d: d}; });
+      if (!r.ok) return r.json().then(function (d) { return {ok: false, status: r.status, d: d}; });
+      return r.json().then(function (d) { return {ok: true, status: r.status, d: d}; });
     }).then(function (res) {
-      if (!res.ok) notify(res.d.error || 'Playback failed.', 'error');
+      if (res.status === 409) {
+        robotMoving = true;
+        playRecently = true;
+        refreshBusyUI();
+        notify('Robot is already moving', 'warning');
+        startBusyPoll();
+      } else if (!res.ok) notify(res.d.error || 'Playback failed.', 'error');
       else notify('Played "' + id + '"', 'success');
     }).catch(function (error) {
       notify(error && error.message ? error.message : 'Playback failed.', 'error');
     }).finally(function () {
+      playInFlight = false;
       if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+      refreshBusyUI();
+      if (playRecently || robotMoving) startBusyPoll();
     });
   }
   function deepCopy(value) {
@@ -2231,6 +2305,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
   if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
   document.addEventListener('click', handleOverflowOutsideClick);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   if (el('meLibSearch')) el('meLibSearch').addEventListener('input', renderLibrary);
   if (el('meLibSort')) el('meLibSort').addEventListener('change', function () {
     selectedSort = el('meLibSort').value || 'id'; renderLibrary();

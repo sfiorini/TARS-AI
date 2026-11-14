@@ -761,7 +761,7 @@ def test_play_sequence_branch_labeled_preflight_and_409():
     assert "firstError.path + ': ' + firstError.msg" in play
     assert "JSON.stringify({steps: playSteps})" in play
     assert "playInFlight = true;" in play and "playInFlight = false;" in play
-    assert "playButton.disabled = playInFlight || robotMoving;" in render_label
+    assert "refreshBusyUI();" in render_label and "playButton.disabled = robotMoving || playInFlight;" in function_source("refreshBusyUI")
     assert "res.status === 409" in play and "Robot is already moving" in play
     assert "startBusyPoll()" in play
     assert "branch === 'steps' ? 'PLAY BASE' : 'PLAY ARMS'" in render_label
@@ -769,5 +769,39 @@ def test_play_sequence_branch_labeled_preflight_and_409():
     assert "renderPlayButton();" in function_source("setBranch")
     movement_css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
     assert ".meStepCard.me-card-error" in movement_css and "var(--red)" in movement_css
+
+
+def test_busy_poll_single_owner_and_lifecycle():
+    schedule = function_source("scheduleBusyPoll")
+    start = function_source("startBusyPoll")
+    stop = function_source("stopBusyPoll")
+    poll = function_source("pollBusy")
+    visibility = function_source("handleVisibilityChange")
+    play = function_source("playActiveBranch")
+    assert "var busyTimer = null;" in JS
+    assert "if (busyTimer !== null) return;" in start
+    assert "setTimeout(pollBusy, 1500)" in schedule
+    assert "if (document.hidden || (!playInFlight && !robotMoving && !playRecently)) return;" in schedule
+    assert "fetch('/servo_status')" in poll and "if (!r.ok)" in poll
+    assert "if (document.hidden) return false;" in poll
+    assert "clearTimeout(busyTimer)" in stop and "busyTimer = null" in stop
+    assert "!playInFlight && !robotMoving && !playRecently" in schedule
+    assert "stopBusyPoll();" in visibility and "document.hidden" in visibility
+    assert "document.addEventListener('visibilitychange', handleVisibilityChange)" in JS
+    assert "startBusyPoll();" in play
+
+
+def test_busy_chip_and_play_disable():
+    busy_ui = function_source("refreshBusyUI")
+    poll = function_source("pollBusy")
+    render_library = function_source("renderLibrary")
+    assert 'id="meBusyChip"' in MOVEMENTS_HTML
+    assert "busyChip.hidden = !robotMoving;" in busy_ui
+    assert "busyChip.textContent = robotMoving ? 'ROBOT BUSY' : '';" in busy_ui
+    assert "playButton.disabled = robotMoving || playInFlight;" in busy_ui
+    assert "button.disabled = robotMoving || playInFlight;" in busy_ui
+    assert "Servo controller offline" in MOVEMENTS_HTML
+    assert "offlineChip.hidden = pcaAlive !== false;" in busy_ui
+    assert "refreshBusyUI();" in poll and "refreshBusyUI();" in render_library
 
 

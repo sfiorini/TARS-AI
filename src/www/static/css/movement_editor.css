@@ -133,6 +133,11 @@
 .me-overflow-menu button { min-height: 36px; padding: 0.45rem 0.65rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; cursor: pointer; font: 0.78rem var(--font-hud); }
 .me-overflow-menu button:hover, .me-overflow-menu button:focus-visible { background: rgba(var(--accent-rgb), 0.12); color: rgb(var(--accent-rgb)); }
 .me-dirty-dot { color: var(--orange); }
+.me-busy-chip, .me-servo-offline-chip { min-height: 24px; padding: 0.2rem 0.55rem; border: 1px solid var(--orange); border-radius: 999px; color: var(--orange); font: 600 0.68rem var(--font-mono); }
+.me-busy-chip[hidden], .me-servo-offline-chip[hidden] { display: none; }
+.me-busy-chip.me-busy-active { animation: me-busy-pulse 1.2s ease-in-out infinite alternate; }
+.me-servo-offline-chip { border-color: var(--text-dim); color: var(--text-dim); }
+@keyframes me-busy-pulse { to { box-shadow: 0 0 0.7rem var(--orange); } }
 .me-play-button.me-play-pulse { animation: me-play-pulse 1s ease-in-out infinite alternate; }
 @keyframes me-play-pulse { to { box-shadow: 0 0 0.75rem rgba(var(--accent-rgb), 0.7); } }
 .meStepCard.me-card-error { border-color: var(--red); box-shadow: 0 0 0 2px var(--red); }
