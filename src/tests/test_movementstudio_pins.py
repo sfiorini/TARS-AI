@@ -859,3 +859,13 @@ def test_live_checks_r_ok_rate_limits_and_forces_off():
     assert "if (document.hidden)" in visibility
 
 
+def test_neutral_uses_move_legs_not_neutral_legs():
+    neutral = function_source("sendNeutral")
+    assert 'id="meNeutralBtn"' in MOVEMENTS_HTML
+    assert "el('meNeutralBtn').addEventListener('click', sendNeutral)" in JS
+    assert "'/neutral_legs'" not in JS and '"/neutral_legs"' not in JS
+    assert "fetch('/move_legs'" in neutral and "method: 'POST'" in neutral
+    assert "body: JSON.stringify({left_height: 50, right_height: 50, left_leg: 50, right_leg: 50, speed: 0.8})" in neutral
+    assert "if (!r.ok)" in neutral and "notifyLiveError" in neutral
+
+

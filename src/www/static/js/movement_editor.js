@@ -724,6 +724,21 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   }
+  function sendNeutral() {
+    return fetch('/move_legs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({left_height: 50, right_height: 50, left_leg: 50, right_leg: 50, speed: 0.8})
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Neutral failed.');
+        return d;
+      });
+    }).catch(function (error) {
+      notifyLiveError(error && error.message ? error.message : 'Neutral failed.');
+      return false;
+    });
+  }
   function initializeLiveToggle() {
     var liveToggle = el('meLiveToggle');
     if (!liveToggle) return;
@@ -2403,6 +2418,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   if (el('mePlayBtn')) el('mePlayBtn').addEventListener('click', playActiveBranch);
+  if (el('meNeutralBtn')) el('meNeutralBtn').addEventListener('click', sendNeutral);
   initializeLiveToggle();
   window.addEventListener('beforeunload', handleBeforeUnload);
   if (el('meEditor')) {
