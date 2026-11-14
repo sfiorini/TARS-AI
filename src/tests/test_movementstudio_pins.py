@@ -563,3 +563,33 @@ def test_plays_now_status_rules():
     assert "shown.bs.tab" in JS and "fetchArmsStatus()" in JS
 
 
+def test_arms_variant_creation_and_removal_flows():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    timeline = function_source("renderTimeline")
+    create = function_source("createArmsFromBase")
+    start = function_source("startArmsEmpty")
+    remove = function_source("showRemoveArmsVariantConfirm")
+    render_menu = function_source("renderOverflowMenu")
+    overflow_click = function_source("handleOverflowClick")
+    confirm = function_source("handleConfirmClick")
+    assert "steps_arms === null" in timeline or "!Array.isArray(draft.entry.steps_arms)" in timeline
+    assert "Create from BASE" in timeline and "Start empty" in timeline
+    assert "draft.entry.steps_arms = deepCopy(draft.entry.steps)" in create
+    assert "draft.entry.steps_arms = [DEFAULT_STEP()]" in start
+    assert "Remove arms variant" in render_menu and "steps_arms.length" in render_menu
+    assert "Delete the ' + draft.entry.steps_arms.length + '-step arms variant? BASE is kept.'" in remove
+    assert "action === 'remove-arms-variant'" in overflow_click and "showRemoveArmsVariantConfirm()" in overflow_click
+    assert "confirm-remove-arms-variant" in remove and "removeArmsVariant()" in confirm
+    assert "function removeArmsVariant()" in JS and "draft.entry.steps_arms = null" in function_source("removeArmsVariant")
+    assert "data-action=\"create-arms-from-base\"" in timeline or "create-arms-from-base" in timeline
+    assert 'id="meOverflowMenu"' in html
+
+
+def test_empty_arms_variant_normalizes_to_null_on_visual_save():
+    save = function_source("saveEntry")
+    assert "var rawSave = editorMode === 'raw'" in save
+    assert "!rawSave && Array.isArray(draft.entry.steps_arms) && draft.entry.steps_arms.length === 0" in save
+    assert "draft.entry.steps_arms = null" in save
+    assert "notify('Empty arms variant removed'" in save
+
+

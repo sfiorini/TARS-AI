@@ -948,11 +948,63 @@ document.addEventListener('DOMContentLoaded', function () {
     }, label + ' branch cleared');
     return true;
   }
+  function createArmsFromBase() {
+    if (!draft) return false;
+    draft.entry.steps_arms = deepCopy(draft.entry.steps);
+    branchState.steps_arms.index = Math.min(branchState.steps_arms.index, draft.entry.steps_arms.length - 1);
+    markDirty();
+    renderBranchStatus();
+    renderTimeline();
+    return true;
+  }
+  function startArmsEmpty() {
+    if (!draft) return false;
+    draft.entry.steps_arms = [DEFAULT_STEP()];
+    branchState.steps_arms.index = 0;
+    markDirty();
+    renderBranchStatus();
+    renderTimeline();
+    return true;
+  }
+  function removeArmsVariant() {
+    if (!draft || !Array.isArray(draft.entry.steps_arms) || !draft.entry.steps_arms.length) return false;
+    draft.entry.steps_arms = null;
+    branchState.steps_arms.index = 0;
+    branchState.steps_arms.scrollTop = 0;
+    if (branch === 'steps_arms') selected = branchState.steps_arms;
+    clearConfirmStrip();
+    markDirty();
+    renderBranchStatus();
+    renderTimeline();
+    return true;
+  }
+  function showRemoveArmsVariantConfirm() {
+    if (!draft || !Array.isArray(draft.entry.steps_arms) || !draft.entry.steps_arms.length) return false;
+    pendingAction = {type: 'remove-arms-variant'};
+    showConfirmStrip('Delete the ' + draft.entry.steps_arms.length + '-step arms variant? BASE is kept.', [
+      {label: 'Remove', action: 'confirm-remove-arms-variant', danger: true},
+      {label: 'Cancel', action: 'cancel'}
+    ], true);
+    return true;
+  }
   function renderTimeline() {
     var timeline = el('meTimeline');
     if (!timeline) return;
     timeline.innerHTML = '';
     var steps = branchSteps(branch);
+    if (branch === 'steps_arms' && (!Array.isArray(draft.entry.steps_arms) || draft.entry.steps_arms.length === 0)) {
+      var empty = document.createElement('div'); empty.className = 'me-empty-variant';
+      var message = document.createElement('p'); message.textContent = 'No ARMS variant yet.'; empty.appendChild(message);
+      var create = document.createElement('button'); create.type = 'button';
+      create.className = 'hud-btn hud-btn-primary'; create.setAttribute('data-action', 'create-arms-from-base');
+      create.textContent = 'Create from BASE'; empty.appendChild(create);
+      var start = document.createElement('button'); start.type = 'button';
+      start.className = 'hud-btn hud-btn-secondary'; start.setAttribute('data-action', 'start-empty-arms');
+      start.textContent = 'Start empty'; empty.appendChild(start);
+      timeline.appendChild(empty);
+      renderSelectedStep();
+      return;
+    }
     steps.forEach(function (step, index) {
       var kind = step && step.movement ? 'ref' : 'pose';
       var card = document.createElement('div');
@@ -993,6 +1045,9 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
   }
   function handleTimelineClick(event) {
+    var action = event.target.closest('[data-action]');
+    if (action && action.getAttribute('data-action') === 'create-arms-from-base') { createArmsFromBase(); return; }
+    if (action && action.getAttribute('data-action') === 'start-empty-arms') { startArmsEmpty(); return; }
     var card = event.target.closest('.meStepCard');
     var control = event.target.closest('[data-control]');
     if (control && card) {
@@ -1169,10 +1224,15 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function saveEntry() {
     if (!draft || el('meSaveBtn').getAttribute('data-state') === 'SAVING') return false;
-    if (editorMode === 'raw') {
+    var rawSave = editorMode === 'raw';
+    if (rawSave) {
       if (rawDirty()) { showRawDirtyPrompt('save'); return false; }
       var rawResult = applyRaw(el('meRawText').value);
       if (!rawResult.ok) return false;
+    }
+    if (!rawSave && Array.isArray(draft.entry.steps_arms) && draft.entry.steps_arms.length === 0) {
+      draft.entry.steps_arms = null;
+      notify('Empty arms variant removed', 'info');
     }
     var validation = validateEntry(draft.entry, {id: draft.id, isCreate: isCreating, existingIds: pool});
     var strip = el('meErrorStrip');
@@ -1487,10 +1547,12 @@ document.addEventListener('DOMContentLoaded', function () {
       duplicate: 'Duplicate',
       delete: 'Delete',
       'restore-default': 'Restore default',
+      'remove-arms-variant': 'Remove arms variant',
       close: 'Close'
     };
     var visible = draft && draft.id && !isCreating ? ['duplicate', 'delete'] : [];
     if (shouldShowRestoreDefault()) visible.push('restore-default');
+    if (draft && Array.isArray(draft.entry.steps_arms) && draft.entry.steps_arms.length) visible.push('remove-arms-variant');
     if (draft) visible.push('close');
     visible.forEach(function (action) {
       var item = document.createElement('button');
@@ -1515,6 +1577,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (action === 'duplicate') duplicateMovement(draft.id, null, false, true);
     else if (action === 'delete') deleteMovement(draft.id);
     else if (action === 'restore-default') showRestoreDefaultConfirm(draft.id);
+    else if (action === 'remove-arms-variant') showRemoveArmsVariantConfirm();
     else if (action === 'close') closeEditor();
   }
   function handleOverflowOutsideClick(event) {
@@ -1623,6 +1686,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     if (action === 'confirm-clear-branch' && pendingAction && pendingAction.type === 'clear-branch') {
       confirmClearBranch(); return;
+    }
+    if (action === 'confirm-remove-arms-variant' && pendingAction && pendingAction.type === 'remove-arms-variant') {
+      pendingAction = null; removeArmsVariant(); return;
     }
     if (action === 'confirm-delete' && pendingAction && pendingAction.type === 'delete') {
       var id = pendingAction.id; pendingAction = null; clearConfirmStrip(); performDelete(id); return;
