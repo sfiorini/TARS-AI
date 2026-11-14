@@ -55,8 +55,14 @@ python3 src/app-movements.py validate    # "movements.json is valid" (exit 0) or
 
 ## Web UI
 
-- The **movements** tab lists the whole pool (fetched from `GET /movements/`), with per-entry Play / Edit / Delete buttons, a create form, and Reset / Prune buttons. Edits are validated on save; the server rejects invalid entries with the reason.
-- The **builder** tab still builds step sequences graphically; saving now writes a movement store entry (id = name, so ids are lowercase/digits/underscores). Sequences from the legacy builder file (`src/custom_sequences.json`) are **not** migrated; recreate them in the panel.
+- **Movement Studio** merges the movement library with one editor that offers **Visual** pose/timeline controls and an advanced **RAW** JSON mode. The library loads the full pool from `GET /movements/`; create and edit save through `/movements` CRUD, with reset and prune available alongside per-entry Play, Edit, Duplicate, and Delete.
+- On create, the movement id is generated as an **auto-slug** from the name (`[a-z0-9_]+`); after creation ids are **immutable** because the D-pad, gamepad, and voice assistant address movements by id. Duplicate to create a separately named movement.
+- Each entry can carry both `steps` (BASE) and `steps_arms` (ARMS). `steps_arms` is **not exclusive to `has_arms`**: the `legs_only` walkers `walk_forward`, `walk_backward`, `step_forward`, and `step_backward` also ship arms variants. The selected branch depends on installed arm hardware and whether that variant has steps—not only on the entry type. The Studio's status badges compare the live pool with the tracked defaults from `GET /movements/defaults`.
+- LIVE preview is legs-only and clamps outgoing values to **5–100** and speed to **0.65–1.0**; **stored values unchanged**. A SKIP servo uses its last live value as the preview proxy. This clamp is for LIVE only; Save and on-robot PLAY validate the stored data rather than silently clamping it.
+- On-robot PLAY uses the selected branch and **plays to completion**: there is **no mid-move stop in v1**. The Stop control stops only the 3D preview; it does not stop the robot. A movement already in progress returns `409 Robot is already moving`.
+- Delete guardrails first apply a **referrer hard-block** when another movement points at the target; deleting it would invalidate the store. An unreferenced shipped movement instead shows a warning about its D-pad, gamepad, and voice consumers before allowing deletion.
+- The optional 3D preview is deliberately approximate: **Legs only · ref steps skipped · approximate timing**. It does not render arms or expand referenced movements; when Three.js is unavailable offline, the preview is disabled with an explanatory note.
+- Sequences in the legacy `src/custom_sequences.json` file are **not migrated**; recreate them as movements in the Studio.
 - The **motion** tab dropdown executes movements through the store; a movement already in progress returns `409 Robot is already moving`.
 
 ## Voice: the `execute_movement` skill

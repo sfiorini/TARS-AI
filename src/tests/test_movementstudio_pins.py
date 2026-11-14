@@ -1036,3 +1036,18 @@ def test_webui_tabs_table_cutover():
     assert len(movement_route_rows) == 1 and "`GET /movements/defaults`" in movement_route_rows[0]
 
 
+def test_movements_doc_webui_section_describes_studio():
+    doc = (REPO_ROOT / "docs" / "movements.md").read_text()
+    section = doc.split("## Web UI", 1)[1].split("\n## ", 1)[0]
+    for needle in (
+        "Movement Studio", "Visual", "RAW", "auto-slug", "immutable",
+        "steps_arms", "not exclusive to `has_arms`", "walk_forward",
+        "walk_backward", "step_forward", "step_backward", "/movements/defaults",
+        "status badges", "5–100", "0.65–1.0", "stored values unchanged",
+        "SKIP", "last live value", "plays to completion", "no mid-move stop in v1",
+        "Legs only · ref steps skipped · approximate timing", "referrer hard-block",
+        "shipped movement", "custom_sequences.json", "not migrated",
+    ):
+        assert needle in section, f"movements.md Web UI section lost '{needle}'"
+
+
