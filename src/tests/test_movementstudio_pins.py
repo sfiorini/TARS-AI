@@ -656,7 +656,7 @@ def test_import_from_cached_pool_per_branch():
         assert f'id="{element_id}"' in html
     assert "filter(function (id) { return !draft || id !== draft.id; })" in controls
     assert "Import into ' + (branch === 'steps' ? 'BASE' : 'ARMS')" in controls
-    assert "sourceEntry[branch]" in import_branch and "deepCopy(sourceSteps)" in apply_import
+    assert "sourceEntry[branch]" in import_branch
     assert "kind === 'replace'" in import_branch and "Replace ' + target.length" in import_branch
     assert "branchLabel + ' steps with ' + sourceId" in import_branch
     assert "confirm-import-branch" in import_branch and "var importAction = pendingAction" in confirm
@@ -664,6 +664,11 @@ def test_import_from_cached_pool_per_branch():
     append_path = apply_import.split("else if (action.kind === 'append')", 1)[1]
     assert "kind === 'append'" in apply_import and "target.concat(imported)" in append_path
     assert "selected.index" not in append_path
+    # M2 audit-A F1: window the deepcopy needle PER PATH — a function-global
+    # needle is satisfied by the other path's copy (append-deletion survived).
+    replace_path = apply_import.split("else if (action.kind === 'append')", 1)[0]
+    assert "deepCopy(sourceSteps)" in replace_path
+    assert "deepCopy(sourceSteps)" in append_path
     # M2 audit-B F3: substring ban covers query-string/concatenation variants.
     assert not re.search(r"get_movement_steps", JS)
 
