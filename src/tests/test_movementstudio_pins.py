@@ -6,6 +6,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MOVEMENTS_HTML = (REPO_ROOT / "src" / "www" / "templates" / "tabs" / "movements.html").read_text()
 INDEX_HTML = (REPO_ROOT / "src" / "www" / "templates" / "index.html").read_text()
 MAIN_JS = (REPO_ROOT / "src" / "www" / "static" / "js" / "main.js").read_text()
+JS = (REPO_ROOT / "src" / "www" / "static" / "js" / "movement_editor.js").read_text()
 
 
 def test_movements_html_is_studio_shell_with_library_contract():
@@ -40,7 +41,16 @@ def test_index_includes_movements_html_exactly_once():
     assert INDEX_HTML.count("tabs/movements.html") == 1
 
 
-def test_no_duplicate_ids_in_scanned_templates():
+def test_boot_fetches_pool_with_error_and_retry_state():
+    s = JS
+    assert "fetch('/movements'" in s
+    assert 'r.ok' in s and 'Failed to load movements.' in s and 'meLibRetry' in s
+
+
+def test_no_silent_fetches_in_movement_editor():
+    s = JS
+    assert '.catch(function () {})' not in s
+    assert s.count('.ok') >= s.count('fetch(')
     include_re = re.compile(r"{%\s*include\s+'([^']+)'")
 
     def includes(path):
