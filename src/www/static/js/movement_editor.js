@@ -66,6 +66,25 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!draft) return [];
     return draft.entry[name] || [];
   }
+  function renderComposerControls() {
+    var select = el('meImportSelect');
+    if (select) {
+      var priorId = select.value;
+      select.innerHTML = '';
+      var prompt = document.createElement('option'); prompt.value = ''; prompt.textContent = 'Select movement…';
+      select.appendChild(prompt);
+      Object.keys(pool).filter(function (id) { return !draft || id !== draft.id; }).sort().forEach(function (id) {
+        var option = document.createElement('option'); option.value = id; option.textContent = id;
+        select.appendChild(option);
+      });
+      if (priorId && Object.prototype.hasOwnProperty.call(pool, priorId) && (!draft || priorId !== draft.id)) select.value = priorId;
+    }
+    var label = 'Import into ' + (branch === 'steps' ? 'BASE' : 'ARMS');
+    var replace = el('meImportReplace');
+    var append = el('meImportAppend');
+    if (replace) replace.textContent = label;
+    if (append) append.textContent = label + ' (append)';
+  }
   function resetBranchState() {
     branch = 'steps';
     branchState = {
@@ -81,6 +100,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     var clear = el('meClearBranch');
     if (clear) clear.textContent = 'Clear ' + (branch === 'steps' ? 'BASE' : 'ARMS');
+    renderComposerControls();
   }
   function playsNow() {
     if (!draft) return '';
@@ -163,6 +183,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       pool = d.movements;
       renderLibrary();
+      renderComposerControls();
       checkDraftBanner();
       return true;
     }).catch(function () {
@@ -1080,6 +1101,52 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
     return true;
   }
+  function importIntoBranch(kind) {
+    if (!draft || (kind !== 'replace' && kind !== 'append')) return false;
+    var select = el('meImportSelect');
+    var sourceId = select && select.value;
+    var sourceEntry = sourceId && pool[sourceId];
+    if (!sourceEntry) { notify('Choose a movement to import.', 'warning'); return false; }
+    var sourceSteps = sourceEntry[branch];
+    if (!Array.isArray(sourceSteps) || !sourceSteps.length) {
+      notify('The selected movement has no ' + (branch === 'steps' ? 'BASE' : 'ARMS') + ' steps.', 'warning');
+      return false;
+    }
+    var target = branchSteps(branch);
+    var branchLabel = branch === 'steps' ? 'BASE' : 'ARMS';
+    var action = {type: 'import-branch', kind: kind, branch: branch, sourceId: sourceId};
+    if (kind === 'replace' && target.length) {
+      action.targetCount = target.length;
+      showConfirmStrip('Replace ' + target.length + ' ' + branchLabel + ' steps with ' + sourceId + ' (' + sourceSteps.length + ' steps)?', [
+        {label: 'Replace', action: 'confirm-import-branch', danger: true},
+        {label: 'Cancel', action: 'cancel'}
+      ], true);
+      pendingAction = action;
+      return true;
+    }
+    return applyBranchImport(action);
+  }
+  function applyBranchImport(action) {
+    if (!draft || !action || !pool[action.sourceId]) return false;
+    var sourceEntry = pool[action.sourceId];
+    var sourceSteps = sourceEntry[action.branch];
+    if (!Array.isArray(sourceSteps) || !sourceSteps.length) return false;
+    var imported = deepCopy(sourceSteps);
+    var target = Array.isArray(draft.entry[action.branch]) ? draft.entry[action.branch] : [];
+    if (action.kind === 'replace') {
+      draft.entry[action.branch] = deepCopy(sourceSteps);
+      branchState[action.branch].index = Math.min(branchState[action.branch].index, imported.length - 1);
+      if (branch === action.branch) selected = branchState[branch];
+    } else if (action.kind === 'append') {
+      draft.entry[action.branch] = target.concat(imported);
+    } else return false;
+    clearConfirmStrip();
+    pendingAction = null;
+    markDirty();
+    renderBranchStatus();
+    if (branch === action.branch) renderTimeline();
+    return true;
+  }
   function removeArmsVariant() {
     if (!draft || !Array.isArray(draft.entry.steps_arms) || !draft.entry.steps_arms.length) return false;
     draft.entry.steps_arms = null;
@@ -1801,6 +1868,12 @@ document.addEventListener('DOMContentLoaded', function () {
     if (action === 'confirm-clear-branch' && pendingAction && pendingAction.type === 'clear-branch') {
       confirmClearBranch(); return;
     }
+    if (action === 'confirm-import-branch' && pendingAction && pendingAction.type === 'import-branch') {
+      var importAction = pendingAction;
+      pendingAction = null;
+      applyBranchImport(importAction);
+      return;
+    }
     if (action === 'confirm-remove-arms-variant' && pendingAction && pendingAction.type === 'remove-arms-variant') {
       pendingAction = null; removeArmsVariant(); return;
     }
@@ -1960,6 +2033,8 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meTimeline').addEventListener('pointercancel', handleTimelinePointerCancel);
   }
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
+  if (el('meImportReplace')) el('meImportReplace').addEventListener('click', function () { importIntoBranch('replace'); });
+  if (el('meImportAppend')) el('meImportAppend').addEventListener('click', function () { importIntoBranch('append'); });
   if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch(branch); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults(); fetchArmsStatus();

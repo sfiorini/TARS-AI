@@ -158,7 +158,8 @@
 .me-timeline { max-height: 55vh; overflow: auto; }
 .me-empty-variant { display: grid; justify-items: start; gap: 0.4rem; padding: 1rem; border: 1px dashed rgba(var(--accent-rgb), 0.28); border-radius: var(--radius-sm); color: var(--text-dim); }
 .me-empty-variant p { margin: 0; }
-.me-timeline-actions { margin-top: 0.65rem; }
+.me-timeline-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.65rem; }
+.me-timeline-actions #meImportSelect { min-width: 9rem; flex: 1 1 9rem; }
 .meStepCard {
   margin: 0.25rem 0;
   padding: 0.65rem;

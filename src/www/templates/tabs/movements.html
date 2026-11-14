@@ -62,7 +62,13 @@
           </div>
           <div id="meBranchStatus" class="me-branch-status" role="status" aria-live="polite"></div>
           <div id="meTimeline" class="me-timeline"></div>
-          <div class="me-timeline-actions"><button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button><button id="meClearBranch" type="button" class="hud-btn hud-btn-danger">Clear BASE</button></div>
+          <div class="me-timeline-actions">
+            <button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button>
+            <button id="meClearBranch" type="button" class="hud-btn hud-btn-danger">Clear BASE</button>
+            <select id="meImportSelect" class="hud-select" aria-label="Movement to import"></select>
+            <button id="meImportReplace" type="button" class="hud-btn hud-btn-secondary">Import into BASE</button>
+            <button id="meImportAppend" type="button" class="hud-btn hud-btn-secondary">Import into BASE (append)</button>
+          </div>
         </section>
         <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
       </div>

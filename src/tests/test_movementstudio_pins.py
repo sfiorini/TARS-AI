@@ -639,3 +639,24 @@ def test_arm_speed_ui_and_null_auto():
     assert "branch === 'steps_arms' || hasArmValue" in arm_speed
 
 
+def test_import_from_cached_pool_per_branch():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    controls = function_source("renderComposerControls")
+    import_branch = function_source("importIntoBranch")
+    apply_import = function_source("applyBranchImport")
+    confirm = function_source("handleConfirmClick")
+    for element_id in ("meImportSelect", "meImportReplace", "meImportAppend"):
+        assert f'id="{element_id}"' in html
+    assert "filter(function (id) { return !draft || id !== draft.id; })" in controls
+    assert "Import into ' + (branch === 'steps' ? 'BASE' : 'ARMS')" in controls
+    assert "sourceEntry[branch]" in import_branch and "deepCopy(sourceSteps)" in apply_import
+    assert "kind === 'replace'" in import_branch and "Replace ' + target.length" in import_branch
+    assert "branchLabel + ' steps with ' + sourceId" in import_branch
+    assert "confirm-import-branch" in import_branch and "var importAction = pendingAction" in confirm
+    assert "applyBranchImport(importAction)" in confirm
+    append_path = apply_import.split("else if (action.kind === 'append')", 1)[1]
+    assert "kind === 'append'" in apply_import and "target.concat(imported)" in append_path
+    assert "selected.index" not in append_path
+    assert "'/get_movement_steps'" not in JS and '"/get_movement_steps"' not in JS
+
+
