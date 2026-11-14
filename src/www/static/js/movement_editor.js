@@ -8,19 +8,41 @@ document.addEventListener('DOMContentLoaded', function () {
   function renderError() {
     var list = el('meLibList');
     if (!list) return;
-    list.innerHTML = 'Failed to load movements.' + ' steps · ' + 'No movements match.' + ' of ' + 'legs' + ' arms';
-    var retry = document.createElement('a');
+    list.innerHTML = '';
+    var state = document.createElement('div');
+    state.className = 'me-load-error';
+    var message = document.createElement('span');
+    message.textContent = 'Failed to load movements.';
+    var retry = document.createElement('button');
+    retry.type = 'button';
     retry.id = 'meLibRetry';
+    retry.className = 'hud-btn hud-btn-secondary';
+    retry.setAttribute('data-action', 'retry');
     retry.textContent = 'Retry';
-    retry.onclick = fetchPool;
-    list.appendChild(retry);
+    state.appendChild(message);
+    state.appendChild(retry);
+    list.appendChild(state);
   }
   function fetchPool() {
     return fetch('/movements').then(function (r) {
-      if (!r.ok) throw new Error('pool');
+      if (!r.ok) throw new Error('Failed to load movements.');
       return r.json();
-    }).then(function (d) { pool = d.movements || {}; renderLibrary(); })
-      .catch(function () { renderError(); });
+    }).then(function (d) {
+      if (!d || !d.movements || typeof d.movements !== 'object') {
+        throw new Error('Invalid movements response.');
+      }
+      pool = d.movements;
+      renderLibrary();
+      return true;
+    }).catch(function () {
+      renderError();
+      return false;
+    });
+  }
+  function handleLibraryClick(event) {
+    var actionButton = event.target.closest('[data-action]');
+    if (!actionButton) return;
+    if (actionButton.getAttribute('data-action') === 'retry') fetchPool();
   }
   function matchesFilters() { return true; }
   function sortKey() { return ''; }
@@ -84,6 +106,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (prune) { findReferrers(custom[0] || ''); }
     fetch('/movements/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prune: prune})}).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); }).then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); else fetchPool(); });
   }
+  if (el('meLibList')) el('meLibList').addEventListener('click', handleLibraryClick);
   if (el('meResetBtn')) el('meResetBtn').onclick = function () { resetOrPrune(false); };
   if (el('mePruneBtn')) el('mePruneBtn').onclick = function () { resetOrPrune(true); };
   fetchPool(); fetchDefaults();
