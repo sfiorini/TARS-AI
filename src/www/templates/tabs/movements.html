@@ -1,301 +1,58 @@
 <div class="tab-pane fade" id="movements" role="tabpanel">
   <div class="me-studio-layout">
-  <div class="me-library body-panel">
-    <div class="me-toolbar">
-      <input id="meLibSearch" class="hud-input" type="search" placeholder="Search movements…" aria-label="Search movements">
-      <div id="meLibTypeFilter" class="me-type-filter" role="group" aria-label="Filter movement type">
-        <button type="button" data-type="all" aria-pressed="true">All</button>
-        <button type="button" data-type="legs_only" aria-pressed="false">Legs</button>
-        <button type="button" data-type="has_arms" aria-pressed="false">Arms</button>
-      </div>
-      <select id="meLibSort" class="hud-select" aria-label="Sort movements">
-        <option value="id" selected>id A–Z</option><option value="name">name A–Z</option><option value="type">type</option>
-      </select>
-      <span id="meLibCount" class="me-lib-count" aria-live="polite"></span>
-      <button type="button" id="meNewBtn" class="hud-btn hud-btn-primary">+ Create</button>
-      <button type="button" id="meResetBtn" class="hud-btn hud-btn-secondary" title="Restore every default movement; user movements are kept">↺ Reset</button>
-      <button type="button" id="mePruneBtn" class="hud-btn hud-btn-danger" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
-    </div>
-    <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
-    <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
-  </div>
-  <section id="meEditor" class="me-editor body-panel" hidden aria-label="Movement editor">
-    <header class="me-editor-header">
-      <button id="meBackBtn" type="button" class="hud-btn hud-btn-secondary" title="Back to library">‹ Back to library</button>
-      <h2 id="meEditorTitle">New movement</h2>
-      <span id="meDirtyDot" class="me-dirty-dot" hidden aria-label="Unsaved changes">●</span>
-      <button id="meModeVisual" type="button" class="hud-btn hud-btn-secondary" aria-pressed="true">VISUAL</button>
-      <button id="meModeRaw" type="button" class="hud-btn hud-btn-secondary" aria-pressed="false">RAW</button>
-      <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
-    </header>
-    <div class="me-metadata-grid">
-      <label class="me-id-field">Movement id
-        <span id="meIdEdit"><input id="meIdInput" class="hud-input" autocomplete="off"><span id="meIdLock" class="me-id-lock" hidden></span></span>
-        <span id="meIdHint">a–z 0–9 _</span>
-        <span id="meIdError" class="me-field-error" aria-live="polite"></span>
-      </label>
-      <label>Display name<input id="meNameInput" class="hud-input" autocomplete="off"></label>
-      <label>Type<select id="meTypeSelect" class="hud-select"><option value="legs_only">legs_only</option><option value="has_arms">has_arms</option></select></label>
-      <label class="me-description-field">Description<input id="meDescInput" class="hud-input" autocomplete="off"><small>The voice assistant reads this when choosing a movement — say what it does.</small></label>
-    </div>
-    <div id="meErrorStrip" class="me-error-strip bld-overwrite-confirm" role="alert" aria-live="assertive" hidden></div>
-    <div id="meDraftBanner" class="me-draft-banner" hidden></div>
-    <div class="me-editor-workspace">
-      <section class="me-timeline-panel" aria-label="Movement timeline">
-        <div id="meTimeline" class="me-timeline"></div>
-        <div class="me-timeline-actions"><button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button><button id="meClearBranch" type="button" class="hud-btn hud-btn-danger">Clear BASE</button></div>
-      </section>
-      <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
-    </div>
-  </section>
-  </div>
-  <div class="body-panel me-legacy"><h3>JSON editor (legacy — replaced by the visual editor in the next update)</h3>
-  <div class="builder-wrap">
-
-    <div class="builder-header">
-      <span class="section-label">MOVEMENTS</span>
-      <div class="bld-row-actions">
-        <button class="hud-btn hud-btn-secondary" id="mvResetBtn" title="Restore every default movement; user movements are kept">↺ Reset</button>
-        <button class="hud-btn hud-btn-danger" id="mvPruneBtn" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
-      </div>
-    </div>
-
-    <div class="bld-overwrite-confirm" id="mvError" style="display:none">
-      <span class="bld-confirm-msg"></span>
-    </div>
-
-    <div class="bld-hint">
-      <span>The whole movement pool — shipped and user-created — lives in the movement store.</span>
-      <span>Arm-gated movements are listed but only play when arm servos are installed.</span>
-    </div>
-
-    <!-- New movement -->
-    <div class="bld-section">
-      <div class="section-label">NEW MOVEMENT</div>
-      <div class="bld-save-row">
-        <input type="text" id="mvNewId" class="hud-input bld-name-input" placeholder="id (lowercase, digits, underscores)">
-        <button class="hud-btn hud-btn-primary" id="mvNewBtn">+ Create</button>
-      </div>
-    </div>
-
-    <!-- Pool list -->
-    <div class="bld-section">
-      <div class="section-label">POOL</div>
-      <div class="bld-step-list" id="mvPoolList">Loading…</div>
-    </div>
-
-    <!-- Editor -->
-    <div class="bld-section" id="mvEditor" style="display:none">
-      <div class="section-label">EDIT <span id="mvEditorId"></span></div>
-      <div class="bld-save-row">
-        <input type="text" id="mvName" class="hud-input bld-name-input" placeholder="Display name">
-        <select id="mvType" class="hud-select bld-movement-sel">
-          <option value="legs_only">legs_only</option>
-          <option value="has_arms">has_arms</option>
+    <div class="me-library body-panel">
+      <div class="me-toolbar">
+        <input id="meLibSearch" class="hud-input" type="search" placeholder="Search movements…" aria-label="Search movements">
+        <div id="meLibTypeFilter" class="me-type-filter" role="group" aria-label="Filter movement type">
+          <button type="button" data-type="all" aria-pressed="true">All</button>
+          <button type="button" data-type="legs_only" aria-pressed="false">Legs</button>
+          <button type="button" data-type="has_arms" aria-pressed="false">Arms</button>
+        </div>
+        <select id="meLibSort" class="hud-select" aria-label="Sort movements">
+          <option value="id" selected>id A–Z</option><option value="name">name A–Z</option><option value="type">type</option>
         </select>
+        <span id="meLibCount" class="me-lib-count" aria-live="polite"></span>
+        <button type="button" id="meNewBtn" class="hud-btn hud-btn-primary">+ Create</button>
+        <button type="button" id="meResetBtn" class="hud-btn hud-btn-secondary" title="Restore every default movement; user movements are kept">↺ Reset</button>
+        <button type="button" id="mePruneBtn" class="hud-btn hud-btn-danger" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
       </div>
-      <div class="bld-save-row">
-        <input type="text" id="mvDescription" class="hud-input bld-name-input" placeholder="Description">
-      </div>
-      <div class="bld-hint"><span>steps — JSON array (builder step schema)</span></div>
-      <textarea id="mvSteps" class="hud-input" rows="8" style="width:100%; font-family:monospace;"></textarea>
-      <div class="bld-hint"><span>steps_arms — JSON array or empty for none</span></div>
-      <textarea id="mvStepsArms" class="hud-input" rows="4" style="width:100%; font-family:monospace;"></textarea>
-      <div class="bld-row-actions">
-        <button class="hud-btn hud-btn-primary" id="mvSaveBtn">Save</button>
-        <button class="hud-btn" id="mvCancelBtn">Cancel</button>
-      </div>
+      <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
+      <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
     </div>
-
-  </div>
-
-  <script>
-  (function () {
-    'use strict';
-    var editingId = null;
-
-    function el(id) { return document.getElementById(id); }
-
-    function feedback(msg, isError) {
-      var box = el('mvError');
-      if (!box) return;
-      box.style.display = '';
-      box.querySelector('.bld-confirm-msg').textContent = msg;
-      box.style.color = isError ? '#ff6b6b' : '';
-      if (!isError) setTimeout(function () { box.style.display = 'none'; }, 2500);
-    }
-
-    function parseSteps(text, allowEmpty) {
-      var trimmed = (text || '').trim();
-      if (!trimmed) return allowEmpty ? null : [];
-      var parsed = JSON.parse(trimmed);  // throws on bad JSON
-      if (!Array.isArray(parsed)) throw new Error('must be a JSON array');
-      return parsed;
-    }
-
-    function loadPool() {
-      fetch('/movements').then(function (r) { return r.json(); }).then(function (d) {
-        renderPool(d.movements || {});
-      }).catch(function () {
-        el('mvPoolList').textContent = 'Failed to load movements.';
-      });
-    }
-
-    function renderPool(movements) {
-      var list = el('mvPoolList');
-      list.innerHTML = '';
-      var ids = Object.keys(movements).sort();
-      if (!ids.length) { list.textContent = 'No movements.'; return; }
-      ids.forEach(function (id) {
-        var m = movements[id];
-        var row = document.createElement('div');
-        row.className = 'bld-step-row';
-        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:4px 0;';
-        var label = document.createElement('span');
-        label.style.flex = '1';
-        label.innerHTML = '<b>' + id + '</b> <small>(' + m.type + ')</small> — ' +
-                          (m.description || '');
-        var play = document.createElement('button');
-        play.className = 'hud-btn hud-btn-secondary';
-        play.textContent = '▶';
-        play.title = 'Play';
-        play.onclick = function () { playMovement(id); };
-        var edit = document.createElement('button');
-        edit.className = 'hud-btn hud-btn-secondary';
-        edit.textContent = '✎';
-        edit.title = 'Edit';
-        edit.onclick = function () { openEditor(id, m); };
-        var del = document.createElement('button');
-        del.className = 'hud-btn hud-btn-danger';
-        del.textContent = '🗑';
-        del.title = 'Delete';
-        del.onclick = function () { deleteMovement(id); };
-        row.appendChild(label); row.appendChild(play);
-        row.appendChild(edit); row.appendChild(del);
-        list.appendChild(row);
-      });
-    }
-
-    function playMovement(id) {
-      fetch('/play_saved_sequence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: id })
-      }).then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
-      }).then(function (res) {
-        if (res.ok) feedback('Played ' + id, false);
-        else feedback(res.d.error || 'Playback failed', true);
-      }).catch(function (err) { feedback('Error: ' + err.message, true); });
-    }
-
-    function deleteMovement(id) {
-      if (!window.confirm('Delete movement "' + id + '"?')) return;
-      fetch('/movements/' + encodeURIComponent(id), { method: 'DELETE' })
-        .then(function () { loadPool(); })
-        .catch(function (err) { feedback('Error: ' + err.message, true); });
-    }
-
-    function openEditor(id, m) {
-      editingId = id;
-      el('mvEditorId').textContent = '"' + id + '"';
-      el('mvName').value = m.name || '';
-      el('mvType').value = m.type || 'legs_only';
-      el('mvDescription').value = m.description || '';
-      el('mvSteps').value = JSON.stringify(m.steps || [], null, 2);
-      el('mvStepsArms').value = m.steps_arms ? JSON.stringify(m.steps_arms, null, 2) : '';
-      el('mvEditor').style.display = '';
-      feedback('', false);
-      el('mvError').style.display = 'none';
-      // the pool list is long; bring the editor into view so the click has
-      // a visible effect even on short screens
-      try { el('mvEditor').scrollIntoView({ block: 'nearest' }); } catch (e) {}
-    }
-
-    function closeEditor() {
-      editingId = null;
-      el('mvEditor').style.display = 'none';
-    }
-
-    function saveEditor() {
-      if (!editingId) return;
-      var steps, stepsArms;
-      try {
-        steps = parseSteps(el('mvSteps').value, false);
-        stepsArms = parseSteps(el('mvStepsArms').value, true);
-      } catch (e) {
-        feedback('Invalid steps JSON: ' + e.message, true);
-        return;
-      }
-      fetch('/movements/' + encodeURIComponent(editingId), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: el('mvName').value,
-          type: el('mvType').value,
-          description: el('mvDescription').value,
-          steps: steps,
-          steps_arms: stepsArms
-        })
-      }).then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
-      }).then(function (res) {
-        if (res.ok) { closeEditor(); loadPool(); }
-        else feedback(res.d.error || 'Save failed', true);
-      }).catch(function (err) { feedback('Error: ' + err.message, true); });
-    }
-
-    function createMovement() {
-      var id = (el('mvNewId').value || '').trim();
-      if (!id) { feedback('Enter an id first.', true); return; }
-      fetch('/movements', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: id,
-          name: id,
-          type: 'legs_only',
-          description: 'Created in the movements panel',
-          steps: [{
-            left_height: 50, right_height: 50, left_leg: 50, right_leg: 50,
-            left_main: null, left_forearm: null, left_hand: null,
-            right_main: null, right_forearm: null, right_hand: null,
-            speed: 0.9, hold_time: 0.0, movement: null
-          }],
-          steps_arms: null
-        })
-      }).then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
-      }).then(function (res) {
-        if (res.ok) { el('mvNewId').value = ''; loadPool(); }
-        else feedback(res.d.error || 'Create failed', true);
-      }).catch(function (err) { feedback('Error: ' + err.message, true); });
-    }
-
-    function resetPool(prune) {
-      var msg = prune
-        ? 'Prune: restore all defaults and DELETE movements absent from the defaults?'
-        : 'Reset: restore every default movement? (edits to shipped movements are lost; user movements are kept)';
-      if (!window.confirm(msg)) return;
-      fetch('/movements/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prune: prune })
-      }).then(function (r) {
-        return r.json().then(function (d) { return { ok: r.ok, d: d }; });
-      }).then(function (res) {
-        if (res.ok) { feedback('Done — ' + res.d.count + ' movements', false); loadPool(); }
-        else feedback(res.d.error || 'Reset failed', true);
-      }).catch(function (err) { feedback('Error: ' + err.message, true); });
-    }
-
-    el('mvNewBtn').addEventListener('click', createMovement);
-    el('mvSaveBtn').addEventListener('click', saveEditor);
-    el('mvCancelBtn').addEventListener('click', closeEditor);
-    el('mvResetBtn').addEventListener('click', function () { resetPool(false); });
-    el('mvPruneBtn').addEventListener('click', function () { resetPool(true); });
-    loadPool();
-  })();
-  </script>
+    <section id="meEditor" class="me-editor body-panel" hidden aria-label="Movement editor">
+      <header class="me-editor-header">
+        <button id="meBackBtn" type="button" class="hud-btn hud-btn-secondary" title="Back to library">‹ Back to library</button>
+        <h2 id="meEditorTitle">New movement</h2>
+        <span id="meDirtyDot" class="me-dirty-dot" hidden aria-label="Unsaved changes">●</span>
+        <button id="meModeVisual" type="button" class="hud-btn hud-btn-secondary" aria-pressed="true">VISUAL</button>
+        <button id="meModeRaw" type="button" class="hud-btn hud-btn-secondary" aria-pressed="false">RAW</button>
+        <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
+      </header>
+      <div class="me-metadata-grid">
+        <label class="me-id-field">Movement id
+          <span id="meIdEdit"><input id="meIdInput" class="hud-input" autocomplete="off"><span id="meIdLock" class="me-id-lock" hidden></span></span>
+          <span id="meIdHint">a–z 0–9 _</span>
+          <span id="meIdError" class="me-field-error" aria-live="polite"></span>
+        </label>
+        <label>Display name<input id="meNameInput" class="hud-input" autocomplete="off"></label>
+        <label>Type<select id="meTypeSelect" class="hud-select"><option value="legs_only">legs_only</option><option value="has_arms">has_arms</option></select></label>
+        <label class="me-description-field">Description<input id="meDescInput" class="hud-input" autocomplete="off"><small>The voice assistant reads this when choosing a movement — say what it does.</small></label>
+      </div>
+      <div id="meErrorStrip" class="me-error-strip bld-overwrite-confirm" role="alert" aria-live="assertive" hidden></div>
+      <div id="meDraftBanner" class="me-draft-banner" hidden></div>
+      <div id="meRawPanel" class="me-raw-panel" hidden>
+        <label for="meRawText">Full movement JSON</label>
+        <textarea id="meRawText" class="hud-input" spellcheck="false" aria-label="Raw movement JSON"></textarea>
+        <div class="me-raw-actions"><button id="meRawApply" type="button" class="hud-btn hud-btn-primary">Apply JSON</button></div>
+        <div id="meRawNotice" class="me-raw-notice" role="status" aria-live="polite"></div>
+      </div>
+      <div class="me-editor-workspace">
+        <section class="me-timeline-panel" aria-label="Movement timeline">
+          <div id="meTimeline" class="me-timeline"></div>
+          <div class="me-timeline-actions"><button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button><button id="meClearBranch" type="button" class="hud-btn hud-btn-danger">Clear BASE</button></div>
+        </section>
+        <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
+      </div>
+    </section>
   </div>
 </div>

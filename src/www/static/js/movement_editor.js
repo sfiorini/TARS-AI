@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', function () {
   var draft = null;
   var savedSnapshot = null;
   var savedFlashTimer = null;
+  var rawSnapshot = '';
+  var rawPendingAction = null;
   var selected = {branch: 'steps', index: 0};
   var editorMode = 'visual';
   var dragFrom = null;
@@ -354,6 +356,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var pane = el('meEditor');
     if (!pane || !draft) return;
     pane.hidden = false;
+    rawSnapshot = '';
+    setEditorMode('visual');
     el('meEditorTitle').textContent = draft.id ? (draft.entry.name || draft.id) : 'New movement';
     var idInput = el('meIdInput');
     var idLock = el('meIdLock');
@@ -858,8 +862,95 @@ document.addEventListener('DOMContentLoaded', function () {
     clearDropIndicator();
     if (to !== null) moveStep(from, to);
   }
+  function rawEntryFromDraft() {
+    var rawEntry = {};
+    ['name', 'type', 'description', 'steps', 'steps_arms'].forEach(function (key) {
+      rawEntry[key] = deepCopy(draft.entry[key]);
+    });
+    return rawEntry;
+  }
+  function renderRaw() {
+    if (!draft) return;
+    rawSnapshot = JSON.stringify(rawEntryFromDraft(), null, 2);
+    el('meRawText').value = rawSnapshot;
+    el('meRawNotice').textContent = '';
+  }
+  function rawDirty() {
+    var text = el('meRawText');
+    return editorMode === 'raw' && !!text && text.value !== rawSnapshot;
+  }
+  function setEditorMode(mode) {
+    editorMode = mode;
+    var pane = el('meEditor');
+    if (pane) pane.classList.toggle('me-raw-mode', mode === 'raw');
+    var workspace = pane && pane.querySelector('.me-editor-workspace');
+    if (workspace) workspace.hidden = mode === 'raw';
+    var rawPanel = el('meRawPanel');
+    if (rawPanel) rawPanel.hidden = mode !== 'raw';
+    if (el('meModeVisual')) el('meModeVisual').setAttribute('aria-pressed', mode === 'visual' ? 'true' : 'false');
+    if (el('meModeRaw')) el('meModeRaw').setAttribute('aria-pressed', mode === 'raw' ? 'true' : 'false');
+  }
+  function showRawDirtyPrompt(action) {
+    rawPendingAction = action;
+    showConfirmStrip('Apply or discard JSON changes first.', [
+      {label: 'Apply', action: 'raw-apply-pending'},
+      {label: 'Discard edits', action: 'raw-discard-pending'}
+    ], false);
+  }
+  function handleModeClick(event) {
+    if (event.target.closest('#meRawApply')) {
+      applyRaw(el('meRawText').value);
+      return;
+    }
+    if (event.target.closest('#meModeRaw')) {
+      if (editorMode !== 'raw') { renderRaw(); setEditorMode('raw'); }
+      return;
+    }
+    if (event.target.closest('#meModeVisual') && editorMode === 'raw') {
+      if (rawDirty()) { showRawDirtyPrompt('visual'); return; }
+      setEditorMode('visual');
+    }
+  }
+  function applyRaw(text) {
+    var parsed;
+    try { parsed = JSON.parse(text); }
+    catch (error) {
+      var syntaxStrip = el('meErrorStrip');
+      syntaxStrip.hidden = false;
+      syntaxStrip.textContent = 'JSON: ' + error.message;
+      return {ok: false, errors: [{path: 'JSON', msg: error.message}]};
+    }
+    var validation = validateEntry(parsed, {id: draft.id, isCreate: isCreating, existingIds: pool});
+    if (!validation.ok) {
+      var errorStrip = el('meErrorStrip');
+      errorStrip.hidden = false;
+      errorStrip.textContent = validation.errors.slice(0, 5).map(function (error) {
+        return error.path + ': ' + error.msg;
+      }).join('\n');
+      return validation;
+    }
+    draft.entry = validation.entry;
+    el('meNameInput').value = draft.entry.name || '';
+    el('meTypeSelect').value = draft.entry.type || 'legs_only';
+    el('meDescInput').value = draft.entry.description || '';
+    var notices = [];
+    if (validation.notice) notices.push(validation.notice);
+    validation.warnings.forEach(function (warning) { notices.push(warning.path + ': ' + warning.msg); });
+    el('meRawNotice').textContent = notices.join(' ');
+    el('meErrorStrip').hidden = true;
+    rawPendingAction = null;
+    setEditorMode('visual');
+    markDirty();
+    renderTimeline();
+    return validation;
+  }
   function saveEntry() {
     if (!draft || el('meSaveBtn').getAttribute('data-state') === 'SAVING') return false;
+    if (editorMode === 'raw') {
+      if (rawDirty()) { showRawDirtyPrompt('save'); return false; }
+      var rawResult = applyRaw(el('meRawText').value);
+      if (!rawResult.ok) return false;
+    }
     var validation = validateEntry(draft.entry, {id: draft.id, isCreate: isCreating, existingIds: pool});
     var strip = el('meErrorStrip');
     if (!validation.ok) {
@@ -1105,6 +1196,22 @@ document.addEventListener('DOMContentLoaded', function () {
     var button = event.target.closest('[data-action]');
     if (!button) return;
     var action = button.getAttribute('data-action');
+    if (action === 'raw-apply-pending') {
+      var applyNext = rawPendingAction;
+      clearConfirmStrip();
+      var applied = applyRaw(el('meRawText').value);
+      if (applied.ok && applyNext === 'save') saveEntry();
+      return;
+    }
+    if (action === 'raw-discard-pending') {
+      var discardNext = rawPendingAction;
+      el('meRawText').value = rawSnapshot;
+      rawPendingAction = null;
+      clearConfirmStrip();
+      if (discardNext === 'visual') setEditorMode('visual');
+      else if (discardNext === 'save') saveEntry();
+      return;
+    }
     if (action === 'cancel' || action === 'cancel-delete') {
       pendingAction = null; pendingClearSnapshot = null; clearConfirmStrip(); return;
     }
@@ -1244,6 +1351,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meEditor')) {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
+    el('meEditor').addEventListener('click', handleModeClick);
   }
   if (el('meTimeline')) {
     el('meTimeline').addEventListener('click', handleTimelineClick);

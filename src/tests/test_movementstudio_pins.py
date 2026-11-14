@@ -53,24 +53,19 @@ def test_no_duplicate_ids_in_scanned_templates():
     assert len(ids) == len(set(ids)), sorted({value for value in ids if ids.count(value) > 1})
 
 
-def test_movements_html_retains_legacy_json_editor_inside_shell():
-    legacy = MOVEMENTS_HTML.split('class="body-panel me-legacy"', 1)
-    assert len(legacy) == 2
-    legacy_html = legacy[1].split("</div>\n</div>", 1)[0]
-    for element_id in (
+def test_legacy_json_editor_removed():
+    legacy_ids = (
         "mvResetBtn", "mvPruneBtn", "mvError", "mvNewId", "mvNewBtn",
         "mvPoolList", "mvEditor", "mvEditorId", "mvName", "mvType",
         "mvDescription", "mvSteps", "mvStepsArms", "mvSaveBtn", "mvCancelBtn",
-    ):
-        assert legacy_html.count(f'id="{element_id}"') == 1
-    assert legacy_html.count("<script>") == 1
-    assert 'class="builder-wrap"' in legacy_html
-    assert "function createMovement()" in legacy_html and "function saveEditor()" in legacy_html
-    # Legacy inline IIFE stays BYTE-IDENTICAL to 9b671d6 until M1-S14 removes it
-    # (audit M0-B F5). Hash of the <script>…</script> region, verified at HEAD.
-    script = legacy_html[legacy_html.index("<script>"):legacy_html.rindex("</script>") + len("</script>")]
-    assert hashlib.sha256(script.encode()).hexdigest() == (
-        "f088ea1efd365a89d96e3c2cb37b13c8aa33e52b5e3c710cfcaedb468be4c2e5")
+    )
+    for element_id in legacy_ids:
+        assert f'id="{element_id}"' not in MOVEMENTS_HTML
+    assert 'class="me-legacy"' not in MOVEMENTS_HTML
+    assert "function createMovement()" not in MOVEMENTS_HTML and "function saveEditor()" not in MOVEMENTS_HTML
+    script_blocks = re.findall(r"<script>.*?</script>", MOVEMENTS_HTML, re.S)
+    legacy_sha256 = "f088ea1efd365a89d96e3c2cb37b13c8aa33e52b5e3c710cfcaedb468be4c2e5"
+    assert all(hashlib.sha256(script.encode()).hexdigest() != legacy_sha256 for script in script_blocks)
 
 
 def test_index_loads_movement_editor_after_main_before_tars_preview():
@@ -341,6 +336,26 @@ def test_create_flip_locks_id_and_surfaces_server_errors():
     assert "isCreating = false" in save and "renderEditor()" in save and "meIdLock" in function_source("renderEditor")
     assert "strip.textContent = res.d.error" in save
     assert "meNameInput').value = ''" not in save
+
+
+def test_raw_never_reads_or_writes_id():
+    render = function_source("renderRaw")
+    serializer = function_source("rawEntryFromDraft")
+    validate = function_source("validateEntry")
+    assert "['name', 'type', 'description', 'steps', 'steps_arms']" in serializer
+    assert "id:" not in render and "id is supplied by the editor" in validate
+    assert "unknown top-level key" in validate or "key === 'id'" in validate
+
+
+def test_raw_apply_pipeline_and_intercepts():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    apply = function_source("applyRaw")
+    toggle = function_source("handleModeClick")
+    save = function_source("saveEntry")
+    assert 'id="meRawText"' in html and 'id="meRawApply"' in html
+    assert "JSON.parse" in apply and "validateEntry" in apply and "slice(0, 5)" in apply
+    assert "validation.notice" in apply and "Apply or discard JSON changes first." in JS
+    assert "rawDirty()" in toggle and "rawDirty()" in save
 
 
 def test_badges_use_defaults_with_degraded_mode():
