@@ -760,6 +760,9 @@ def test_play_sequence_branch_labeled_preflight_and_409():
     assert "selected.index = Number(badStep[1]);" in play
     assert "badCard.classList.add('me-card-error')" in play
     assert "displayPath + ': ' + firstError.msg" in play
+    # M3 audit-B verification R-1: pin the SOURCE field of displayPath — the
+    # F7 fix otherwise left firstError.path unpinned (wrong-field mutation survived).
+    assert "var displayPath = firstError ? firstError.path : '';" in play
     # M3 audit-B F7: ARMS-branch errors display steps_arms[N] paths.
     assert r"if (playBranch === 'steps_arms') displayPath = displayPath.replace(/^steps\[/, 'steps_arms[');" in play
     # M3 audit-B F2: honesty copy — no mid-move stop in v1.
