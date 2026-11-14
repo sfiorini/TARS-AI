@@ -664,11 +664,13 @@ def test_import_from_cached_pool_per_branch():
     append_path = apply_import.split("else if (action.kind === 'append')", 1)[1]
     assert "kind === 'append'" in apply_import and "target.concat(imported)" in append_path
     assert "selected.index" not in append_path
-    # M2 audit-A F1: window the deepcopy needle PER PATH — a function-global
-    # needle is satisfied by the other path's copy (append-deletion survived).
-    replace_path = apply_import.split("else if (action.kind === 'append')", 1)[0]
-    assert "deepCopy(sourceSteps)" in replace_path
-    assert "deepCopy(sourceSteps)" in append_path
+    # M2 audit-A F1: pin each deepcopy by its EXACT line in the pre-branch
+    # window — a function-global needle is satisfied by the other path's copy
+    # (append-deletion survived). Append consumes `imported` (copied up top);
+    # replace copies inline. Both lines must stay deep copies.
+    pre_branch = apply_import.split("else if (action.kind === 'append')", 1)[0]
+    assert "var imported = deepCopy(sourceSteps);" in pre_branch
+    assert "draft.entry[action.branch] = deepCopy(sourceSteps);" in pre_branch
     # M2 audit-B F3: substring ban covers query-string/concatenation variants.
     assert not re.search(r"get_movement_steps", JS)
 
