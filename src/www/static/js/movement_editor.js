@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var pool = {};
   var defaultsData = null;
   var defaultsOk = false;
+  var defaultsFailureNotified = false;
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -196,19 +197,63 @@ document.addEventListener('DOMContentLoaded', function () {
     el('mvEditor').style.display = '';
     el('mvEditor').scrollIntoView({block: 'nearest'});
   }
-  function stableStringify(v) { return JSON.stringify(v, Object.keys(v || {}).sort()); }
+  function notify(message, type) {
+    if (window.showToast) window.showToast(message, type || 'info');
+  }
+  function stableStringify(value) {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return '[' + value.map(stableStringify).join(',') + ']';
+    return '{' + Object.keys(value).sort().map(function (key) {
+      return JSON.stringify(key) + ':' + stableStringify(value[key]);
+    }).join(',') + '}';
+  }
   function applyBadges() {
-    if (!defaultsOk) return;
-    Object.keys(pool).forEach(function (id) {
-      var row = document.querySelector('[data-mid="' + id + '"]'); if (!row) return;
-      var status = defaultsData[id] && stableStringify(pool[id]) === stableStringify(defaultsData[id]) ? 'default' : (defaultsData[id] ? 'modified' : 'custom');
-      var badge = row.querySelector('[data-default-status]'); if (badge) badge.setAttribute('data-default-status', status);
+    var list = el('meLibList');
+    if (!list) return;
+    var rows = list.querySelectorAll('.meLibRow');
+    Array.prototype.forEach.call(rows, function (row) {
+      var badge = row.querySelector('[data-default-status]');
+      if (!badge) return;
+      if (!defaultsOk || !defaultsData) {
+        badge.style.display = 'none';
+        badge.textContent = '';
+        badge.removeAttribute('title');
+        return;
+      }
+      var id = row.getAttribute('data-mid');
+      var inDefaults = Object.prototype.hasOwnProperty.call(defaultsData, id);
+      var status = !inDefaults ? 'custom' :
+        (stableStringify(pool[id]) === stableStringify(defaultsData[id]) ? 'default' : 'modified');
+      badge.setAttribute('data-default-status', status);
+      badge.textContent = status.toUpperCase();
+      badge.style.display = '';
+      badge.title = status === 'modified'
+        ? 'Shipped movement, edited on this robot. Reset restores it.' : '';
     });
   }
   function fetchDefaults() {
-    fetch('/movements/defaults').then(function (r) { if (!r.ok) throw new Error('defaults'); return r.json(); })
-      .then(function (d) { defaultsData = d.movements || {}; defaultsOk = true; applyBadges(); })
-      .catch(function () { defaultsOk = false; });
+    return fetch('/movements/defaults').then(function (r) {
+      if (!r.ok) throw new Error('Failed to load movement defaults.');
+      return r.json();
+    }).then(function (d) {
+      if (!d || !d.movements || typeof d.movements !== 'object') {
+        throw new Error('Invalid movement defaults response.');
+      }
+      defaultsData = d.movements;
+      defaultsOk = true;
+      defaultsFailureNotified = false;
+      applyBadges();
+      return true;
+    }).catch(function () {
+      defaultsData = null;
+      defaultsOk = false;
+      applyBadges();
+      if (!defaultsFailureNotified) {
+        defaultsFailureNotified = true;
+        notify('Movement defaults unavailable; status badges are hidden.', 'error');
+      }
+      return false;
+    });
   }
   function playMovement(id) {
     fetch('/play_saved_sequence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: id})})
