@@ -231,6 +231,16 @@ def test_add_step_seed_contains_all_keys_plus_arm_speed():
     assert "deepCopy" in duplicate and "currentIndex + 1" in duplicate and "splice" in duplicate
 
 
+def test_delete_step_undo_toast():
+    delete = function_source("delStep")
+    undo_toast = function_source("showUndoToast")
+    assert "showUndoToast(function" in delete and "steps.splice(index, 0, removed)" in delete
+    assert "window.showToast" in undo_toast and "5000" in undo_toast
+    assert "addEventListener('click'" in undo_toast and "onUndo()" in undo_toast
+    assert "meDelStep" in function_source("renderSelectedStep")
+    assert "delete-step" in function_source("renderTimeline")
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

@@ -309,6 +309,12 @@ document.addEventListener('DOMContentLoaded', function () {
       duplicate.textContent = '⧉ Duplicate position';
       panel.appendChild(duplicate);
     }
+    var remove = document.createElement('button');
+    remove.id = 'meDelStep';
+    remove.type = 'button';
+    remove.className = 'hud-btn hud-btn-danger';
+    remove.textContent = '× Delete position';
+    panel.appendChild(remove);
   }
   function addStep(step) {
     if (!draft) return false;
@@ -334,6 +340,48 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function handlePoseClick(event) {
     if (event.target.closest('#meDupStep')) dupStep(selected.index);
+    else if (event.target.closest('#meDelStep')) delStep(selected.index);
+  }
+  function showUndoToast(onUndo) {
+    if (window.showToast) window.showToast('Position deleted', 'info', 5000);
+    var container = el('toastContainer');
+    var toast = container && container.lastElementChild;
+    if (!toast) return;
+    var undoButton = document.createElement('button');
+    undoButton.type = 'button';
+    undoButton.className = 'me-undo-button';
+    undoButton.textContent = 'UNDO';
+    var active = true;
+    var timeoutId = setTimeout(function () { active = false; }, 5000);
+    undoButton.addEventListener('click', function () {
+      if (!active) return;
+      active = false;
+      clearTimeout(timeoutId);
+      onUndo();
+      toast.remove();
+    });
+    toast.appendChild(undoButton);
+  }
+  function delStep(index) {
+    if (!draft || !draft.entry.steps.length) return false;
+    var steps = draft.entry.steps;
+    var removed = steps.splice(index, 1)[0];
+    var replacement = null;
+    if (!steps.length) {
+      replacement = DEFAULT_STEP();
+      steps.push(replacement);
+    }
+    selected.index = Math.min(index, steps.length - 1);
+    markDirty();
+    renderTimeline();
+    showUndoToast(function () {
+      if (replacement && steps.length === 1 && steps[0] === replacement) steps.splice(0, 1);
+      steps.splice(index, 0, removed);
+      selected.index = index;
+      markDirty();
+      renderTimeline();
+    });
+    return true;
   }
   function renderTimeline() {
     var timeline = el('meTimeline');
@@ -349,6 +397,13 @@ document.addEventListener('DOMContentLoaded', function () {
       card.setAttribute('role', 'button');
       card.setAttribute('tabindex', '0');
       card.textContent = (index + 1) + ' ' + (kind === 'ref' ? '⚡ ' : '▦ ') + stepSummary(step);
+      var remove = document.createElement('button');
+      remove.type = 'button';
+      remove.className = 'me-step-delete';
+      remove.setAttribute('data-action', 'delete-step');
+      remove.setAttribute('aria-label', 'Delete position ' + (index + 1));
+      remove.textContent = '×';
+      card.appendChild(remove);
       timeline.appendChild(card);
     });
     renderSelectedStep();
@@ -359,7 +414,9 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
   }
   function handleTimelineClick(event) {
+    var remove = event.target.closest('[data-action="delete-step"]');
     var card = event.target.closest('.meStepCard');
+    if (remove && card) { delStep(Number(card.getAttribute('data-step-index'))); return; }
     if (card) selectStep(Number(card.getAttribute('data-step-index')));
   }
   function openForEdit(id) {
