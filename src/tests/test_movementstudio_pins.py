@@ -625,3 +625,17 @@ def test_hold_mode_stores_minus_one():
     assert "value === -1" in derive and "return 'hold'" in derive
 
 
+def test_arm_speed_ui_and_null_auto():
+    render = function_source("renderSelectedStep")
+    arm_speed = function_source("renderArmSpeedField")
+    bind = function_source("bindArmSpeedControls")
+    assert "renderArmSpeedField(step, timingFooter)" in render
+    assert "id = 'meArmSpeedAuto'" in arm_speed and "Auto (= speed)" in arm_speed
+    assert "auto.addEventListener('change'" in bind and "step.arm_speed = null" in bind
+    assert "step.arm_speed = snapped" in bind and "slider.addEventListener('input', function () { setValue(Number(slider.value)); })" in bind
+    assert "id = 'meArmSpeedSlider'" in arm_speed and "id = 'meArmSpeedNumber'" in arm_speed
+    assert "slider.min = '0'" in arm_speed and "slider.max = '1'" in arm_speed and "slider.step = '0.05'" in arm_speed
+    assert "number.min = '0'" in arm_speed and "number.max = '1'" in arm_speed
+    assert "branch === 'steps_arms' || hasArmValue" in arm_speed
+
+

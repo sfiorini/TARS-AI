@@ -189,6 +189,11 @@
 .me-timing-footer { margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px solid rgba(var(--accent-rgb), 0.18); }
 .me-timing-row { display: grid; grid-template-columns: 5rem minmax(6rem, 1fr) 4rem; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
 .me-timing-row label { color: var(--text); font: 0.78rem var(--font-hud); }
+.me-arm-speed-auto-label { display: inline-flex; align-items: center; gap: 0.3rem; white-space: nowrap; }
+.me-arm-speed-controls { display: inline-flex; align-items: center; gap: 0.35rem; }
+.me-arm-speed-controls[hidden] { display: none; }
+.me-arm-speed-controls input[type="range"] { min-width: 4rem; }
+.me-arm-speed-controls input[type="number"] { width: 4rem; }
 .me-timing-row small, .me-timing-row .me-clamp-note { grid-column: 2 / -1; color: var(--text-dim); font-size: 0.7rem; }
 .me-timing-row .me-clamp-note { color: var(--orange); }
 #meDupStep, #meDelStep { min-height: 32px; margin: 0.25rem; }

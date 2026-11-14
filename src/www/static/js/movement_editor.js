@@ -732,6 +732,7 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       var timingFooter = document.createElement('div'); timingFooter.className = 'me-timing-footer';
       TIMING_FIELDS.forEach(function (config) { renderTimingField(config, step, timingFooter); });
+      renderArmSpeedField(step, timingFooter);
       panel.appendChild(timingFooter);
       var duplicate = document.createElement('button');
       duplicate.id = 'meDupStep'; duplicate.type = 'button';
@@ -742,6 +743,73 @@ document.addEventListener('DOMContentLoaded', function () {
     remove.id = 'meDelStep'; remove.type = 'button';
     remove.className = 'hud-btn hud-btn-danger'; remove.textContent = '× Delete position';
     panel.appendChild(remove);
+  }
+  function renderArmSpeedField(step, parent) {
+    var hasArmValue = SERVO_FIELDS.some(function (config) {
+      return config.group === 'arms' && step[config.field] !== null && step[config.field] !== undefined;
+    });
+    var showCustom = branch === 'steps_arms' || hasArmValue;
+    var row = document.createElement('div'); row.className = 'me-timing-row me-arm-speed-row';
+    var label = document.createElement('label'); label.textContent = 'Arm speed';
+    var autoLabel = document.createElement('label'); autoLabel.className = 'me-arm-speed-auto-label';
+    var auto = document.createElement('input'); auto.id = 'meArmSpeedAuto'; auto.type = 'checkbox';
+    auto.checked = step.arm_speed === null || step.arm_speed === undefined;
+    auto.disabled = !showCustom;
+    autoLabel.appendChild(auto); autoLabel.appendChild(document.createTextNode('Auto (= speed)'));
+    var controls = document.createElement('span'); controls.className = 'me-arm-speed-controls';
+    controls.hidden = auto.checked || !showCustom;
+    var value = step.arm_speed === null || step.arm_speed === undefined ? Number(step.speed) : Number(step.arm_speed);
+    var slider = document.createElement('input'); slider.id = 'meArmSpeedSlider'; slider.type = 'range';
+    slider.className = 'meArmSpeedSlider hud-range'; slider.min = '0'; slider.max = '1'; slider.step = '0.05';
+    slider.value = String(value);
+    var number = document.createElement('input'); number.id = 'meArmSpeedNumber'; number.type = 'number';
+    number.className = 'meArmSpeedNumber hud-input'; number.setAttribute('inputmode', 'decimal');
+    number.min = '0'; number.max = '1'; number.step = '0.05'; number.value = String(value);
+    controls.appendChild(slider); controls.appendChild(number);
+    row.appendChild(label); row.appendChild(autoLabel); row.appendChild(controls); parent.appendChild(row);
+    bindArmSpeedControls(step, auto, controls, slider, number, showCustom);
+  }
+  function bindArmSpeedControls(step, auto, controls, slider, number, showCustom) {
+    function setValue(value) {
+      var clamped = Math.max(0, Math.min(1, Number(value)));
+      var snapped = Number((Math.round(clamped / 0.05) * 0.05).toFixed(2));
+      step.arm_speed = snapped;
+      auto.checked = false;
+      controls.hidden = false;
+      slider.value = String(snapped);
+      number.value = String(snapped);
+      markDirty();
+    }
+    auto.addEventListener('change', function () {
+      if (auto.checked) {
+        step.arm_speed = null;
+        controls.hidden = true;
+      } else if (showCustom) {
+        var custom = step.arm_speed === null || step.arm_speed === undefined ? Number(step.speed) : Number(step.arm_speed);
+        step.arm_speed = custom;
+        slider.value = String(custom);
+        number.value = String(custom);
+        controls.hidden = false;
+      } else {
+        auto.checked = true;
+      }
+      markDirty();
+    });
+    slider.addEventListener('input', function () { setValue(Number(slider.value)); });
+    number.addEventListener('input', function () {
+      if (number.value === '') return;
+      var entered = Number(number.value);
+      if (isFinite(entered) && entered >= 0 && entered <= 1) setValue(entered);
+    });
+    function commitNumber() {
+      if (number.value === '' || !isFinite(Number(number.value))) {
+        number.value = String(step.arm_speed === null || step.arm_speed === undefined ? step.speed : step.arm_speed);
+        return;
+      }
+      setValue(number.value);
+    }
+    number.addEventListener('change', commitNumber);
+    number.addEventListener('blur', commitNumber);
   }
   function renderTimingField(config, step, parent) {
     var row = document.createElement('div'); row.className = 'me-timing-row';
