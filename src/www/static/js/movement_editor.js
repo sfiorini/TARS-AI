@@ -255,10 +255,24 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   }
-  function playMovement(id) {
-    fetch('/play_saved_sequence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: id})})
-      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
-      .then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); });
+  function playMovement(id, button) {
+    if (button && button.disabled) return;
+    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    return fetch('/play_saved_sequence', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({name: id})
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { return {ok: false, d: d}; });
+      return r.json().then(function (d) { return {ok: true, d: d}; });
+    }).then(function (res) {
+      if (!res.ok) notify(res.d.error || 'Playback failed.', 'error');
+      else notify('Played "' + id + '"', 'success');
+    }).catch(function (error) {
+      notify(error && error.message ? error.message : 'Playback failed.', 'error');
+    }).finally(function () {
+      if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+    });
   }
   function duplicateMovement(id) {
     var entry = pool[id]; var newId = id + '_copy'; var n = 2;
