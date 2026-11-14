@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var defaultsData = null;
   var defaultsOk = false;
   var defaultsFailureNotified = false;
+  var pendingAction = null;
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -310,21 +311,95 @@ document.addEventListener('DOMContentLoaded', function () {
       if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
     });
   }
-  function findReferrers(targetId) {
+  function findReferrers(targetId, entries) {
     var refs = [];
-    Object.keys(pool).forEach(function (mid) {
+    var sourcePool = entries || pool;
+    Object.keys(sourcePool).forEach(function (mid) {
+      var entry = sourcePool[mid] || {};
       ['steps', 'steps_arms'].forEach(function (branch) {
-        (pool[mid][branch] || []).forEach(function (step, index) { if (step.movement === targetId) refs.push({mid: mid, branch: branch, stepIndex: index}); });
+        (entry[branch] || []).forEach(function (step, index) {
+          if (step && step.movement === targetId) refs.push({mid: mid, branch: branch, stepIndex: index});
+        });
       });
     });
     return refs;
   }
-  function deleteMovement(id) {
-    var refs = findReferrers(id);
+  function showConfirmStrip(message, buttons, danger) {
     var strip = el('meConfirmStrip');
-    if (refs.length) { strip.textContent = '"' + id + '" is referenced by ' + refs[0].mid + '. Deleting it would make the store invalid'; return; }
-    if (defaultsOk && defaultsData[id]) { strip.innerHTML = '"' + id + '" is a shipped movement. [Delete anyway]'; return; }
-    fetch('/movements/' + encodeURIComponent(id), {method: 'DELETE'}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
+    if (!strip) return;
+    strip.innerHTML = '';
+    strip.hidden = false;
+    strip.className = 'me-confirm-strip bld-overwrite-confirm' + (danger ? ' me-confirm-danger' : '');
+    var copy = document.createElement('span'); copy.className = 'me-confirm-message'; copy.textContent = message;
+    var actions = document.createElement('span'); actions.className = 'me-confirm-actions';
+    buttons.forEach(function (config) {
+      var button = document.createElement('button'); button.type = 'button';
+      button.className = 'hud-btn ' + (config.danger ? 'hud-btn-danger' : 'hud-btn-secondary');
+      button.setAttribute('data-action', config.action); button.textContent = config.label;
+      actions.appendChild(button);
+    });
+    strip.appendChild(copy); strip.appendChild(actions);
+  }
+  function clearConfirmStrip() {
+    var strip = el('meConfirmStrip');
+    if (!strip) return;
+    strip.innerHTML = ''; strip.hidden = true; strip.className = 'me-confirm-strip bld-overwrite-confirm';
+  }
+  function handleConfirmClick(event) {
+    var button = event.target.closest('[data-action]');
+    if (!button) return;
+    var action = button.getAttribute('data-action');
+    if (action === 'cancel' || action === 'cancel-delete') {
+      pendingAction = null; clearConfirmStrip(); return;
+    }
+    if (action === 'confirm-delete' && pendingAction && pendingAction.type === 'delete') {
+      var id = pendingAction.id; pendingAction = null; clearConfirmStrip(); performDelete(id);
+    }
+  }
+  function deleteMovement(id) {
+    var refs = findReferrers(id, pool);
+    if (refs.length) {
+      var refNames = refs.map(function (ref) {
+        var branchName = ref.branch === 'steps_arms' ? 'ARMS' : 'BASE';
+        return ref.mid + ' (' + branchName + ' step ' + (ref.stepIndex + 1) + ')';
+      }).join(', ');
+      showConfirmStrip('"' + id + '" is referenced by ' + refNames + '. Deleting it would make the store invalid — on the next restart ALL custom movements are silently replaced by defaults. Edit the referencing movements to remove the reference first.', [
+        {label: 'Cancel', action: 'cancel-delete'}
+      ], true);
+      return;
+    }
+    pendingAction = {type: 'delete', id: id};
+    if (defaultsOk && Object.prototype.hasOwnProperty.call(defaultsData, id)) {
+      showConfirmStrip('"' + id + '" is a shipped movement. The D-pad, gamepad and voice assistant reference it by id — deleting it breaks them silently.', [
+        {label: 'Delete anyway', action: 'confirm-delete', danger: true},
+        {label: 'Cancel', action: 'cancel-delete'}
+      ], true);
+      return;
+    }
+    showConfirmStrip('Delete "' + id + '"?', [
+      {label: 'Delete', action: 'confirm-delete'},
+      {label: 'Cancel', action: 'cancel-delete'}
+    ], false);
+  }
+  function performDelete(id) {
+    return fetch('/movements/' + encodeURIComponent(id), {method: 'DELETE'}).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) return {ok: false, d: d};
+        return {ok: true, d: d};
+      });
+    }).then(function (res) {
+      if (!res.ok) {
+        showConfirmStrip(res.d.error || 'Delete failed.', [{label: 'Cancel', action: 'cancel-delete'}], true);
+        return false;
+      }
+      clearConfirmStrip(); notify('Deleted "' + id + '"', 'success');
+      return fetchPool();
+    }).catch(function (error) {
+      showConfirmStrip(error && error.message ? error.message : 'Delete failed.', [
+        {label: 'Cancel', action: 'cancel-delete'}
+      ], true);
+      return false;
+    });
   }
   function resetOrPrune(prune) {
     var strip = el('meConfirmStrip');
@@ -335,6 +410,7 @@ document.addEventListener('DOMContentLoaded', function () {
     fetch('/movements/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prune: prune})}).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); }).then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); else fetchPool(); });
   }
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
+  if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
   if (el('meLibSearch')) el('meLibSearch').addEventListener('input', renderLibrary);
   if (el('meLibSort')) el('meLibSort').addEventListener('change', function () {
     selectedSort = el('meLibSort').value || 'id'; renderLibrary();
