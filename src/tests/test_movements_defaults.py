@@ -96,23 +96,23 @@ class TestDefaultsAccessor(_StoreTestCase):
 class TestDefaultsRoute(_StoreTestCase):
     def test_defaults_route_registered_as_read_only_get(self):
         tree = ast.parse(open(_CHATUI_PATH).read())
-        pairs = set()
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                continue
-            for dec in node.decorator_list:
-                if not (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute) and dec.func.attr == "route"):
-                    continue
-                if not (dec.args and isinstance(dec.args[0], ast.Constant)):
-                    continue
-                path = dec.args[0].value
-                methods = ["GET"]
-                for kw in dec.keywords:
-                    if kw.arg == "methods" and isinstance(kw.value, ast.List):
-                        methods = [e.value for e in kw.value.elts if isinstance(e, ast.Constant)]
-                for method in methods:
-                    pairs.add((method, path))
-        self.assertIn(("GET", "/movements/defaults"), pairs)
+        route = next(
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "movements_defaults"
+        )
+        decorators = [
+            dec for dec in route.decorator_list
+            if isinstance(dec, ast.Call)
+            and isinstance(dec.func, ast.Attribute)
+            and dec.func.attr == "route"
+        ]
+        self.assertEqual(len(decorators), 1)
+        decorator = decorators[0]
+        self.assertIsInstance(decorator.args[0], ast.Constant)
+        self.assertEqual(decorator.args[0].value, "/movements/defaults")
+        methods = next((kw.value for kw in decorator.keywords if kw.arg == "methods"), None)
+        self.assertIsInstance(methods, ast.List)
+        self.assertEqual([item.value for item in methods.elts], ["GET"])
 
     def test_defaults_route_handler_is_read_only_wrapper(self):
         tree = ast.parse(open(_CHATUI_PATH).read())
