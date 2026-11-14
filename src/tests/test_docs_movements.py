@@ -5,6 +5,7 @@ reset/prune semantics, CLI/UI CRUD).  These tests fail whenever the doc
 drifts back to the old hardcoded-functions framing or loses a key term.
 """
 import json
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -46,20 +47,34 @@ def test_web_ui_documents_movements_routes():
 
 
 def _section(text: str, heading: str) -> str:
+    assert heading in text, f"document lost the section heading '{heading}'"
     return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def _line_starting_with(section: str, prefix: str) -> str:
+    for line in section.splitlines():
+        if line.startswith(prefix):
+            return line
+    raise AssertionError(f"no line starts with '{prefix}'")
 
 
 def test_readme_fork_delta_lists_movement_studio():
     readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
     section = _section(readme, "## What this fork adds (V3)")
-    assert "Movement Studio" in section, \
-        "README's fork-delta list lost the Movement Studio entry"
+    bullet = _line_starting_with(section, "- **Movement Studio**")
+    for needle in ("library", "slider", "numeric", "RAW", "BASE/ARMS",
+                   "ref-step", "preview", "PLAY", "autosave"):
+        assert needle in bullet, \
+            f"README's Movement Studio bullet lost '{needle}'"
 
 
 def test_docs_home_documents_movement_studio():
     index = _read("index.md")
     table = _section(index, "## What V3 adds over upstream")
-    assert "Movement Studio" in table, \
-        "docs home page delta table lost the Movement Studio row"
-    assert "the builder" not in index, \
+    row = _line_starting_with(table, "| Movement Studio:")
+    for needle in ("RAW", "BASE/ARMS", "PLAY", "autosave"):
+        assert needle in row, f"docs home Studio row lost '{needle}'"
+    assert "the Movement Studio" in _section(index, "## Documentation map"), \
+        "docs home documentation map lost the Movement Studio"
+    assert not re.search(r"the\s+builder", index, re.IGNORECASE), \
         "docs home page still advertises the removed Builder tab"
