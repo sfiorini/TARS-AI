@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var savedSnapshot = null;
   var selected = {branch: 'steps', index: 0};
   var editorMode = 'visual';
+  var dragFrom = null;
+  var pointerDragFrom = null;
+  var pointerDragTo = null;
   var isCreating = false;
   var idManuallyEdited = false;
   var ID_PATTERN = /^[a-z0-9_]+$/;
@@ -394,9 +397,20 @@ document.addEventListener('DOMContentLoaded', function () {
       card.className = 'meStepCard' + (index === selected.index ? ' me-selected' : '');
       card.setAttribute('data-step-index', String(index));
       card.setAttribute('data-kind', kind);
-      card.setAttribute('role', 'button');
+      card.setAttribute('draggable', 'true');
+      card.setAttribute('role', 'group');
       card.setAttribute('tabindex', '0');
       card.textContent = (index + 1) + ' ' + (kind === 'ref' ? '⚡ ' : '▦ ') + stepSummary(step);
+      var grip = document.createElement('button');
+      grip.type = 'button'; grip.className = 'me-step-grip'; grip.textContent = '⠿';
+      grip.setAttribute('aria-label', 'Drag position ' + (index + 1));
+      card.appendChild(grip);
+      var up = document.createElement('button');
+      up.type = 'button'; up.className = 'me-step-move'; up.setAttribute('data-control', 'meStepUp');
+      up.setAttribute('aria-label', 'Move position up'); up.textContent = '▲'; card.appendChild(up);
+      var down = document.createElement('button');
+      down.type = 'button'; down.className = 'me-step-move'; down.setAttribute('data-control', 'meStepDown');
+      down.setAttribute('aria-label', 'Move position down'); down.textContent = '▼'; card.appendChild(down);
       var remove = document.createElement('button');
       remove.type = 'button';
       remove.className = 'me-step-delete';
@@ -414,10 +428,93 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
   }
   function handleTimelineClick(event) {
-    var remove = event.target.closest('[data-action="delete-step"]');
     var card = event.target.closest('.meStepCard');
+    var control = event.target.closest('[data-control]');
+    if (control && card) {
+      var index = Number(card.getAttribute('data-step-index'));
+      if (control.getAttribute('data-control') === 'meStepUp') moveStep(index, index - 1);
+      else if (control.getAttribute('data-control') === 'meStepDown') moveStep(index, index + 1);
+      return;
+    }
+    var remove = event.target.closest('[data-action="delete-step"]');
     if (remove && card) { delStep(Number(card.getAttribute('data-step-index'))); return; }
     if (card) selectStep(Number(card.getAttribute('data-step-index')));
+  }
+  function moveStep(from, to) {
+    if (!draft || from < 0 || to < 0 || from >= draft.entry.steps.length || to >= draft.entry.steps.length || from === to) return false;
+    var steps = draft.entry.steps;
+    var moved = steps.splice(from, 1)[0];
+    steps.splice(to, 0, moved);
+    selected.index = to;
+    markDirty();
+    renderTimeline();
+    return true;
+  }
+  function clearDropIndicator() {
+    Array.prototype.forEach.call(el('meTimeline').querySelectorAll('.meStepCard'), function (card) {
+      card.classList.remove('me-insert-line');
+    });
+  }
+  function handleTimelineDragStart(event) {
+    var card = event.target.closest('.meStepCard');
+    if (!card) return;
+    dragFrom = Number(card.getAttribute('data-step-index'));
+    if (event.dataTransfer) event.dataTransfer.setData('text/plain', String(dragFrom));
+  }
+  function handleTimelineDragOver(event) {
+    if (dragFrom === null) return;
+    event.preventDefault();
+    clearDropIndicator();
+    var card = event.target.closest('.meStepCard');
+    if (card) card.classList.add('me-insert-line');
+  }
+  function handleTimelineDrop(event) {
+    if (dragFrom === null) return;
+    event.preventDefault();
+    var card = event.target.closest('.meStepCard');
+    var target = card ? Number(card.getAttribute('data-step-index')) : dragFrom;
+    var source = dragFrom;
+    dragFrom = null;
+    clearDropIndicator();
+    moveStep(source, target);
+  }
+  function handleTimelineDragEnd() {
+    dragFrom = null;
+    clearDropIndicator();
+  }
+  function handleTimelinePointerCancel() {
+    pointerDragFrom = null;
+    pointerDragTo = null;
+    clearDropIndicator();
+  }
+  function handleTimelinePointerDown(event) {
+    if (!event.target.closest('.me-step-grip')) return;
+    event.preventDefault();
+    var card = event.target.closest('.meStepCard');
+    pointerDragFrom = Number(card.getAttribute('data-step-index'));
+    pointerDragTo = pointerDragFrom;
+  }
+  function handleTimelinePointerMove(event) {
+    if (pointerDragFrom === null) return;
+    event.preventDefault();
+    var target = document.elementFromPoint ? document.elementFromPoint(event.clientX, event.clientY) : event.target;
+    var card = target && target.closest('.meStepCard');
+    clearDropIndicator();
+    if (card) {
+      pointerDragTo = Number(card.getAttribute('data-step-index'));
+      card.classList.add('me-insert-line');
+    }
+  }
+  function handleTimelinePointerUp(event) {
+    if (pointerDragFrom === null) return;
+    var target = document.elementFromPoint ? document.elementFromPoint(event.clientX, event.clientY) : event.target;
+    var card = target && target.closest('.meStepCard');
+    var from = pointerDragFrom;
+    var to = card ? Number(card.getAttribute('data-step-index')) : pointerDragTo;
+    pointerDragFrom = null;
+    pointerDragTo = null;
+    clearDropIndicator();
+    if (to !== null) moveStep(from, to);
   }
   function openForEdit(id) {
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
@@ -733,7 +830,17 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
   }
-  if (el('meTimeline')) el('meTimeline').addEventListener('click', handleTimelineClick);
+  if (el('meTimeline')) {
+    el('meTimeline').addEventListener('click', handleTimelineClick);
+    el('meTimeline').addEventListener('dragstart', handleTimelineDragStart);
+    el('meTimeline').addEventListener('dragover', handleTimelineDragOver);
+    el('meTimeline').addEventListener('drop', handleTimelineDrop);
+    el('meTimeline').addEventListener('dragend', handleTimelineDragEnd);
+    el('meTimeline').addEventListener('pointerdown', handleTimelinePointerDown);
+    el('meTimeline').addEventListener('pointermove', handleTimelinePointerMove);
+    el('meTimeline').addEventListener('pointerup', handleTimelinePointerUp);
+    el('meTimeline').addEventListener('pointercancel', handleTimelinePointerCancel);
+  }
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults();

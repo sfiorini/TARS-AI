@@ -241,6 +241,17 @@ def test_delete_step_undo_toast():
     assert "delete-step" in function_source("renderTimeline")
 
 
+def test_step_reorder_controls():
+    render = function_source("renderTimeline")
+    click = function_source("handleTimelineClick")
+    move = function_source("moveStep")
+    assert "setAttribute('draggable', 'true')" in render
+    assert "data-control', 'meStepUp'" in render and "data-control', 'meStepDown'" in render
+    assert "dragstart" in JS and "dragover" in JS and "drop" in JS
+    assert "moveStep(index, index - 1)" in click and "moveStep(index, index + 1)" in click
+    assert "steps.splice(from, 1)" in move and "steps.splice(to, 0, moved)" in move
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")
