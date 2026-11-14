@@ -707,3 +707,21 @@ def test_ref_validation_client_dfs():
     assert "path: branchName + '[' + index + '].movement'" in validate
 
 
+def test_promotion_demotion_flows_keep_variant():
+    metadata = function_source("handleMetadataInput")
+    notice = function_source("renderTypeNotice")
+    click = function_source("handleBranchClick")
+    save = function_source("saveEntry")
+    assert "Add an arms variant?" in notice and "Create from base" in notice
+    assert "Arms variant kept but unused while type is legs_only." in notice
+    assert "create-arms-from-type" in notice and "createArmsFromBase()" in click
+    assert "previousType === 'legs_only' && target.value === 'has_arms'" in metadata
+    promotion = metadata.split("previousType === 'legs_only'", 1)[1].split("else if (target.id === 'meDescInput')", 1)[0]
+    assert "createArmsFromBase()" not in promotion
+    demotion = metadata.split("else if (target.id === 'meTypeSelect')", 1)[1].split("else return;", 1)[0]
+    assert "previousType === 'has_arms' && target.value === 'legs_only'" in demotion
+    assert not re.search(r"steps_arms\s*=", demotion)
+    assert "type: draft.entry.type" in save
+    assert "steps_arms: deepCopy(draft.entry.steps_arms)" in save
+
+

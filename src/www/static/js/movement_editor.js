@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var armsPresent = false;
   var armsStatusKnown = false;
   var armsStatusFailureNotified = false;
+  var typeNotice = null;
   var draft = null;
   var savedSnapshot = null;
   var savedFlashTimer = null;
@@ -98,6 +99,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
   function resetBranchState() {
+    typeNotice = null;
     branch = 'steps';
     branchState = {
       steps: {index: 0, scrollTop: 0, undoStack: []},
@@ -634,6 +636,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meNameInput').value = draft.entry.name || '';
     el('meTypeSelect').value = draft.entry.type || 'legs_only';
     el('meDescInput').value = draft.entry.description || '';
+    renderTypeNotice();
     if (!preserveSaveState) {
       el('meDirtyDot').hidden = true;
       setSaveState('CLEAN');
@@ -643,6 +646,21 @@ document.addEventListener('DOMContentLoaded', function () {
     renderBranchStatus();
     renderTimeline();
     renderOverflowMenu();
+  }
+  function renderTypeNotice() {
+    var container = el('meTypeNotice');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!draft || !typeNotice) return;
+    if (typeNotice === 'promotion' && (!Array.isArray(draft.entry.steps_arms) || !draft.entry.steps_arms.length)) {
+      var prompt = document.createElement('span'); prompt.textContent = 'Add an arms variant? ';
+      var create = document.createElement('button'); create.type = 'button';
+      create.className = 'hud-btn hud-btn-secondary'; create.setAttribute('data-action', 'create-arms-from-type');
+      create.textContent = 'Create from base';
+      container.appendChild(prompt); container.appendChild(create);
+    } else if (typeNotice === 'demotion') {
+      container.textContent = 'Arms variant kept but unused while type is legs_only.';
+    }
   }
   function handleMetadataInput(event) {
     if (!draft) return;
@@ -662,9 +680,16 @@ document.addEventListener('DOMContentLoaded', function () {
         updateIdStatus();
       }
     } else if (target.id === 'meDescInput') draft.entry.description = target.value;
-    else if (target.id === 'meTypeSelect') draft.entry.type = target.value;
-    else return;
+    else if (target.id === 'meTypeSelect') {
+      var previousType = draft.entry.type;
+      draft.entry.type = target.value;
+      typeNotice = null;
+      if (previousType === 'legs_only' && target.value === 'has_arms' &&
+          (!Array.isArray(draft.entry.steps_arms) || !draft.entry.steps_arms.length)) typeNotice = 'promotion';
+      else if (previousType === 'has_arms' && target.value === 'legs_only' && draft.entry.steps_arms !== null) typeNotice = 'demotion';
+    } else return;
     target.classList.toggle('me-field-invalid', !String(target.value).trim());
+    renderTypeNotice();
     renderBranchStatus();
     markDirty();
   }
@@ -1455,6 +1480,13 @@ document.addEventListener('DOMContentLoaded', function () {
     ], false);
   }
   function handleBranchClick(event) {
+    var createVariant = event.target.closest('[data-action="create-arms-from-type"]');
+    if (createVariant) {
+      typeNotice = null;
+      createArmsFromBase();
+      renderTypeNotice();
+      return;
+    }
     var button = event.target.closest('#meBranchBase, #meBranchArms');
     if (button) setBranch(button.getAttribute('data-branch'));
   }
