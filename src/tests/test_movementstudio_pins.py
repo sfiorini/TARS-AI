@@ -120,7 +120,7 @@ def test_delete_shipped_warning_and_no_window_confirm():
 
 def test_reset_prune_inline_strip_and_error_surfacing():
     s = JS
-    for needle in ('/movements/reset', 'prune:', 'res.d.error', 'Restore every default movement?', 'Restore all defaults and delete all custom movements?'):
+    for needle in ('/movements/reset', 'prune:', 'res.d.error', 'Restore every default movement?', 'Restore all defaults and delete all custom movements? [Prune anyway]'):
         assert needle in s
     assert 'window.confirm' not in s
 

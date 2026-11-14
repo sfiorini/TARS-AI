@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function resetOrPrune(prune) {
     var strip = el('meConfirmStrip');
     var custom = Object.keys(pool).filter(function (id) { return !(defaultsData && id in defaultsData); });
-    strip.textContent = prune ? ('Restore ' + Object.keys(defaultsData || {}).length + ' defaults and delete ' + custom.length + ' custom movements') : 'Restore every default movement?';
+    strip.textContent = prune ? ('Restore ' + Object.keys(defaultsData || {}).length + ' defaults and delete ' + custom.length + ' custom movements') : 'Restore every default movement? Restore all defaults and delete all custom movements? [Prune anyway]';
     if (prune) { findReferrers(custom[0] || ''); }
     fetch('/movements/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prune: prune})}).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); }).then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); else fetchPool(); });
   }
