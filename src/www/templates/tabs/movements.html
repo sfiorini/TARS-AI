@@ -76,19 +76,6 @@
         </section>
         <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
       </div>
-      <div class="me-sticky" role="group" aria-label="Movement actions">
-        <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button" title="Plays to completion — no mid-move stop in v1">PLAY BASE</button>
-        <small id="mePlayNote" class="me-play-note">Plays to completion — no mid-move stop in v1</small>
-        <div class="me-live-controls">
-          <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
-          <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
-            <span id="meLiveClampNotice" hidden>Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)</span>
-            <span>SKIP servos hold their last live value in preview.</span>
-          </div>
-        </div>
-        <button id="meNeutralBtn" type="button" class="hud-btn hud-btn-secondary">↺ NEUTRAL</button>
-        <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
-      </div>
       <section class="me-preview body-panel" aria-label="3D movement preview">
         <h3>3D preview</h3>
         <p class="me-preview-caption">Legs only · ref steps skipped · approximate timing</p>
@@ -102,6 +89,19 @@
           </div>
         </details>
       </section>
+      <div class="me-sticky" role="group" aria-label="Movement actions">
+        <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button" title="Plays to completion — no mid-move stop in v1">PLAY BASE</button>
+        <small id="mePlayNote" class="me-play-note">Plays to completion — no mid-move stop in v1</small>
+        <div class="me-live-controls">
+          <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
+          <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
+            <span id="meLiveClampNotice" hidden>Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)</span>
+            <span>SKIP servos hold their last live value in preview.</span>
+          </div>
+        </div>
+        <button id="meNeutralBtn" type="button" class="hud-btn hud-btn-secondary">↺ NEUTRAL</button>
+        <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
+      </div>
     </section>
   </div>
 </div>

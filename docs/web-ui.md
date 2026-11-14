@@ -46,8 +46,8 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | `POST /robot_move` | `{"direction": "forward"|"backward"|"left"|"right"|"*_slow"}` |
 | `POST /move_legs`, `POST /move_arms`, `POST /neutral_legs`, `POST /reset_positions`, `POST /disable_servos` | direct servo control |
 | `GET /get_arms_status` | `[SERVO] arms_present` |
-| `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence` | builder sequences (see [Movements](movements.md)) |
-| `GET /get_movement_steps/<name>` | one movement's step list for the builder editor (see [Movements](movements.md)) |
+| `POST /save_sequence`, `GET /get_saved_sequences`, `POST /play_saved_sequence`, `POST /delete_saved_sequence`, `POST /play_sequence` | legacy sequence routes, kept for compatibility — the Movement Studio uses `/movements*` and `/play_sequence` (see [Movements](movements.md); retirement ticketed T-09) |
+| `GET /get_movement_steps/<name>` | one movement's step list (legacy; the Studio imports from the cached `/movements` pool — see [Movements](movements.md)) |
 | `GET /agent_skills`, `POST /agent_skills`, `GET /agent_skills/<name>` (full skill detail for the editor), `PUT /agent_skills/<name>`, `DELETE /agent_skills/<name>`, `POST /agent_skills/install`, `POST /agent_skills/<name>/scripts`, `POST /agent_skills/reset` | the Agent Skills pool (see [Agent Skills](skills.md)) |
 | `GET /movements`, `POST /movements`, `PUT /movements/<mid>`, `DELETE /movements/<mid>`, `POST /movements/reset`, `GET /movements/defaults` | movement pool CRUD — whole pool list, create/update (400 with the reason on invalid entries), delete (404 unknown), reset with `{"prune": false\|true}`, tracked defaults pool (read-only — Studio status badges, prune preview, restore-default) (see [Movements](movements.md)) |
 | `POST /process_llm` | send a text chat through the LLM pipeline |
