@@ -1,4 +1,5 @@
 """M0 Movement Studio contract pins (source-level; runtime audit uses a DOM stub)."""
+import hashlib
 import re
 from pathlib import Path
 
@@ -35,6 +36,10 @@ def test_movements_html_is_studio_shell_with_library_contract():
         assert needle in MOVEMENTS_HTML
     assert 'placeholder="Search movements…"' in MOVEMENTS_HTML
 
+
+def test_no_duplicate_ids_in_scanned_templates():
+    # Plan M0-S4 test 6 (name restored per audit M0-B F3): resolved include set
+    # of index.html, ZERO exclusions (R2-F6) — no id may appear twice.
     include_re = re.compile(r"{%\s*include\s+'([^']+)'\s*%}")
     queue = [TEMPLATE_ROOT / "index.html"]
     seen = set()
@@ -61,6 +66,11 @@ def test_movements_html_retains_legacy_json_editor_inside_shell():
     assert legacy_html.count("<script>") == 1
     assert 'class="builder-wrap"' in legacy_html
     assert "function createMovement()" in legacy_html and "function saveEditor()" in legacy_html
+    # Legacy inline IIFE stays BYTE-IDENTICAL to 9b671d6 until M1-S14 removes it
+    # (audit M0-B F5). Hash of the <script>…</script> region, verified at HEAD.
+    script = legacy_html[legacy_html.index("<script>"):legacy_html.rindex("</script>") + len("</script>")]
+    assert hashlib.sha256(script.encode()).hexdigest() == (
+        "f088ea1efd365a89d96e3c2cb37b13c8aa33e52b5e3c710cfcaedb468be4c2e5")
 
 
 def test_index_loads_movement_editor_after_main_before_tars_preview():
@@ -126,6 +136,14 @@ def test_library_row_contract_data_mid_and_summary():
     save_bridge = function_source("handleLegacySave")
     assert "legacyEditingId === null" in save_bridge and "if (!r.ok)" in save_bridge
     assert "addEventListener('click', handleLegacySave, true)" in JS
+    # Stale-bridge interlock (audit M0-B F2): identity guard + disarm on legacy
+    # interaction, so a legacy-row edit can never PUT through the armed bridge.
+    assert "mvEditorId').textContent !==" in save_bridge
+    assert "legacyEditingId = null; return;" in save_bridge
+    disarm = function_source("disarmLegacyBridge")
+    assert "legacyEditingId = null" in disarm
+    assert "el('mvPoolList').addEventListener('click'" in JS
+    assert "el('mvNewBtn').addEventListener('click', disarmLegacyBridge, true)" in JS
 
 
 def test_library_search_filter_sort_count_wiring():
@@ -248,7 +266,3 @@ def test_prune_preview_lists_custom_ids_and_defensive_ref_check():
     assert "fetch(" not in preview
 
 
-def test_index_loads_movement_editor_css_link_contract():
-    assert len(re.findall(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)) == 1
-    assert len(re.findall(r'<script[^>]+movement_editor\.js[^>]*></script>', INDEX_HTML)) == 1
-    assert "tabs/movements.html" in INDEX_HTML

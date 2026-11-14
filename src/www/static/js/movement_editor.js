@@ -203,6 +203,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function handleLegacySave(event) {
     if (legacyEditingId === null) return;
+    if (el('mvEditorId').textContent !== '"' + legacyEditingId + '"') { legacyEditingId = null; return; }
     event.preventDefault();
     event.stopImmediatePropagation();
     var id = legacyEditingId;
@@ -528,8 +529,11 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
+  function disarmLegacyBridge() { legacyEditingId = null; }
+  if (el('mvPoolList')) el('mvPoolList').addEventListener('click', function (event) { if (event.target.closest('button')) disarmLegacyBridge(); }, true);
+  if (el('mvNewBtn')) el('mvNewBtn').addEventListener('click', disarmLegacyBridge, true);
   if (el('mvSaveBtn')) el('mvSaveBtn').addEventListener('click', handleLegacySave, true);
-  if (el('mvCancelBtn')) el('mvCancelBtn').addEventListener('click', function () { legacyEditingId = null; });
+  if (el('mvCancelBtn')) el('mvCancelBtn').addEventListener('click', disarmLegacyBridge);
   fetchPool(); fetchDefaults();
 
 

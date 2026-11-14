@@ -74,11 +74,14 @@ class TestDefaultsAccessor(_StoreTestCase):
         self.assertNotIn("custom_m0_test", self.store.get_defaults())
 
     def test_get_defaults_returns_deep_copy(self):
-        first = self.store.get_defaults()
-        second = self.store.get_defaults()
-        first["bow"]["name"] = "x"
-        self.assertEqual(second["bow"]["name"], "Bow")
-        self.assertEqual(self.store.get_defaults()["bow"]["name"], "Bow")
+        # Hold ONE shared source dict: _load_defaults re-reads the file on every
+        # call, so two live calls would mask a missing deepcopy (audit M0-B F1).
+        cached = self._defaults_movements()
+        with mock.patch.object(self.store, "_load_defaults", return_value=cached):
+            first = self.store.get_defaults()
+            first["bow"]["name"] = "x"
+            self.assertEqual(cached["bow"]["name"], "Bow")
+            self.assertEqual(self.store.get_defaults()["bow"]["name"], "Bow")
 
     def test_get_defaults_method_is_pure_read(self):
         with open(self.store_path, "rb") as fh:
