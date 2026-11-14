@@ -14,6 +14,11 @@
         </select>
         <span id="meLibCount" class="me-lib-count" aria-live="polite"></span>
         <button type="button" id="meNewBtn" class="hud-btn hud-btn-primary">+ Create</button>
+        <button type="button" id="meExportBtn" class="hud-btn hud-btn-secondary"
+        title="Save every movement to a JSON file (backup or transfer)">↥ Export</button>
+        <button type="button" id="meImportFileBtn" class="hud-btn hud-btn-secondary"
+        title="Load movements from a JSON file (replace or merge)">↧ Import</button>
+        <input type="file" id="meImportFile" accept="application/json,.json" hidden>
         <button type="button" id="meResetBtn" class="hud-btn hud-btn-secondary" title="Restore every default movement; user movements are kept">↺ Reset</button>
         <button type="button" id="mePruneBtn" class="hud-btn hud-btn-danger" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
       </div>

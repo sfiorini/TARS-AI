@@ -76,6 +76,61 @@ def test_movements_import_route_calls_store_and_maps_errors():
         assert f'"{key}": result["{key}"]' in route
 
 
+def test_toolbar_export_import_buttons_and_hidden_file_input():
+    block = MOVEMENTS_HTML.split('class="me-toolbar"', 1)[1]
+    assert 'id="meExportBtn"' in block
+    assert 'id="meImportFileBtn"' in block
+    assert 'type="file" id="meImportFile" accept="application/json,.json"' in block
+    assert "hidden>" in block
+    order = [block.index('id="meNewBtn"'), block.index('id="meExportBtn"'),
+             block.index('id="meImportFileBtn"'), block.index('id="meResetBtn"')]
+    assert order == sorted(order), order
+    for button_id in ("meExportBtn", "meImportFileBtn"):
+        tag = block.split(f'id="{button_id}"', 1)[1].split(">", 1)[0]
+        assert 'title="' in tag, button_id
+
+
+def test_export_movements_contract():
+    export = function_source("exportMovements")
+    for needle in (
+        "fetch('/movements'", "if (!r.ok", "new Blob([", "URL.createObjectURL",
+        "var stamp = localTimestamp();",
+        "a.download = 'movements-' + stamp + '.json';",
+        "sortKeysDeep({ version: 1, movements: d.movements })",
+        "setTimeout(function () { URL.revokeObjectURL(url); }, 1000);",
+        "JSON.stringify(payload, null, 2) + '\\n'",
+        "exportBtn.disabled = true;",
+        "exportBtn.setAttribute('aria-busy', 'true');",
+        "exportBtn.disabled = false;",
+        "exportBtn.removeAttribute('aria-busy');",
+        "return fetch(",
+    ):
+        assert needle in export, needle
+    assert "notify(" in export and "'success'" in export
+    assert ".finally" in export
+    busy_pair = export.split("exportBtn.disabled = true;", 1)[1]
+    assert "exportBtn.setAttribute('aria-busy', 'true');" in busy_pair.split("exportBtn.disabled = false;", 1)[0]
+
+
+def test_local_timestamp_helper():
+    helper = function_source("localTimestamp")
+    for needle in ("getFullYear", "getMonth() + 1", "pad",
+                   "pad(d.getDate()) +", "'-' + pad(d.getHours())"):
+        assert needle in helper, needle
+
+
+def test_sort_keys_deep_helper():
+    helper = function_source("sortKeysDeep")
+    for needle in ("Object.keys(value).sort()",
+                   "out[key] = sortKeysDeep(value[key]);",
+                   "Array.isArray(value)"):
+        assert needle in helper, needle
+
+
+def test_export_click_wiring():
+    assert "if (el('meExportBtn')) el('meExportBtn').addEventListener('click', exportMovements);" in JS
+
+
 def test_movements_html_is_studio_shell_with_library_contract():
     for needle in (
         'id="meLibSearch"', 'id="meLibTypeFilter"', 'id="meLibSort"',

@@ -2503,6 +2503,58 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   }
+  function localTimestamp() {
+    var d = new Date();
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return '' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) +
+      '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+  }
+  function sortKeysDeep(value) {
+    if (Array.isArray(value)) return value.map(sortKeysDeep);
+    if (value && typeof value === 'object') {
+      var out = {};
+      Object.keys(value).sort().forEach(function (key) {
+        out[key] = sortKeysDeep(value[key]);
+      });
+      return out;
+    }
+    return value;
+  }
+  function exportMovements() {
+    var exportBtn = el('meExportBtn');
+    var importBtn = el('meImportFileBtn');
+    if (exportBtn) { exportBtn.disabled = true; exportBtn.setAttribute('aria-busy', 'true'); }
+    if (importBtn) importBtn.disabled = true;
+    return fetch('/movements').then(function (r) {
+      if (!r.ok) throw new Error('Failed to read movements.');
+      return r.json();
+    }).then(function (d) {
+      if (!d || !d.movements) throw new Error('Failed to read movements.');
+      // sortKeysDeep on the WHOLE payload: envelope key order matches Python
+      // sort_keys=True (movements before version) — audit R1-F3
+      var payload = sortKeysDeep({ version: 1, movements: d.movements });
+      var blob = new Blob([JSON.stringify(payload, null, 2) + '\n'],
+                          { type: 'application/json' });
+      var stamp = localTimestamp();
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url;
+      a.download = 'movements-' + stamp + '.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      // deferred revoke (audit R1-F9): the house audio precedent revokes after
+      // use; synchronous revoke races the download start on some browsers
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+      notify('Exported ' + Object.keys(d.movements).length +
+             ' movements to movements-' + stamp + '.json', 'success');
+    }).catch(function (error) {
+      notify(error && error.message ? error.message : 'Export failed.', 'error');
+    }).finally(function () {
+      if (exportBtn) { exportBtn.disabled = false; exportBtn.removeAttribute('aria-busy'); }
+      if (importBtn) importBtn.disabled = false;
+    });
+  }
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
   if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
   document.addEventListener('click', handleOverflowOutsideClick);
@@ -2514,6 +2566,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('movements-tab')) el('movements-tab').addEventListener('shown.bs.tab', fetchArmsStatus);
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
+  if (el('meExportBtn')) el('meExportBtn').addEventListener('click', exportMovements);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   if (el('mePlayBtn')) el('mePlayBtn').addEventListener('click', playActiveBranch);
   if (el('meNeutralBtn')) el('meNeutralBtn').addEventListener('click', sendNeutral);
