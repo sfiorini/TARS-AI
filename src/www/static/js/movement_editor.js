@@ -354,7 +354,19 @@ document.addEventListener('DOMContentLoaded', function () {
         var display = document.createElement('span'); display.className = 'me-servo-value';
         var mode = deriveMode(config.field, step[config.field]);
         display.textContent = mode === 'skip' ? '–' : (mode === 'hold' ? 'HOLD' : String(step[config.field]));
-        row.appendChild(label); row.appendChild(modes); row.appendChild(display); panel.appendChild(row);
+        var slider = document.createElement('input'); slider.type = 'range'; slider.className = 'meSlider hud-range';
+        slider.min = '1'; slider.max = '100'; slider.step = String(config.step);
+        slider.setAttribute('data-field', config.field); slider.value = mode === 'set' ? String(step[config.field]) : '50';
+        slider.disabled = mode !== 'set';
+        var number = document.createElement('input'); number.type = 'number'; number.className = 'meNumber hud-input';
+        number.setAttribute('inputmode', 'numeric'); number.min = '1'; number.max = '100'; number.step = String(config.step);
+        number.setAttribute('data-field', config.field); number.value = mode === 'set' ? String(step[config.field]) : '';
+        number.placeholder = mode === 'skip' ? '–' : '';
+        number.disabled = mode !== 'set';
+        var note = document.createElement('span'); note.className = 'me-clamp-note'; note.setAttribute('aria-live', 'polite');
+        row.appendChild(label); row.appendChild(modes); row.appendChild(display);
+        row.appendChild(slider); row.appendChild(number); row.appendChild(note); panel.appendChild(row);
+        bindServoRow(config, row, step);
       });
       var duplicate = document.createElement('button');
       duplicate.id = 'meDupStep'; duplicate.type = 'button';
@@ -365,6 +377,64 @@ document.addEventListener('DOMContentLoaded', function () {
     remove.id = 'meDelStep'; remove.type = 'button';
     remove.className = 'hud-btn hud-btn-danger'; remove.textContent = '× Delete position';
     panel.appendChild(remove);
+  }
+  function bindServoRow(config, row, step) {
+    var slider = row.querySelector('.meSlider');
+    var number = row.querySelector('.meNumber');
+    var note = row.querySelector('.me-clamp-note');
+    var display = row.querySelector('.me-servo-value');
+    slider.min = '1'; slider.max = '100';
+    number.min = '1'; number.max = '100';
+    var lastValid = deriveMode(config.field, step[config.field]) === 'set' ? Number(step[config.field]) :
+      (Object.prototype.hasOwnProperty.call(lastSetValues, config.field) ? lastSetValues[config.field] : 50);
+    function updateSummary() {
+      if (display) display.textContent = String(step[config.field]);
+      var card = el('meTimeline').querySelector('[data-step-index="' + selected.index + '"] .me-step-summary');
+      if (card) card.textContent = (selected.index + 1) + ' ▦ ' + stepSummary(step);
+      var summary = el('mePosePanel').querySelector('.me-selected-summary');
+      if (summary) summary.textContent = stepSummary(step);
+    }
+    function setValue(value) {
+      lastValid = value;
+      setStepField(config.field, value);
+      slider.value = String(value);
+      number.value = String(value);
+      updateSummary();
+      markDirty();
+    }
+    slider.addEventListener('input', function () {
+      setValue(Number(slider.value));
+    });
+    number.addEventListener('input', function () {
+      if (number.value === '') return;
+      var value = Number(number.value);
+      if (!isFinite(value) || value < 1 || value > 100) return;
+      setValue(value);
+    });
+    function commitNumber() {
+      if (number.value === '' || !isFinite(Number(number.value))) {
+        number.value = String(lastValid);
+        return;
+      }
+      var entered = Number(number.value);
+      var clamped = Math.max(1, Math.min(100, entered));
+      var stepSize = Number(config.step);
+      var snapped = Math.max(1, Math.min(100, Math.round((clamped - 1) / stepSize) * stepSize + 1));
+      var noteText = entered === 0 ? '0 means SKIP — use the SKIP mode' :
+        (snapped !== entered ? 'Value clamped to 1–100.' : '');
+      setValue(snapped);
+      if (noteText) {
+        note.textContent = noteText;
+        number.classList.add('me-clamp');
+        setTimeout(function () { number.classList.remove('me-clamp'); note.textContent = ''; }, 1500);
+      }
+    }
+    number.addEventListener('change', commitNumber);
+    number.addEventListener('blur', commitNumber);
+    number.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') { event.preventDefault(); commitNumber(); }
+    });
+    number.addEventListener('focus', function () { number.select(); });
   }
   function addStep(step) {
     if (!draft) return false;
@@ -487,7 +557,10 @@ document.addEventListener('DOMContentLoaded', function () {
       card.setAttribute('draggable', 'true');
       card.setAttribute('role', 'group');
       card.setAttribute('tabindex', '0');
-      card.textContent = (index + 1) + ' ' + (kind === 'ref' ? '⚡ ' : '▦ ') + stepSummary(step);
+      card.textContent = '';
+      var cardSummary = document.createElement('span'); cardSummary.className = 'me-step-summary';
+      cardSummary.textContent = (index + 1) + ' ' + (kind === 'ref' ? '⚡ ' : '▦ ') + stepSummary(step);
+      card.appendChild(cardSummary);
       var grip = document.createElement('button');
       grip.type = 'button'; grip.className = 'me-step-grip'; grip.textContent = '⠿';
       grip.setAttribute('aria-label', 'Drag position ' + (index + 1));

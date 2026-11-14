@@ -278,6 +278,17 @@ def test_mode_chips_derive_from_stored_value():
     assert "setStepField(field, null)" in handler
 
 
+def test_two_way_binding_and_clamp_notes():
+    render = function_source("renderSelectedStep")
+    bind = function_source("bindServoRow")
+    assert "meSlider" in render and "meNumber" in render
+    assert "slider.min = '1'" in bind and "slider.max = '100'" in bind
+    assert "0 means SKIP — use the SKIP mode" in bind and "Number(" in bind
+    assert "parseInt" not in bind and "me-clamp" in bind
+    assert "slider.addEventListener('input'" in bind and "number.addEventListener('input'" in bind
+    assert "number.addEventListener('change'" in bind and "number.addEventListener('blur'" in bind
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")
