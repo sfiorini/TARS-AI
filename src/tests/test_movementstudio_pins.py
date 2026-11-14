@@ -179,6 +179,22 @@ def test_editor_shell_ids_present():
         assert f'id="{element_id}"' in MOVEMENTS_HTML
 
 
+def test_create_auto_slug_and_id_lock():
+    slug = function_source("slugify")
+    render = function_source("renderEditor")
+    metadata = function_source("handleMetadataInput")
+    assert "toLowerCase()" in slug
+    assert "replace(/\\s+/g, '_')" in slug and "replace(/[^a-z0-9_]/g, '')" in slug
+    assert "idManuallyEdited" in metadata and "slugify" in metadata
+    assert "id exists" in JS
+    assert "meIdLock" in render
+    assert "Ids are referenced by the D-pad, gamepad and voice assistant; renaming breaks them. Use Duplicate to fork." in render
+
+
+def test_id_regex_literal_pinned():
+    assert re.search(r"/\^\[a-z0-9_\]\+\$/", JS)
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

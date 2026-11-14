@@ -9,6 +9,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var savedSnapshot = null;
   var selected = {branch: 'steps', index: 0};
   var editorMode = 'visual';
+  var isCreating = false;
+  var idManuallyEdited = false;
+  var ID_PATTERN = /^[a-z0-9_]+$/;
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -182,21 +185,71 @@ document.addEventListener('DOMContentLoaded', function () {
       speed: 0.85, hold_time: 0, movement: null, arm_speed: null
     };
   }
+  function slugify(text) {
+    return String(text || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+  }
+  function idTaken(id) {
+    return Object.prototype.hasOwnProperty.call(pool, id);
+  }
+  function updateIdStatus() {
+    var input = el('meIdInput');
+    var error = el('meIdError');
+    if (!input || !isCreating) return;
+    draft.id = input.value;
+    var message = idTaken(draft.id) ? 'id exists' :
+      (!ID_PATTERN.test(draft.id) ? 'Use lowercase letters, digits, and underscores.' : '');
+    if (error) error.textContent = message;
+    el('meSaveBtn').disabled = !draft.id || !ID_PATTERN.test(draft.id) || idTaken(draft.id);
+  }
   function renderEditor() {
     var pane = el('meEditor');
     if (!pane || !draft) return;
     pane.hidden = false;
     el('meEditorTitle').textContent = draft.id ? (draft.entry.name || draft.id) : 'New movement';
-    el('meIdInput').value = draft.id || '';
+    var idInput = el('meIdInput');
+    var idLock = el('meIdLock');
+    idInput.hidden = !isCreating;
+    idLock.hidden = isCreating;
+    if (isCreating) {
+      idInput.value = draft.id || '';
+      idLock.textContent = '';
+    } else {
+      idLock.textContent = '🔒 ' + draft.id;
+      idLock.title = 'Ids are referenced by the D-pad, gamepad and voice assistant; renaming breaks them. Use Duplicate to fork.';
+    }
     el('meNameInput').value = draft.entry.name || '';
     el('meTypeSelect').value = draft.entry.type || 'legs_only';
     el('meDescInput').value = draft.entry.description || '';
     el('meDirtyDot').hidden = true;
     el('meSaveBtn').setAttribute('data-state', 'CLEAN');
     el('meSaveBtn').disabled = false;
+    updateIdStatus();
+  }
+  function handleMetadataInput(event) {
+    if (!draft) return;
+    var target = event.target;
+    if (target.id === 'meIdInput' && isCreating) {
+      idManuallyEdited = true;
+      draft.id = target.value;
+      updateIdStatus();
+      return;
+    }
+    if (target.id === 'meNameInput') {
+      draft.entry.name = target.value;
+      if (isCreating && !idManuallyEdited) {
+        draft.id = slugify(target.value);
+        el('meIdInput').value = draft.id;
+        updateIdStatus();
+      }
+    } else if (target.id === 'meDescInput') draft.entry.description = target.value;
+    else if (target.id === 'meTypeSelect') draft.entry.type = target.value;
+    else return;
+    target.classList.toggle('me-field-invalid', !String(target.value).trim());
   }
   function openForEdit(id) {
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
+    isCreating = false;
+    idManuallyEdited = false;
     draft = {id: id, entry: deepCopy(pool[id]), baseSnapshot: deepCopy(pool[id])};
     savedSnapshot = stableStringify(draft.entry);
     selected = {branch: 'steps', index: 0};
@@ -204,6 +257,8 @@ document.addEventListener('DOMContentLoaded', function () {
     return true;
   }
   function openCreate() {
+    isCreating = true;
+    idManuallyEdited = false;
     draft = {id: '', entry: {
       name: '', type: 'legs_only', description: '', steps: [DEFAULT_STEP()], steps_arms: null
     }, baseSnapshot: null};
@@ -501,6 +556,10 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
+  if (el('meEditor')) {
+    el('meEditor').addEventListener('input', handleMetadataInput);
+    el('meEditor').addEventListener('change', handleMetadataInput);
+  }
   fetchPool(); fetchDefaults();
 
 
