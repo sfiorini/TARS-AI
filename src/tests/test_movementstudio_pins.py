@@ -85,3 +85,9 @@ def test_library_search_filter_sort_count_wiring():
 def test_create_button_bridges_to_legacy_create_in_m0():
     s = JS
     assert "getElementById('meNewBtn')" in s and "getElementById('mvNewId')" in s
+
+
+def test_badges_use_defaults_with_degraded_mode():
+    s = JS
+    for needle in ("fetch('/movements/defaults'", "'default'", "'modified'", "'custom'", 'defaultsOk = false'):
+        assert needle in s

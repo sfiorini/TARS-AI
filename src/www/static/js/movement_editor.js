@@ -36,5 +36,19 @@ document.addEventListener('DOMContentLoaded', function () {
     if (el('meLibSearch')) el('meLibSearch').addEventListener(inputEvent, renderLibrary);
     if (el('meNewBtn')) el('meNewBtn').onclick = function () { document.getElementById('meNewBtn'); document.getElementById('mvNewId').focus(); };
   }
-  fetchPool();
+  function stableStringify(v) { return JSON.stringify(v, Object.keys(v || {}).sort()); }
+  function applyBadges() {
+    if (!defaultsOk) return;
+    Object.keys(pool).forEach(function (id) {
+      var row = document.querySelector('[data-mid="' + id + '"]'); if (!row) return;
+      var status = defaultsData[id] && stableStringify(pool[id]) === stableStringify(defaultsData[id]) ? 'default' : (defaultsData[id] ? 'modified' : 'custom');
+      var badge = row.querySelector('[data-default-status]'); if (badge) badge.setAttribute('data-default-status', status);
+    });
+  }
+  function fetchDefaults() {
+    fetch('/movements/defaults').then(function (r) { if (!r.ok) throw new Error('defaults'); return r.json(); })
+      .then(function (d) { defaultsData = d.movements || {}; defaultsOk = true; applyBadges(); })
+      .catch(function () { defaultsOk = false; });
+  }
+  fetchPool(); fetchDefaults();
 });
