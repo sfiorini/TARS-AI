@@ -1,6 +1,14 @@
 <div class="tab-pane fade" id="movements" role="tabpanel">
-  <div class="builder-wrap">
-
+  <div class="me-library body-panel">
+    <div class="me-toolbar">
+      <input id="meLibSearch" class="hud-input" placeholder="Search movements…">
+      <div id="meLibTypeFilter"><button data-type="all">All</button><button data-type="legs_only">Legs</button><button data-type="has_arms">Arms</button></div>
+      <select id="meLibSort" class="hud-select"><option value="id" selected>id A–Z</option><option value="name">name A–Z</option><option value="type">type</option></select><span id="meLibCount"></span>
+      <button id="meNewBtn">+ Create</button><button id="meResetBtn" title="Restore every default movement; user movements are kept">↺ Reset</button><button id="mePruneBtn" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
+    </div>
+    <div id="meConfirmStrip"></div><div id="meLibList">Loading…</div>
+  </div>
+  <div class="body-panel me-legacy"><h3>JSON editor (legacy — replaced by the visual editor in the next update)</h3>
     <div class="builder-header">
       <span class="section-label">MOVEMENTS</span>
       <div class="bld-row-actions">
@@ -55,8 +63,6 @@
         <button class="hud-btn" id="mvCancelBtn">Cancel</button>
       </div>
     </div>
-
-  </div>
 
   <script>
   (function () {
@@ -246,4 +252,5 @@
     loadPool();
   })();
   </script>
+  </div>
 </div>
