@@ -185,6 +185,7 @@
 .meModeChip[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.6); color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb), 0.1); }
 .me-servo-value { min-width: 3rem; color: var(--text); text-align: right; font: 0.82rem var(--font-mono); }
 .me-field-legend { color: var(--text-dim); font-size: 0.72rem; }
+.me-arms-notice { padding: 0.5rem; border-left: 2px solid var(--orange); color: var(--text-dim); font-size: 0.78rem; }
 .me-timing-footer { margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px solid rgba(var(--accent-rgb), 0.18); }
 .me-timing-row { display: grid; grid-template-columns: 5rem minmax(6rem, 1fr) 4rem; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
 .me-timing-row label { color: var(--text); font: 0.78rem var(--font-hud); }

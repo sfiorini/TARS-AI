@@ -685,6 +685,48 @@ document.addEventListener('DOMContentLoaded', function () {
         row.appendChild(slider); row.appendChild(number); row.appendChild(note); panel.appendChild(row);
         bindServoRow(config, row, step);
       });
+      if (armsPresent) {
+        var armTitle = document.createElement('h4'); armTitle.textContent = 'ARMS'; panel.appendChild(armTitle);
+        var armLegend = document.createElement('p'); armLegend.className = 'me-field-legend';
+        armLegend.textContent = 'SKIP = not driven · HOLD = keep last position'; panel.appendChild(armLegend);
+        SERVO_FIELDS.filter(function (config) { return config.group === 'arms'; }).forEach(function (config) {
+          var row = document.createElement('div'); row.className = 'meServoRow servo-card';
+          row.setAttribute('data-field', config.field);
+          var label = document.createElement('span'); label.className = 'me-servo-label';
+          label.title = config.label; label.textContent = config.code + ' ' + config.label;
+          var modes = document.createElement('span'); modes.className = 'me-mode-chips';
+          var storedMode = deriveMode(config.field, step[config.field]);
+          if (storedMode === 'set') lastSetValues[config.field] = step[config.field];
+          ['skip', 'set'].forEach(function (mode) {
+            var chip = document.createElement('button'); chip.type = 'button';
+            chip.className = 'meModeChip'; chip.setAttribute('data-mode', mode);
+            chip.setAttribute('aria-pressed', storedMode === mode ? 'true' : 'false');
+            chip.textContent = mode.toUpperCase(); modes.appendChild(chip);
+          });
+          var display = document.createElement('span'); display.className = 'me-servo-value';
+          display.textContent = storedMode === 'skip' ? '–' : String(step[config.field]);
+          var slider = document.createElement('input'); slider.type = 'range'; slider.className = 'meSlider hud-range';
+          slider.min = '1'; slider.max = '100'; slider.step = String(config.step);
+          slider.setAttribute('data-field', config.field); slider.value = storedMode === 'set' ? String(step[config.field]) : '50';
+          slider.disabled = storedMode !== 'set';
+          var number = document.createElement('input'); number.type = 'number'; number.className = 'meNumber hud-input';
+          number.setAttribute('inputmode', 'numeric'); number.min = '1'; number.max = '100'; number.step = String(config.step);
+          number.setAttribute('data-field', config.field); number.value = storedMode === 'set' ? String(step[config.field]) : '';
+          number.placeholder = storedMode === 'skip' ? '–' : '';
+          number.disabled = storedMode !== 'set';
+          var note = document.createElement('span'); note.className = 'me-clamp-note'; note.setAttribute('aria-live', 'polite');
+          row.appendChild(label); row.appendChild(modes); row.appendChild(display);
+          row.appendChild(slider); row.appendChild(number); row.appendChild(note); panel.appendChild(row);
+          bindServoRow(config, row, step);
+        });
+      } else {
+        var armNotice = document.createElement('p'); armNotice.className = 'me-arms-notice';
+        armNotice.textContent = 'Arm servos not installed — arm fields stay editable in RAW mode and are stored, but not played.';
+        panel.appendChild(armNotice);
+        var armHint = document.createElement('p'); armHint.className = 'me-field-legend';
+        armHint.textContent = 'Arm values play on PLAY — live preview is legs-only in this version.';
+        panel.appendChild(armHint);
+      }
       var timingFooter = document.createElement('div'); timingFooter.className = 'me-timing-footer';
       TIMING_FIELDS.forEach(function (config) { renderTimingField(config, step, timingFooter); });
       panel.appendChild(timingFooter);

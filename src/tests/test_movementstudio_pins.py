@@ -593,3 +593,20 @@ def test_empty_arms_variant_normalizes_to_null_on_visual_save():
     assert "notify('Empty arms variant removed'" in save
 
 
+def test_arms_group_gated_by_arms_present():
+    render = function_source("renderSelectedStep")
+    fields = (
+        "left_main", "left_forearm", "left_hand",
+        "right_main", "right_forearm", "right_hand",
+    )
+    for field in fields:
+        assert f"field: '{field}'" in JS
+    assert "if (armsPresent)" in render
+    assert "SERVO_FIELDS.filter(function (config) { return config.group === 'arms'; })" in render
+    assert "row.setAttribute('data-field', config.field)" in render
+    assert "Arm servos not installed — arm fields stay editable in RAW mode and are stored, but not played." in render
+    assert "Arm values play on PLAY — live preview is legs-only in this version." in render
+    assert "steps_arms: deepCopy(draft.entry.steps_arms)" in function_source("saveEntry")
+    assert "steps_arms" in function_source("rawEntryFromDraft")
+
+
