@@ -130,3 +130,7 @@ def test_prune_preview_lists_custom_ids_and_defensive_ref_check():
     for needle in ('custom movements', 'Prune anyway', 'not in', 'findReferrers'):
         assert needle in s
     assert s.count('findReferrers(') >= 2
+
+
+def test_index_loads_movement_editor_css_link_contract():
+    assert INDEX_HTML.count('css/movement_editor.css') == 1
