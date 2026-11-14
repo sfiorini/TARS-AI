@@ -60,7 +60,24 @@ document.addEventListener('DOMContentLoaded', function () {
     while (pool[newId]) newId = id + '_copy' + n++;
     fetch('/movements', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: newId, name: entry.name + ' (copy)', type: entry.type, description: entry.description, steps: JSON.parse(JSON.stringify(entry.steps)), steps_arms: JSON.parse(JSON.stringify(entry.steps_arms))})}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
   }
+  function findReferrers(targetId) {
+    var refs = [];
+    Object.keys(pool).forEach(function (mid) {
+      ['steps', 'steps_arms'].forEach(function (branch) {
+        (pool[mid][branch] || []).forEach(function (step, index) { if (step.movement === targetId) refs.push({mid: mid, branch: branch, stepIndex: index}); });
+      });
+    });
+    return refs;
+  }
+  function deleteMovement(id) {
+    var refs = findReferrers(id);
+    var strip = el('meConfirmStrip');
+    if (refs.length) { strip.textContent = '"' + id + '" is referenced by ' + refs[0].mid + '. Deleting it would make the store invalid'; return; }
+    if (defaultsOk && defaultsData[id]) { strip.innerHTML = '"' + id + '" is a shipped movement. [Delete anyway]'; return; }
+    fetch('/movements/' + encodeURIComponent(id), {method: 'DELETE'}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
+  }
   fetchPool(); fetchDefaults();
+
 
 
 });

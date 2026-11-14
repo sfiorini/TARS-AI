@@ -103,3 +103,16 @@ def test_duplicate_posts_full_copy_with_free_suffix():
     s = JS
     for needle in ("'_copy'", "'/movements'", "'POST'", 'steps:', 'steps_arms:'):
         assert needle in s
+
+
+def test_delete_computes_pool_referrers_before_any_fetch():
+    s = JS
+    assert 'function findReferrers' in s and 'steps_arms' in s
+    assert s.index('findReferrers(') < s.index("fetch('/movements/' + encodeURIComponent")
+
+
+def test_delete_shipped_warning_and_no_window_confirm():
+    s = JS
+    for needle in ('is a shipped movement', 'is referenced by', 'Delete anyway', "encodeURIComponent(id)"):
+        assert needle in s
+    assert 'window.confirm' not in s
