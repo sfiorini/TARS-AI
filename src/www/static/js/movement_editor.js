@@ -7,6 +7,9 @@ document.addEventListener('DOMContentLoaded', function () {
   var pendingAction = null;
   var pendingClearSnapshot = null;
   var pendingGuardAction = null;
+  var armsPresent = false;
+  var armsStatusKnown = false;
+  var armsStatusFailureNotified = false;
   var draft = null;
   var savedSnapshot = null;
   var savedFlashTimer = null;
@@ -79,6 +82,43 @@ document.addEventListener('DOMContentLoaded', function () {
     var clear = el('meClearBranch');
     if (clear) clear.textContent = 'Clear ' + (branch === 'steps' ? 'BASE' : 'ARMS');
   }
+  function playsNow() {
+    if (!draft) return '';
+    var armsSteps = Array.isArray(draft.entry.steps_arms) ? draft.entry.steps_arms : [];
+    if (armsPresent && armsSteps.length) {
+      return 'On this robot: ARMS variant plays (' + armsSteps.length + ' steps)';
+    }
+    if (armsPresent) return 'On this robot: BASE plays — no arms variant';
+    if (draft.entry.type === 'has_arms') return 'Arms not installed: BASE (leg portion) plays';
+    return 'On this robot: BASE plays';
+  }
+  function renderBranchStatus() {
+    var status = el('meBranchStatus');
+    if (!status) return;
+    status.textContent = !draft ? '' : (!armsStatusKnown
+      ? 'Arm installation status unavailable.' : playsNow());
+  }
+  function fetchArmsStatus() {
+    return fetch('/get_arms_status').then(function (r) {
+      if (!r.ok) throw new Error('Failed to read arm installation status.');
+      return r.json();
+    }).then(function (d) {
+      armsPresent = !!d.arms_present;
+      armsStatusKnown = true;
+      armsStatusFailureNotified = false;
+      renderBranchStatus();
+      if (draft) renderSelectedStep();
+      return true;
+    }).catch(function () {
+      armsStatusKnown = false;
+      renderBranchStatus();
+      if (!armsStatusFailureNotified) {
+        armsStatusFailureNotified = true;
+        notify('Arm installation status unavailable.', 'error');
+      }
+      return false;
+    });
+  }
   function setBranch(name) {
     if (!draft || (name !== 'steps' && name !== 'steps_arms') || name === branch) return false;
     var timeline = el('meTimeline');
@@ -88,6 +128,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var steps = branchSteps(name);
     selected.index = steps.length ? Math.max(0, Math.min(selected.index, steps.length - 1)) : 0;
     renderBranchBar();
+    renderBranchStatus();
     renderTimeline();
     if (timeline) timeline.scrollTop = branchState[name].scrollTop;
     return true;
@@ -522,6 +563,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     updateIdStatus();
     renderBranchBar();
+    renderBranchStatus();
     renderTimeline();
     renderOverflowMenu();
   }
@@ -546,6 +588,7 @@ document.addEventListener('DOMContentLoaded', function () {
     else if (target.id === 'meTypeSelect') draft.entry.type = target.value;
     else return;
     target.classList.toggle('me-field-invalid', !String(target.value).trim());
+    renderBranchStatus();
     markDirty();
   }
   function selectedStep() {
@@ -1713,6 +1756,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meLibSort')) el('meLibSort').addEventListener('change', function () {
     selectedSort = el('meLibSort').value || 'id'; renderLibrary();
   });
+  if (el('movements-tab')) el('movements-tab').addEventListener('shown.bs.tab', fetchArmsStatus);
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
@@ -1738,7 +1782,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
   if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch(branch); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
-  fetchPool(); fetchDefaults();
+  fetchPool(); fetchDefaults(); fetchArmsStatus();
 
 
 

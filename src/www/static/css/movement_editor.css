@@ -154,6 +154,7 @@
 .me-branch-bar button { display: grid; gap: 0.12rem; min-width: 7rem; text-align: left; }
 .me-branch-bar button[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.65); color: rgb(var(--accent-rgb)); }
 .me-branch-bar small { color: var(--text-dim); font: 0.65rem var(--font-sans); }
+.me-branch-status { min-height: 1.2em; margin: 0.35rem 0; color: var(--text-dim); font: 0.72rem var(--font-mono); }
 .me-timeline { max-height: 55vh; overflow: auto; }
 .me-timeline-actions { margin-top: 0.65rem; }
 .meStepCard {

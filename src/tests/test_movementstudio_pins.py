@@ -539,3 +539,27 @@ def test_branch_bar_and_per_branch_state():
     assert "branchState[branchName].undoStack.push(undoRecord)" in confirm_clear
 
 
+def test_plays_now_status_rules():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    assert 'id="meBranchStatus"' in html
+    plays_now = function_source("playsNow")
+    for copy in (
+        "On this robot: ARMS variant plays (",
+        "On this robot: BASE plays — no arms variant",
+        "Arms not installed: BASE (leg portion) plays",
+        "On this robot: BASE plays",
+    ):
+        assert copy in plays_now
+    assert "if (armsPresent && armsSteps.length)" in plays_now
+    assert "draft.entry.type === 'has_arms'" in plays_now
+    assert "return 'On this robot: BASE plays'" in plays_now
+    render_status = function_source("renderBranchStatus")
+    assert "status.textContent = !draft ? ''" in render_status and ": playsNow()" in render_status
+    fetch_arms = function_source("fetchArmsStatus")
+    assert "fetch('/get_arms_status')" in fetch_arms and "if (!r.ok)" in fetch_arms
+    assert "armsPresent = !!d.arms_present" in fetch_arms and "renderBranchStatus()" in fetch_arms
+    assert "renderBranchStatus()" in function_source("setBranch")
+    assert "renderBranchStatus()" in function_source("renderEditor")
+    assert "shown.bs.tab" in JS and "fetchArmsStatus()" in JS
+
+
