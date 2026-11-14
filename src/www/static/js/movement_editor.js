@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var defaultsOk = false;
   var defaultsFailureNotified = false;
   var pendingAction = null;
+  var legacyEditingId = null;
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -184,11 +185,13 @@ document.addEventListener('DOMContentLoaded', function () {
         var label = rows[index].querySelector('span b');
         var buttons = rows[index].querySelectorAll('button');
         if (label && label.textContent === id && buttons.length > 1) {
+          legacyEditingId = null;
           buttons[1].click();
           return;
         }
       }
     }
+    legacyEditingId = id;
     el('mvEditorId').textContent = '"' + id + '"';
     el('mvName').value = entry.name || '';
     el('mvType').value = entry.type || 'legs_only';
@@ -197,6 +200,50 @@ document.addEventListener('DOMContentLoaded', function () {
     el('mvStepsArms').value = entry.steps_arms == null ? '' : JSON.stringify(entry.steps_arms, null, 2);
     el('mvEditor').style.display = '';
     el('mvEditor').scrollIntoView({block: 'nearest'});
+  }
+  function handleLegacySave(event) {
+    if (legacyEditingId === null) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    var id = legacyEditingId;
+    var steps; var stepsArms;
+    try {
+      steps = JSON.parse(el('mvSteps').value || '[]');
+      var armsText = (el('mvStepsArms').value || '').trim();
+      stepsArms = armsText ? JSON.parse(armsText) : null;
+      if (!Array.isArray(steps) || (stepsArms !== null && !Array.isArray(stepsArms))) {
+        throw new Error('must be a JSON array');
+      }
+    } catch (error) {
+      notify('Invalid steps JSON: ' + error.message, 'error');
+      return;
+    }
+    var payload = {
+      name: el('mvName').value,
+      type: el('mvType').value,
+      description: el('mvDescription').value,
+      steps: steps,
+      steps_arms: stepsArms
+    };
+    return fetch('/movements/' + encodeURIComponent(id), {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) return {ok: false, d: d};
+        return {ok: true, d: d};
+      });
+    }).then(function (res) {
+      if (!res.ok) { notify(res.d.error || 'Save failed.', 'error'); return false; }
+      legacyEditingId = null;
+      el('mvEditor').style.display = 'none';
+      notify('Saved "' + id + '"', 'success');
+      return fetchPool();
+    }).catch(function (error) {
+      notify(error && error.message ? error.message : 'Save failed.', 'error');
+      return false;
+    });
   }
   function notify(message, type) {
     if (window.showToast) window.showToast(message, type || 'info');
@@ -481,6 +528,8 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
+  if (el('mvSaveBtn')) el('mvSaveBtn').addEventListener('click', handleLegacySave, true);
+  if (el('mvCancelBtn')) el('mvCancelBtn').addEventListener('click', function () { legacyEditingId = null; });
   fetchPool(); fetchDefaults();
 
 
