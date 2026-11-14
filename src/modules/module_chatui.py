@@ -3151,6 +3151,14 @@ def movements_reset():
     return jsonify({"success": True, "count": len(store.get_all())}), 200
 
 
+@flask_app.route('/movements/defaults', methods=['GET'])
+def movements_defaults():
+    """Tracked defaults pool (read-only) — powers Studio badges/prune preview."""
+    from modules.module_movementstore import get_movement_store
+    return jsonify({"success": True,
+                    "movements": get_movement_store().get_defaults()}), 200
+
+
 # ── Agent Skills pool (/agent_skills/*) — thin wrappers over the store ──
 AGENT_SKILLS_ROUTES = ["/agent_skills", "/agent_skills/install",
                        "/agent_skills/reset"]

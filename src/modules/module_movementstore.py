@@ -189,6 +189,14 @@ class MovementStore:
         entry = self.movements.get(mid)
         return copy.deepcopy(entry) if entry is not None else None
 
+    def get_defaults(self):
+        """A deep copy of the tracked defaults pool, id -> entry.
+
+        Read-only: reads the tracked defaults file (self.defaults_path),
+        never the live store file, never MOVING/servoctl.
+        """
+        return copy.deepcopy(self._load_defaults())
+
     def add(self, mid, entry):
         entry = self._normalize_steps(entry)
         self.validate_entry(mid, entry)
