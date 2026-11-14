@@ -215,6 +215,22 @@ def test_timeline_card_contract():
     assert "⚡" in ref_summary and "⏸" not in ref_summary
 
 
+def test_add_step_seed_contains_all_keys_plus_arm_speed():
+    seed = function_source("DEFAULT_STEP")
+    add = function_source("addStep")
+    duplicate = function_source("dupStep")
+    fields = (
+        "left_height", "right_height", "left_leg", "right_leg", "left_main",
+        "left_forearm", "left_hand", "right_main", "right_forearm", "right_hand",
+        "speed", "hold_time", "movement", "arm_speed",
+    )
+    for field in fields:
+        assert f"{field}:" in seed
+    assert "arm_speed: null" in seed
+    assert "DEFAULT_STEP()" in add and "steps.push" in add and "scrollIntoView" in add
+    assert "deepCopy" in duplicate and "currentIndex + 1" in duplicate and "splice" in duplicate
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

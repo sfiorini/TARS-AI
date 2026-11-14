@@ -301,6 +301,39 @@ document.addEventListener('DOMContentLoaded', function () {
     summary.textContent = stepSummary(step);
     panel.appendChild(title);
     panel.appendChild(summary);
+    if (!step.movement) {
+      var duplicate = document.createElement('button');
+      duplicate.id = 'meDupStep';
+      duplicate.type = 'button';
+      duplicate.className = 'hud-btn hud-btn-secondary';
+      duplicate.textContent = '⧉ Duplicate position';
+      panel.appendChild(duplicate);
+    }
+  }
+  function addStep(step) {
+    if (!draft) return false;
+    var steps = draft.entry.steps;
+    var nextStep = deepCopy(step === undefined ? DEFAULT_STEP() : step);
+    steps.push(nextStep);
+    selected.index = steps.length - 1;
+    markDirty();
+    renderTimeline();
+    var card = el('meTimeline').querySelector('[data-step-index="' + selected.index + '"]');
+    if (card && card.scrollIntoView) card.scrollIntoView({block: 'nearest'});
+    return true;
+  }
+  function dupStep(index) {
+    if (!draft || !draft.entry.steps.length) return false;
+    var currentIndex = index === undefined ? selected.index : index;
+    var copiedStep = deepCopy(draft.entry.steps[currentIndex]);
+    draft.entry.steps.splice(currentIndex + 1, 0, copiedStep);
+    selected.index = currentIndex + 1;
+    markDirty();
+    renderTimeline();
+    return true;
+  }
+  function handlePoseClick(event) {
+    if (event.target.closest('#meDupStep')) dupStep(selected.index);
   }
   function renderTimeline() {
     var timeline = el('meTimeline');
@@ -644,6 +677,8 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meEditor').addEventListener('change', handleMetadataInput);
   }
   if (el('meTimeline')) el('meTimeline').addEventListener('click', handleTimelineClick);
+  if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
+  if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults();
 
 
