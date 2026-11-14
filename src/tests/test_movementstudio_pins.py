@@ -69,3 +69,19 @@ def test_no_silent_fetches_in_movement_editor():
     for path in seen:
         ids.extend(re.findall(r'id="([^"]+)"', path.read_text()))
     assert len(ids) == len(set(ids)), sorted({x for x in ids if ids.count(x) > 1})
+
+def test_library_row_contract_data_mid_and_summary():
+    s = JS
+    for needle in ('meLibRow', 'data-mid', 'data-action="play"', 'data-action="edit"', 'data-action="dup"', 'data-action="del"', "' steps · '"):
+        assert needle in s
+
+
+def test_library_search_filter_sort_count_wiring():
+    s = JS
+    for needle in ('meLibSearch', "'input'", "data-type", "value=\"id\"", "value=\"name\"", "value=\"type\"", 'No movements match.', 'sortKey', 'matchesFilters', ' of ', 'legs', 'arms'):
+        assert needle in s
+
+
+def test_create_button_bridges_to_legacy_create_in_m0():
+    s = JS
+    assert "getElementById('meNewBtn')" in s and "getElementById('mvNewId')" in s
