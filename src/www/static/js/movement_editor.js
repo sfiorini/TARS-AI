@@ -353,7 +353,16 @@ document.addEventListener('DOMContentLoaded', function () {
       pendingAction = null; clearConfirmStrip(); return;
     }
     if (action === 'confirm-delete' && pendingAction && pendingAction.type === 'delete') {
-      var id = pendingAction.id; pendingAction = null; clearConfirmStrip(); performDelete(id);
+      var id = pendingAction.id; pendingAction = null; clearConfirmStrip(); performDelete(id); return;
+    }
+    if (action === 'confirm-reset' && pendingAction && pendingAction.type === 'reset') {
+      pendingAction = null; clearConfirmStrip(); performReset(false); return;
+    }
+    if (action === 'confirm-prune' && pendingAction && pendingAction.type === 'prune' && !pendingAction.hasDanglingRefs) {
+      pendingAction = null; clearConfirmStrip(); performReset(true); return;
+    }
+    if (action === 'prune-anyway' && pendingAction && pendingAction.type === 'prune' && pendingAction.hasDanglingRefs) {
+      pendingAction = null; clearConfirmStrip(); performReset(true);
     }
   }
   function deleteMovement(id) {
@@ -401,13 +410,68 @@ document.addEventListener('DOMContentLoaded', function () {
       return false;
     });
   }
-  function resetOrPrune(prune) {
-    var strip = el('meConfirmStrip');
-    function isNotDefault(id) { return !(defaultsData && id in defaultsData); } var notInOperator = 'not in';
-    var custom = Object.keys(pool).filter(function (id) { return !(defaultsData && (id in defaultsData)); });
-    strip.textContent = prune ? ('Restore ' + Object.keys(defaultsData || {}).length + ' defaults and delete ' + custom.length + ' custom movements') : 'Restore every default movement? Restore all defaults and delete all custom movements? [Prune anyway]';
-    if (prune) { findReferrers(custom[0] || ''); }
-    fetch('/movements/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prune: prune})}).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); }).then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); else fetchPool(); });
+  function showResetConfirmation() {
+    pendingAction = {type: 'reset'};
+    showConfirmStrip('Restore every default movement? Edits to shipped movements are lost; custom movements are kept.', [
+      {label: 'Restore', action: 'confirm-reset'},
+      {label: 'Cancel', action: 'cancel'}
+    ], false);
+  }
+  function showPruneConfirmation() {
+    var custom = Object.keys(pool).filter(function (id) {
+      return !Object.prototype.hasOwnProperty.call(defaultsData || {}, id);
+    });
+    var message;
+    var referrers = [];
+    if (defaultsOk) {
+      custom.forEach(function (id) {
+        findReferrers(id, defaultsData).forEach(function (ref) {
+          ref.targetId = id; referrers.push(ref);
+        });
+      });
+      message = 'Restore ' + Object.keys(defaultsData).length + ' defaults and delete ' +
+        custom.length + ' custom movements (' + (custom.join(', ') || 'none') + ')?';
+      if (referrers.length) {
+        var names = referrers.map(function (ref) {
+          var branchName = ref.branch === 'steps_arms' ? 'ARMS' : 'BASE';
+          return ref.mid + ' (' + branchName + ' step ' + (ref.stepIndex + 1) + ') references ' + ref.targetId;
+        }).join(', ');
+        message += ' WARNING: ' + names + ' would be dangling after prune; on the next restart ALL custom movements are silently replaced by defaults.';
+      }
+    } else {
+      message = 'Restore all defaults and delete all custom movements?';
+    }
+    pendingAction = {type: 'prune', hasDanglingRefs: referrers.length > 0};
+    showConfirmStrip(message, [
+      {label: referrers.length ? 'Prune anyway' : 'Prune',
+        action: referrers.length ? 'prune-anyway' : 'confirm-prune', danger: referrers.length > 0},
+      {label: 'Cancel', action: 'cancel'}
+    ], referrers.length > 0);
+  }
+  function performReset(prune) {
+    return fetch('/movements/reset', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prune: prune})
+    }).then(function (r) {
+      return r.json().then(function (d) {
+        if (!r.ok) return {ok: false, d: d};
+        return {ok: true, d: d};
+      });
+    }).then(function (res) {
+      if (!res.ok) {
+        showConfirmStrip(res.d.error || 'Reset failed.', [{label: 'Cancel', action: 'cancel'}], true);
+        return false;
+      }
+      clearConfirmStrip();
+      notify(prune ? 'Movements pruned and defaults restored.' : 'Default movements restored.', 'success');
+      return fetchPool();
+    }).catch(function (error) {
+      showConfirmStrip(error && error.message ? error.message : 'Reset failed.', [
+        {label: 'Cancel', action: 'cancel'}
+      ], true);
+      return false;
+    });
   }
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
   if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
@@ -415,8 +479,8 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meLibSort')) el('meLibSort').addEventListener('change', function () {
     selectedSort = el('meLibSort').value || 'id'; renderLibrary();
   });
-  if (el('meResetBtn')) el('meResetBtn').onclick = function () { resetOrPrune(false); };
-  if (el('mePruneBtn')) el('mePruneBtn').onclick = function () { resetOrPrune(true); };
+  if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
+  if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   fetchPool(); fetchDefaults();
 
 
