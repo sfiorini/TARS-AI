@@ -445,6 +445,7 @@ document.addEventListener('DOMContentLoaded', function () {
     savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
     resetBranchState();
     renderEditor();
+    showView('editor');
     savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
     el('meDraftBanner').hidden = true;
     markDirty();

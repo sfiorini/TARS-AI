@@ -876,6 +876,7 @@ def test_mobile_stacked_views_and_sticky_bar():
     show = function_source("showView")
     open_edit = function_source("openForEdit")
     open_create = function_source("openCreate")
+    restore = function_source("restoreDraft")
     close = function_source("closeEditor")
     back = function_source("handleLibraryClick")
     assert "me-view-library" in html and "me-view-editor" in html
@@ -884,6 +885,7 @@ def test_mobile_stacked_views_and_sticky_bar():
     assert "function showView(view)" in show and "setAttribute('data-me-view', view)" in show
     assert "pane.scrollTop = 0;" in show and "scrollTop = 0" in show and "window.scrollTo(0, 0)" in show
     assert "showView('editor');" in open_edit and "showView('editor');" in open_create
+    assert "showView('editor');" in restore
     assert "showView('library');" in close
     assert 'id="meBackBtn"' in html and "‹ Library" in html
     assert "target.closest('#meBackBtn')" in back and "closeEditor();" in back
