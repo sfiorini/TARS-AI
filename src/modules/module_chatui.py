@@ -3075,7 +3075,7 @@ def get_movement_steps(name):
 
 
 # ── Movement pool CRUD (/movements/*) — thin wrappers over the store ──
-MOVEMENT_ROUTES = ["/movements", "/movements/reset"]
+MOVEMENT_ROUTES = ["/movements", "/movements/reset", "/movements/import"]
 
 
 @flask_app.route('/movements', methods=['GET'])
@@ -3157,6 +3157,38 @@ def movements_defaults():
     from modules.module_movementstore import get_movement_store
     return jsonify({"success": True,
                     "movements": get_movement_store().get_defaults()}), 200
+
+
+@flask_app.route('/movements/import', methods=['POST'])
+def movements_import():
+    """Whole-set import — replace or merge, all-or-nothing."""
+    if not request.is_json:
+        return jsonify({"error": "Request must be JSON"}), 400
+    data = request.get_json(silent=True)
+    # audit R1-F10: a truthy non-dict JSON body (e.g. [1]) must 400, not 500
+    # on data.get; None (malformed/empty body) lands here too.
+    if not isinstance(data, dict):
+        return jsonify({"error": "Request body must be a JSON object"}), 400
+    mode = data.get("mode", "replace")
+    if mode not in ("replace", "merge"):
+        return jsonify({"error": "mode must be 'replace' or 'merge'"}), 400
+    on_conflict = data.get("on_conflict", "overwrite")
+    if on_conflict not in ("overwrite", "skip"):
+        return jsonify({"error": "on_conflict must be 'overwrite' or 'skip'"}), 400
+    movements = data.get("movements")
+    if not isinstance(movements, dict) or not movements:
+        return jsonify({"error": "movements must be a non-empty object"}), 400
+    from modules.module_movementstore import get_movement_store
+    result = get_movement_store().import_entries(
+        movements, mode=mode, on_conflict=on_conflict)
+    if not result["ok"]:
+        return jsonify({"error": "; ".join(result["errors"]),
+                        "errors": result["errors"]}), 400
+    return jsonify({"success": True, "mode": mode, "on_conflict": on_conflict,
+                    "added": result["added"],
+                    "overwritten": result["overwritten"],
+                    "skipped": result["skipped"],
+                    "count": result["count"]}), 200
 
 
 # ── Agent Skills pool (/agent_skills/*) — thin wrappers over the store ──

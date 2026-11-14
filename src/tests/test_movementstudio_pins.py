@@ -27,6 +27,55 @@ def function_source(name):
     raise AssertionError(f"function {name} is not defined as a top-level module function")
 
 
+CHATUI = (REPO_ROOT / "src" / "modules" / "module_chatui.py").read_text()
+
+
+def _chatui_source():
+    with open(REPO_ROOT / "src" / "modules" / "module_chatui.py", encoding="utf-8") as fh:
+        return fh.read()
+
+
+def _route_source(func_name, src):
+    start = src.index(f"def {func_name}")
+    next_route = src.find("@flask_app.route", start)
+    return src[start:next_route if next_route != -1 else len(src)]
+
+
+def test_movements_import_route_registered_after_defaults():
+    source = _chatui_source()
+    assert 'MOVEMENT_ROUTES = ["/movements", "/movements/reset", "/movements/import"]' in source
+    assert source.index("def movements_defaults()") < source.index("def movements_import()")
+    assert source.index("def movements_import()") < source.index("# ── Agent Skills pool")
+
+
+def test_movements_import_route_validates_json_body():
+    route = _route_source("movements_import", _chatui_source())
+    for needle in (
+        "request.is_json", '"Request must be JSON"', "get_json(silent=True)",
+        "isinstance(data, dict)", '"Request body must be a JSON object"',
+        'mode not in ("replace", "merge")', "\"mode must be 'replace' or 'merge'\"",
+        'on_conflict not in ("overwrite", "skip")',
+        "\"on_conflict must be 'overwrite' or 'skip'\"",
+        "isinstance(movements, dict)", '"movements must be a non-empty object"',
+    ):
+        assert needle in route, needle
+    for guard in ("Request must be JSON", "Request body must be a JSON object",
+                  "mode must be", "on_conflict must be", "movements must be"):
+        tail = route.split(guard, 1)[1].split("\n", 1)[1] if guard in route else ""
+        assert "400" in tail, guard
+
+
+def test_movements_import_route_calls_store_and_maps_errors():
+    route = _route_source("movements_import", _chatui_source())
+    assert "import_entries(" in route
+    assert "mode=mode" in route and "on_conflict=on_conflict" in route
+    assert '"; ".join(result["errors"])' in route
+    assert '"errors": result["errors"]' in route
+    assert '"success": True' in route
+    for key in ("added", "overwritten", "skipped", "count"):
+        assert f'"{key}": result["{key}"]' in route
+
+
 def test_movements_html_is_studio_shell_with_library_contract():
     for needle in (
         'id="meLibSearch"', 'id="meLibTypeFilter"', 'id="meLibSort"',
