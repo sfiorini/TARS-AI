@@ -76,7 +76,17 @@ document.addEventListener('DOMContentLoaded', function () {
     if (defaultsOk && defaultsData[id]) { strip.innerHTML = '"' + id + '" is a shipped movement. [Delete anyway]'; return; }
     fetch('/movements/' + encodeURIComponent(id), {method: 'DELETE'}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
   }
+  function resetOrPrune(prune) {
+    var strip = el('meConfirmStrip');
+    var custom = Object.keys(pool).filter(function (id) { return !(defaultsData && id in defaultsData); });
+    strip.textContent = prune ? ('Restore ' + Object.keys(defaultsData || {}).length + ' defaults and delete ' + custom.length + ' custom movements') : 'Restore every default movement?';
+    if (prune) { findReferrers(custom[0] || ''); }
+    fetch('/movements/reset', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({prune: prune})}).then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); }).then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); else fetchPool(); });
+  }
+  if (el('meResetBtn')) el('meResetBtn').onclick = function () { resetOrPrune(false); };
+  if (el('mePruneBtn')) el('mePruneBtn').onclick = function () { resetOrPrune(true); };
   fetchPool(); fetchDefaults();
+
 
 
 

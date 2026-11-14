@@ -116,3 +116,17 @@ def test_delete_shipped_warning_and_no_window_confirm():
     for needle in ('is a shipped movement', 'is referenced by', 'Delete anyway', "encodeURIComponent(id)"):
         assert needle in s
     assert 'window.confirm' not in s
+
+
+def test_reset_prune_inline_strip_and_error_surfacing():
+    s = JS
+    for needle in ('/movements/reset', 'prune:', 'res.d.error', 'Restore every default movement?', 'Restore all defaults and delete all custom movements?'):
+        assert needle in s
+    assert 'window.confirm' not in s
+
+
+def test_prune_preview_lists_custom_ids_and_defensive_ref_check():
+    s = JS
+    for needle in ('custom movements', 'Prune anyway', 'not in', 'findReferrers'):
+        assert needle in s
+    assert s.count('findReferrers(') >= 2
