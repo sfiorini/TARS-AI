@@ -7,6 +7,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var pendingAction = null;
   var pendingClearSnapshot = null;
   var pendingGuardAction = null;
+  var pendingTabIndex = null;
   var armsPresent = false;
   var armsStatusKnown = false;
   var armsStatusFailureNotified = false;
@@ -473,7 +474,39 @@ document.addEventListener('DOMContentLoaded', function () {
     setSaveState(dirty ? 'DIRTY' : 'CLEAN');
     if (dirty) scheduleDraftWrite();
     else clearDraft();
+    updateTabLeaveGuard();
     renderLibrary();
+  }
+  function updateTabLeaveGuard() {
+    if (draft && (isDirty() || rawDirty())) {
+      window._meTabLeaveGuard = function (nextIndex) {
+        pendingTabIndex = nextIndex;
+        showTabLeaveConfirm(nextIndex);
+        return false;
+      };
+      return;
+    }
+    delete window._meTabLeaveGuard;
+  }
+  function showTabLeaveConfirm(nextIndex) {
+    var pendingIndex = nextIndex;
+    pendingTabIndex = pendingIndex;
+    showConfirmStrip('Discard unsaved changes before leaving Movement Studio?', [
+      {label: 'Discard', action: 'discard-tab-leave', danger: true},
+      {label: 'Keep editing', action: 'keep-tab-editing'}
+    ], true);
+  }
+  function handleDesktopTabClick(event) {
+    if (!draft || (!isDirty() && !rawDirty())) return;
+    var myTab = document.getElementById('myTab');
+    var tabButton = event.target && event.target.closest ? event.target.closest('.custom-tab[data-bs-toggle="tab"]') : null;
+    if (!myTab || !tabButton || !myTab.contains(tabButton) || tabButton.id === 'movements-tab') return;
+    var tabs = myTab.querySelectorAll('.custom-tab[data-bs-toggle="tab"]');
+    var nextIndex = Array.prototype.indexOf.call(tabs, tabButton);
+    if (nextIndex < 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    showTabLeaveConfirm(nextIndex);
   }
   function slugify(text) {
     return String(text || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
@@ -1853,6 +1886,7 @@ document.addEventListener('DOMContentLoaded', function () {
       savedSnapshot = stableStringify(draft.entry);
       draft.baseSnapshot = deepCopy(draft.entry);
       clearDraft();
+      updateTabLeaveGuard();
       strip.hidden = true;
       strip.textContent = '';
       renderEditor(true);
@@ -1903,6 +1937,7 @@ document.addEventListener('DOMContentLoaded', function () {
       renderTimeline();
     }
     clearDraft();
+    updateTabLeaveGuard();
   }
   function handleBeforeUnload(event) {
     if (draft && (isDirty() || rawDirty())) {
@@ -1923,6 +1958,7 @@ document.addEventListener('DOMContentLoaded', function () {
     resetBranchState();
     renderEditor();
     showView('editor');
+    updateTabLeaveGuard();
     return true;
   }
   function openCreate(discarded) {
@@ -1938,6 +1974,7 @@ document.addEventListener('DOMContentLoaded', function () {
     resetBranchState();
     renderEditor();
     showView('editor');
+    updateTabLeaveGuard();
     return true;
   }
   function showView(view) {
@@ -1961,9 +1998,12 @@ document.addEventListener('DOMContentLoaded', function () {
     forceLiveOff();
     var pane = el('meEditor');
     if (pane) pane.hidden = true;
+    if (el('meDirtyDot')) el('meDirtyDot').hidden = true;
+    setSaveState('CLEAN');
     clearDraft();
     draft = null;
     savedSnapshot = null;
+    updateTabLeaveGuard();
     showView('library');
     return true;
   }
@@ -2253,6 +2293,20 @@ document.addEventListener('DOMContentLoaded', function () {
       if (applied.ok && applyNext === 'save') saveEntry();
       return;
     }
+    if (action === 'discard-tab-leave') {
+      var nextIndex = pendingTabIndex;
+      pendingTabIndex = null;
+      clearConfirmStrip();
+      closeEditor(true);
+      window._tarsGoToTab(nextIndex, true);
+      return;
+    }
+    if (action === 'keep-tab-editing') {
+      pendingTabIndex = null;
+      clearConfirmStrip();
+      updateTabLeaveGuard();
+      return;
+    }
     if (action === 'discard-unsaved') {
       var proceed = pendingGuardAction;
       pendingGuardAction = null;
@@ -2438,6 +2492,9 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meNeutralBtn')) el('meNeutralBtn').addEventListener('click', sendNeutral);
   initializeLiveToggle();
   window.addEventListener('beforeunload', handleBeforeUnload);
+  if (el('meRawText')) el('meRawText').addEventListener('input', updateTabLeaveGuard);
+  var myTab = document.getElementById('myTab');
+  if (myTab) myTab.addEventListener('click', handleDesktopTabClick, true);
   if (el('meEditor')) {
     el('meEditor').addEventListener('click', handleBranchClick);
     el('meEditor').addEventListener('input', handleMetadataInput);

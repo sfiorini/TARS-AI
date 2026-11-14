@@ -2983,6 +2983,7 @@ window.showToast = function (message, type, duration) {
         }
       }
 
+      if (window._meTabLeaveGuard && window._meTabLeaveGuard(newIndex) === false) return;
       goToTab(newIndex, true);
     }
 
@@ -2993,6 +2994,7 @@ window.showToast = function (message, type, duration) {
     navBtns.forEach(function (btn) {
       btn.addEventListener('click', function () {
         const idx = parseInt(this.getAttribute('data-tab-index'));
+        if (window._meTabLeaveGuard && window._meTabLeaveGuard(idx) === false) return;
         if (!isNaN(idx)) goToTab(idx, true);
       });
     });
@@ -3027,6 +3029,7 @@ window.showToast = function (message, type, duration) {
       updateMobileNav(index);
       void(index);
     }
+    window._tarsGoToTab = goToTab;
 
     function updateMobileNav(index) {
       navBtns.forEach(function (btn, i) {

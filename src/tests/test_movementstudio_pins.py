@@ -72,10 +72,11 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     js_tag = re.search(r'<script[^>]+movement_editor\.js[^>]*></script>', INDEX_HTML)
     css_tag = re.search(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)
     assert js_tag and len(re.findall(r'movement_editor\.js', INDEX_HTML)) == 1
-    assert '?v=7.8' in js_tag.group(0)
+    assert '?v=7.9' in js_tag.group(0)
+    assert "filename='js/main.js') }}?v=7.9" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
-    assert '?v=7.8' in css_tag.group(0)
+    assert '?v=7.9' in css_tag.group(0)
     assert INDEX_HTML.index("css/main.css") < css_tag.start()
     assert (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").stat().st_size > 100
 
@@ -901,5 +902,42 @@ def test_swipe_suppression_includes_me_editor():
     assert any(set(selector.split(', ')) == {'.me-editor', '.servo-card', '.body-speed'} for selector in selectors)
     assert "touchOnSlider = (el.tagName === 'INPUT' && el.type === 'range') ||" in touch_start
     assert "if (!isMobile || touchOnSlider) return;" in touch_move
+
+
+def test_nav_guard_hooks_present_in_swipe_iife():
+    touch_finish = MAIN_JS.split("function onTouchFinish()", 1)[1].split("tabContent.addEventListener('touchend',", 1)[0]
+    nav_click = MAIN_JS.split("navBtns.forEach(function (btn)", 1)[1].split("// ── Core tab switching ──", 1)[0]
+    assert "window._tarsGoToTab = goToTab;" in MAIN_JS
+    assert MAIN_JS.index("function goToTab(index, animated)") < MAIN_JS.index("window._tarsGoToTab = goToTab;")
+    assert "if (window._meTabLeaveGuard && window._meTabLeaveGuard(newIndex) === false) return;" in touch_finish
+    assert "if (window._meTabLeaveGuard && window._meTabLeaveGuard(idx) === false) return;" in nav_click
+
+
+def test_studio_registers_leave_guard_and_desktop_intercept():
+    update_guard = function_source("updateTabLeaveGuard")
+    show_confirm = function_source("showTabLeaveConfirm")
+    desktop = function_source("handleDesktopTabClick")
+    close = function_source("closeEditor")
+    mark_dirty = function_source("markDirty")
+    confirm = function_source("handleConfirmClick")
+    assert "window._meTabLeaveGuard = function (nextIndex)" in update_guard
+    assert "if (draft && (isDirty() || rawDirty()))" in update_guard
+    assert "pendingTabIndex = nextIndex;" in update_guard and "showTabLeaveConfirm(nextIndex);" in update_guard
+    assert "delete window._meTabLeaveGuard;" in update_guard
+    assert "return false;" in update_guard
+    assert "updateTabLeaveGuard();" in mark_dirty
+    assert "el('meRawText').addEventListener('input', updateTabLeaveGuard)" in JS
+    assert "pendingIndex" in show_confirm and "discard-tab-leave" in show_confirm and "keep-tab-editing" in show_confirm
+    assert "getElementById('myTab')" in JS
+    assert "myTab.addEventListener('click', handleDesktopTabClick, true)" in JS
+    assert "if (!draft || (!isDirty() && !rawDirty())) return;" in desktop
+    assert "event.preventDefault();" in desktop and "event.stopPropagation();" in desktop
+    assert "showTabLeaveConfirm(nextIndex);" in desktop
+    discard = confirm.split("if (action === 'discard-tab-leave')", 1)[1].split("if (action === 'keep-tab-editing')", 1)[0]
+    keep = confirm.split("if (action === 'keep-tab-editing')", 1)[1].split("if (action === 'discard-unsaved')", 1)[0]
+    assert "closeEditor(true);" in discard and "window._tarsGoToTab(nextIndex, true);" in discard
+    assert "if (nextIndex !== null" not in discard
+    assert "updateTabLeaveGuard();" in close and "setSaveState('CLEAN');" in close
+    assert "clearConfirmStrip();" in keep and "delete window._meTabLeaveGuard" not in keep
 
 
