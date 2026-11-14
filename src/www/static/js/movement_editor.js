@@ -155,7 +155,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     filtered.forEach(function (item) {
       var id = item.id; var entry = item.entry;
-      var row = document.createElement('div'); row.className = 'meLibRow'; row.setAttribute('data-mid', id);
+      var row = document.createElement('div');
+      row.className = 'meLibRow' + (draft && draft.id === id && isDirty() ? ' me-row-dirty' : '');
+      row.setAttribute('data-mid', id);
       var heading = document.createElement('div'); heading.className = 'me-row-main';
       var idLabel = document.createElement('span'); idLabel.className = 'me-id'; idLabel.textContent = id;
       var type = document.createElement('span');
@@ -184,6 +186,18 @@ document.addEventListener('DOMContentLoaded', function () {
       right_main: null, right_forearm: null, right_hand: null,
       speed: 0.85, hold_time: 0, movement: null, arm_speed: null
     };
+  }
+  function isDirty() {
+    return !!draft && (stableStringify(draft.entry) !== savedSnapshot || (isCreating && !!draft.id));
+  }
+  function markDirty() {
+    var dirty = isDirty();
+    var dot = el('meDirtyDot');
+    var save = el('meSaveBtn');
+    if (dot) dot.hidden = !dirty;
+    if (save) save.setAttribute('data-state', dirty ? 'DIRTY' : 'CLEAN');
+    if (save && !isCreating) save.disabled = false;
+    renderLibrary();
   }
   function slugify(text) {
     return String(text || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
@@ -232,6 +246,7 @@ document.addEventListener('DOMContentLoaded', function () {
       idManuallyEdited = true;
       draft.id = target.value;
       updateIdStatus();
+      markDirty();
       return;
     }
     if (target.id === 'meNameInput') {
@@ -245,6 +260,7 @@ document.addEventListener('DOMContentLoaded', function () {
     else if (target.id === 'meTypeSelect') draft.entry.type = target.value;
     else return;
     target.classList.toggle('me-field-invalid', !String(target.value).trim());
+    markDirty();
   }
   function openForEdit(id) {
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;

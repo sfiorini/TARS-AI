@@ -195,6 +195,14 @@ def test_id_regex_literal_pinned():
     assert re.search(r"/\^\[a-z0-9_\]\+\$/", JS)
 
 
+def test_dirty_uses_stable_stringify_snapshot():
+    opened = function_source("openForEdit")
+    dirty = function_source("isDirty")
+    assert "savedSnapshot = stableStringify(draft.entry)" in opened
+    assert "stableStringify(draft.entry) !== savedSnapshot" in dirty
+    assert "function markDirty()" in JS and "dirty ? 'DIRTY' : 'CLEAN'" in function_source("markDirty")
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")
