@@ -72,10 +72,10 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     js_tag = re.search(r'<script[^>]+movement_editor\.js[^>]*></script>', INDEX_HTML)
     css_tag = re.search(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)
     assert js_tag and len(re.findall(r'movement_editor\.js', INDEX_HTML)) == 1
-    assert '?v=7.7' in js_tag.group(0)
+    assert '?v=7.8' in js_tag.group(0)
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
-    assert '?v=7.7' in css_tag.group(0)
+    assert '?v=7.8' in css_tag.group(0)
     assert INDEX_HTML.index("css/main.css") < css_tag.start()
     assert (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").stat().st_size > 100
 
