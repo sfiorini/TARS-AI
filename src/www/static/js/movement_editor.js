@@ -16,6 +16,19 @@ document.addEventListener('DOMContentLoaded', function () {
   var isCreating = false;
   var idManuallyEdited = false;
   var ID_PATTERN = /^[a-z0-9_]+$/;
+  var SERVO_FIELDS = [
+    {field: 'left_height', code: 'LH', label: 'Left height', group: 'legs', min: 1, max: 100, step: 1},
+    {field: 'right_height', code: 'RH', label: 'Right height', group: 'legs', min: 1, max: 100, step: 1},
+    {field: 'left_leg', code: 'LL', label: 'Left leg', group: 'legs', min: 1, max: 100, step: 1},
+    {field: 'right_leg', code: 'RL', label: 'Right leg', group: 'legs', min: 1, max: 100, step: 1},
+    {field: 'left_main', code: 'LM', label: 'Left main', group: 'arms', min: 1, max: 100, step: 1},
+    {field: 'left_forearm', code: 'LF', label: 'Left forearm', group: 'arms', min: 1, max: 100, step: 1},
+    {field: 'left_hand', code: 'LH2', label: 'Left hand', group: 'arms', min: 1, max: 100, step: 1},
+    {field: 'right_main', code: 'RM', label: 'Right main', group: 'arms', min: 1, max: 100, step: 1},
+    {field: 'right_forearm', code: 'RF', label: 'Right forearm', group: 'arms', min: 1, max: 100, step: 1},
+    {field: 'right_hand', code: 'RH2', label: 'Right hand', group: 'arms', min: 1, max: 100, step: 1}
+  ];
+  var lastSetValues = {};
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -292,6 +305,21 @@ document.addEventListener('DOMContentLoaded', function () {
     parts.push('⏱ ' + valueFor('speed'), '⏸ ' + valueFor('hold_time'));
     return parts.join(' · ');
   }
+  function deriveMode(field, value) {
+    if (value === null || value === undefined || value === 0) return 'skip';
+    if (value === -1) return 'hold';
+    return 'set';
+  }
+  function setStepField(field, value) {
+    var step = selectedStep();
+    if (!step) return false;
+    if (value === null) step[field] = null;
+    else {
+      step[field] = value;
+      if (typeof value === 'number' && value > 0 && value !== -1) lastSetValues[field] = value;
+    }
+    return true;
+  }
   function renderSelectedStep() {
     var panel = el('mePosePanel');
     var step = selectedStep();
@@ -306,18 +334,36 @@ document.addEventListener('DOMContentLoaded', function () {
     panel.appendChild(title);
     panel.appendChild(summary);
     if (!step.movement) {
+      var groupTitle = document.createElement('h4'); groupTitle.textContent = 'LEGS'; panel.appendChild(groupTitle);
+      var legend = document.createElement('p'); legend.className = 'me-field-legend';
+      legend.textContent = '0/SKIP = servo not driven'; panel.appendChild(legend);
+      SERVO_FIELDS.filter(function (config) { return config.group === 'legs'; }).forEach(function (config) {
+        var row = document.createElement('div'); row.className = 'meServoRow servo-card';
+        row.setAttribute('data-field', config.field);
+        var label = document.createElement('span'); label.className = 'me-servo-label';
+        label.title = config.label; label.textContent = config.code + ' ' + config.label;
+        var modes = document.createElement('span'); modes.className = 'me-mode-chips';
+        var storedMode = deriveMode(config.field, step[config.field]);
+        if (storedMode === 'set') lastSetValues[config.field] = step[config.field];
+        ['skip', 'set'].forEach(function (mode) {
+          var chip = document.createElement('button'); chip.type = 'button';
+          chip.className = 'meModeChip'; chip.setAttribute('data-mode', mode);
+          chip.setAttribute('aria-pressed', storedMode === mode ? 'true' : 'false');
+          chip.textContent = mode.toUpperCase(); modes.appendChild(chip);
+        });
+        var display = document.createElement('span'); display.className = 'me-servo-value';
+        var mode = deriveMode(config.field, step[config.field]);
+        display.textContent = mode === 'skip' ? '–' : (mode === 'hold' ? 'HOLD' : String(step[config.field]));
+        row.appendChild(label); row.appendChild(modes); row.appendChild(display); panel.appendChild(row);
+      });
       var duplicate = document.createElement('button');
-      duplicate.id = 'meDupStep';
-      duplicate.type = 'button';
-      duplicate.className = 'hud-btn hud-btn-secondary';
-      duplicate.textContent = '⧉ Duplicate position';
+      duplicate.id = 'meDupStep'; duplicate.type = 'button';
+      duplicate.className = 'hud-btn hud-btn-secondary'; duplicate.textContent = '⧉ Duplicate position';
       panel.appendChild(duplicate);
     }
     var remove = document.createElement('button');
-    remove.id = 'meDelStep';
-    remove.type = 'button';
-    remove.className = 'hud-btn hud-btn-danger';
-    remove.textContent = '× Delete position';
+    remove.id = 'meDelStep'; remove.type = 'button';
+    remove.className = 'hud-btn hud-btn-danger'; remove.textContent = '× Delete position';
     panel.appendChild(remove);
   }
   function addStep(step) {
@@ -343,6 +389,18 @@ document.addEventListener('DOMContentLoaded', function () {
     return true;
   }
   function handlePoseClick(event) {
+    var chip = event.target.closest('.meModeChip');
+    if (chip) {
+      var row = chip.closest('.meServoRow');
+      var field = row.getAttribute('data-field');
+      var mode = chip.getAttribute('data-mode');
+      if (mode === 'skip') setStepField(field, null);
+      else setStepField(field,
+        Object.prototype.hasOwnProperty.call(lastSetValues, field) ? lastSetValues[field] : 50);
+      markDirty();
+      renderTimeline();
+      return;
+    }
     if (event.target.closest('#meDupStep')) dupStep(selected.index);
     else if (event.target.closest('#meDelStep')) delStep(selected.index);
   }

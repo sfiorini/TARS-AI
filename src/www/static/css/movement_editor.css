@@ -151,6 +151,13 @@
 .meStepCard.me-selected { border-color: rgba(var(--accent-rgb), 0.7); color: var(--text); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.14); }
 .meStepCard[data-kind="ref"] { color: rgb(var(--accent-rgb)); }
 .me-selected-summary { color: var(--text-dim); font: 0.78rem var(--font-mono); overflow-wrap: anywhere; }
+.meServoRow { display: grid; grid-template-columns: minmax(6rem, 1fr) auto 3rem; align-items: center; gap: 0.5rem; margin: 0.35rem 0; padding: 0.45rem; border: 1px solid rgba(var(--accent-rgb), 0.12); border-radius: var(--radius-sm); }
+.me-servo-label { color: var(--text); font: 0.78rem var(--font-hud); }
+.me-mode-chips { display: inline-flex; gap: 0.15rem; }
+.meModeChip { min-width: 42px; min-height: 32px; border: 1px solid rgba(var(--accent-rgb), 0.2); border-radius: var(--radius-sm); color: var(--text-dim); background: rgba(var(--panel-rgb), 0.5); cursor: pointer; font: 600 0.64rem var(--font-hud); }
+.meModeChip[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.6); color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb), 0.1); }
+.me-servo-value { min-width: 3rem; color: var(--text); text-align: right; font: 0.82rem var(--font-mono); }
+.me-field-legend { color: var(--text-dim); font-size: 0.72rem; }
 #meDupStep, #meDelStep { min-height: 32px; margin: 0.25rem; }
 .me-step-delete, .me-step-move { float: right; min-width: 32px; min-height: 32px; border: 0; border-radius: var(--radius-sm); color: rgb(var(--accent-rgb)); background: rgba(var(--panel-rgb), 0.55); cursor: pointer; }
 .me-step-delete { color: var(--red); }

@@ -263,6 +263,21 @@ def test_clear_branch_confirm_and_undo_scoped_to_one_branch():
     assert "steps_arms =" not in confirmed
 
 
+def test_no_falsy_coercion_in_load_paths():
+    assert "|| 50" not in JS and "|| 0.85" not in JS
+    assert JS.count("=== null") >= 4
+
+
+def test_mode_chips_derive_from_stored_value():
+    derive = function_source("deriveMode")
+    render = function_source("renderSelectedStep")
+    handler = function_source("handlePoseClick")
+    assert "value === null" in derive and "value === undefined" in derive and "value === 0" in derive
+    assert "value === -1" in derive and "return 'hold'" in derive and "return 'set'" in derive
+    assert "data-mode" in render and "deriveMode" in render
+    assert "setStepField(field, null)" in handler
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")
