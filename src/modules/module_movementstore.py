@@ -267,45 +267,24 @@ class MovementStore:
             fh.write("\n")
         os.replace(tmp_path, str(path))
 
-    def import_from(self, path):
-        """Replace the pool from ``path`` — all or nothing.
+    def import_from(self, path, mode="replace", on_conflict="overwrite"):
+        """Replace or merge the pool from ``path`` — all or nothing.
 
-        Every entry is validated first (movement refs must resolve
-        within the imported set); on any invalid entry nothing is
-        imported and the error list is returned.  Returns [] on
-        success.
+        Returns the error list ([] on success).  mode="merge" unions
+        the file onto the current pool (refs resolve against
+        current+imported ids; collisions per on_conflict).  Malformed
+        files are reported as errors, not exceptions.
         """
-        data = self._read_json(path)
+        try:
+            data = self._read_json(path)
+        except (OSError, ValueError) as exc:
+            return [f"{path}: {exc}"]
         entries = data.get("movements")
         if not isinstance(entries, dict) or not entries:
             return [f"{path}: no movements object"]
-        errors = []
-        known = set(entries)
-        # audit F1: normalize before validating (same as load()) so the
-        # hold_time clamp persists — validate_entry alone clamps a
-        # throwaway copy and the 60 s hold reaches play_steps()
-        normalized = {}
-        for mid, entry in entries.items():
-            try:
-                entry = self._normalize_steps(entry)
-                self.validate_entry(mid, entry, known_ids=known)
-                normalized[mid] = entry
-            except ValueError as exc:
-                errors.append(f"{mid}: {exc}")
-        if errors:
-            return errors
-        entries = normalized
-        # audit A2-remainder: reject cyclic imports wholesale — the DFS
-        # runs on the CANDIDATE set before anything is committed
-        for mid in entries:
-            try:
-                self._check_acyclic(mid, entries=entries)
-            except ValueError as exc:
-                return [str(exc)]
-        self.movements = copy.deepcopy(entries)
-        self.save()
-        self._refresh_registry()
-        return []
+        result = self.import_entries(entries, mode=mode,
+                                     on_conflict=on_conflict)
+        return result["errors"]
 
     def import_entries(self, entries, mode="replace", on_conflict="overwrite"):
         """Import a movements dict into the pool — all or nothing.

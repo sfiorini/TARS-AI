@@ -1155,6 +1155,65 @@ class TestMerge(_StoreTestCase):
         self.assertEqual(reloaded.movements, self.store.movements)
 
 
+class TestImportFromFile(_StoreTestCase):
+    """import_from(path, mode, on_conflict): file-level wrapper around
+    import_entries (S2).  The default signature/return contract is
+    unchanged ([] on success); a malformed file is reported as an error
+    list entry `f"{path}: {exc}"` — never a propagated exception."""
+
+    def test_import_from_merge_delegates_to_import_entries(self):
+        self.store.load()
+        import_path = os.path.join(self.tmp, "pack.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"merged_move": _valid_entry()}}, fh)
+        self.assertEqual(
+            self.store.import_from(import_path, mode="merge"), [])
+        self.assertIn("merged_move", self.store.movements)
+        # an invalid pack under merge reports per-entry errors, changes nothing
+        bad = _valid_entry()
+        bad["type"] = "flurb"
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1,
+                       "movements": {"bad_pack": bad}}, fh)
+        errors = self.store.import_from(import_path, mode="merge")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("bad_pack", errors[0])
+        self.assertNotIn("bad_pack", self.store.movements)
+
+    def test_import_from_malformed_file_returns_error_list(self):
+        self.store.load()
+        before = json.loads(json.dumps(self.store.movements))
+        garbage = os.path.join(self.tmp, "garbage.json")
+        with open(garbage, "wb") as fh:
+            fh.write(b"{ this is not json")
+        errors = self.store.import_from(garbage)
+        self.assertEqual(len(errors), 1)
+        self.assertTrue(errors[0].startswith(f"{garbage}: "),
+                        errors[0])  # E2: clean error, no exception escapes
+
+    def test_import_from_missing_movements_object_returns_error_list(self):
+        self.store.load()
+        import_path = os.path.join(self.tmp, "envelope.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1}, fh)
+        errors = self.store.import_from(import_path)
+        self.assertEqual(errors, [f"{import_path}: no movements object"])
+
+    def test_import_from_merge_skip_policy_honored(self):
+        self.store.load()
+        local_bow = json.loads(json.dumps(self.store.get("bow")))
+        file_bow = _valid_entry()
+        file_bow["name"] = "File Bow"
+        import_path = os.path.join(self.tmp, "collide.json")
+        with open(import_path, "w") as fh:
+            json.dump({"version": 1, "movements": {"bow": file_bow}}, fh)
+        self.assertEqual(
+            self.store.import_from(import_path, mode="merge",
+                                   on_conflict="skip"), [])
+        self.assertEqual(self.store.get("bow"), local_bow)
+
+
 def _chatui_source():
     with open(os.path.join(_SRC, "modules", "module_chatui.py"),
               encoding="utf-8") as fh:
