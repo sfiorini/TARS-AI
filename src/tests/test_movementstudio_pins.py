@@ -76,7 +76,7 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     assert "filename='js/main.js') }}?v=8.0" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
-    assert '?v=8.0' in css_tag.group(0)
+    assert '?v=8.1' in css_tag.group(0)
     assert INDEX_HTML.index("css/main.css") < css_tag.start()
     assert (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").stat().st_size > 100
 
@@ -715,6 +715,41 @@ def test_ref_step_neutral_keys_and_open_link():
     assert "movement: id" in add_ref and "playableSteps(entry)" in ref_summary
     assert "open ↗" in ref_panel and "data-ref-id" in ref_panel
     assert "openForEdit(open.getAttribute('data-ref-id'))" in pose_click
+
+
+def test_timeline_actions_grouped_by_function_with_tooltips():
+    # User nuance 2026-11-14: the timeline footer crammed 7 controls into one
+    # wrapping row. Group them into labeled rows by function (add / import /
+    # reset) and give every action a tooltip.
+    html = MOVEMENTS_HTML
+    block = html.split('class="me-timeline-actions"', 1)[1].split('</section>', 1)[0]
+    assert block.count("me-action-group-label") == 3
+    markers = ['data-group="add"', 'data-group="import"', 'data-group="reset"']
+    for marker in markers:
+        assert marker in block
+    add_seg = block.split(markers[0], 1)[1].split(markers[1], 1)[0]
+    import_seg = block.split(markers[1], 1)[1].split(markers[2], 1)[0]
+    reset_seg = block.split(markers[2], 1)[1]
+    for element_id in ("meAddStep", "meRefSelect", "meAddRef"):
+        assert f'id="{element_id}"' in add_seg
+    for element_id in ("meImportSelect", "meImportReplace", "meImportAppend"):
+        assert f'id="{element_id}"' in import_seg
+    assert 'id="meClearBranch"' in reset_seg
+    # cross-contamination guards: a control relocated to the wrong row fails
+    assert 'id="meClearBranch"' not in add_seg and 'id="meClearBranch"' not in import_seg
+    assert 'id="meImportReplace"' not in add_seg and 'id="meImportReplace"' not in reset_seg
+    assert 'id="meAddStep"' not in import_seg and 'id="meAddStep"' not in reset_seg
+    # every action button carries a tooltip
+    for element_id in ("meAddStep", "meAddRef", "meImportReplace", "meImportAppend", "meClearBranch"):
+        tag = block.split(f'id="{element_id}"', 1)[1].split(">", 1)[0]
+        assert 'title="' in tag, element_id
+    for text in ("Add steps", "Import", "Reset"):
+        assert text in block
+    # the groups stack as separate rows (not one wrapping flex row)
+    css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
+    actions_rule = css.split(".me-timeline-actions {", 1)[1].split("}", 1)[0]
+    assert "flex-direction: column" in actions_rule
+    assert ".me-action-group-label" in css
 
 
 def test_ref_validation_client_dfs():
