@@ -130,20 +130,9 @@ def test_library_row_contract_data_mid_and_summary():
     assert "entry.steps_arms" in summary and "Math.min(10" in summary
     assert "return {steps: steps.length, hold: hold}" in summary
     assert "steps · " in render and "toFixed(1)" in render
-    editor = function_source("openLegacyEditor")
-    for field_id in ("mvEditorId", "mvName", "mvType", "mvDescription", "mvSteps", "mvStepsArms"):
-        assert f"el('{field_id}')" in editor
-    save_bridge = function_source("handleLegacySave")
-    assert "legacyEditingId === null" in save_bridge and "if (!r.ok)" in save_bridge
-    assert "addEventListener('click', handleLegacySave, true)" in JS
-    # Stale-bridge interlock (audit M0-B F2): identity guard + disarm on legacy
-    # interaction, so a legacy-row edit can never PUT through the armed bridge.
-    assert "mvEditorId').textContent !==" in save_bridge
-    assert "legacyEditingId = null; return;" in save_bridge
-    disarm = function_source("disarmLegacyBridge")
-    assert "legacyEditingId = null" in disarm
-    assert "el('mvPoolList').addEventListener('click'" in JS
-    assert "el('mvNewBtn').addEventListener('click', disarmLegacyBridge, true)" in JS
+    click_handler = function_source("handleLibraryClick")
+    assert "else if (action === 'edit') openForEdit(id);" in click_handler
+    assert "openLegacyEditor" not in JS and "handleLegacySave" not in JS
 
 
 def test_library_search_filter_sort_count_wiring():
@@ -175,8 +164,19 @@ def test_library_search_filter_sort_count_wiring():
 
 def test_create_button_bridges_to_legacy_create_in_m0():
     click_handler = function_source("handleLibraryClick")
-    assert "meNewBtn" in click_handler and "mvNewId" in click_handler
-    assert ".focus()" in click_handler and "scrollIntoView" in click_handler
+    assert "meNewBtn" in click_handler and "openCreate()" in click_handler
+    assert "mvNewId" not in click_handler
+    for bridge_symbol in ("openLegacyEditor", "handleLegacySave", "disarmLegacyBridge", "legacyEditingId"):
+        assert bridge_symbol not in JS
+
+
+def test_editor_shell_ids_present():
+    for element_id in (
+        "meEditor", "meBackBtn", "meIdInput", "meNameInput", "meTypeSelect",
+        "meDescInput", "meSaveBtn", "meDirtyDot", "meErrorStrip", "meModeVisual",
+        "meModeRaw", "meTimeline", "meAddStep", "mePosePanel", "meDraftBanner",
+    ):
+        assert f'id="{element_id}"' in MOVEMENTS_HTML
 
 
 def test_badges_use_defaults_with_degraded_mode():

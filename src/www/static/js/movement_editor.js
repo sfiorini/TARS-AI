@@ -5,7 +5,10 @@ document.addEventListener('DOMContentLoaded', function () {
   var defaultsOk = false;
   var defaultsFailureNotified = false;
   var pendingAction = null;
-  var legacyEditingId = null;
+  var draft = null;
+  var savedSnapshot = null;
+  var selected = {branch: 'steps', index: 0};
+  var editorMode = 'visual';
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -47,12 +50,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var target = event.target;
     var retry = target.closest('#meLibRetry');
     if (retry) { fetchPool(); return; }
-    var create = target.closest('#meNewBtn');
-    if (create) {
-      var newId = el('mvNewId');
-      if (newId) { newId.focus(); newId.scrollIntoView({behavior: 'smooth', block: 'center'}); }
-      return;
-    }
+    if (target.closest('#meNewBtn')) { openCreate(); return; }
+    if (target.closest('#meBackBtn')) { closeEditor(); return; }
     var typeButton = target.closest('#meLibTypeFilter [data-type]');
     if (typeButton) {
       selectedType = typeButton.getAttribute('data-type');
@@ -73,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!row) return;
     var id = row.getAttribute('data-mid');
     if (action === 'play') playMovement(id, actionButton);
-    else if (action === 'edit') openLegacyEditor(id);
+    else if (action === 'edit') openForEdit(id);
     else if (action === 'dup') duplicateMovement(id, actionButton);
     else if (action === 'del') deleteMovement(id);
   }
@@ -175,76 +174,49 @@ document.addEventListener('DOMContentLoaded', function () {
     });
     applyBadges();
   }
-  function openLegacyEditor(id) {
-    var entry = pool[id];
-    if (!entry) return;
-    var list = el('mvPoolList');
-    if (list) {
-      var rows = list.querySelectorAll('.bld-step-row');
-      for (var index = 0; index < rows.length; index++) {
-        var label = rows[index].querySelector('span b');
-        var buttons = rows[index].querySelectorAll('button');
-        if (label && label.textContent === id && buttons.length > 1) {
-          legacyEditingId = null;
-          buttons[1].click();
-          return;
-        }
-      }
-    }
-    legacyEditingId = id;
-    el('mvEditorId').textContent = '"' + id + '"';
-    el('mvName').value = entry.name || '';
-    el('mvType').value = entry.type || 'legs_only';
-    el('mvDescription').value = entry.description || '';
-    el('mvSteps').value = JSON.stringify(entry.steps || [], null, 2);
-    el('mvStepsArms').value = entry.steps_arms == null ? '' : JSON.stringify(entry.steps_arms, null, 2);
-    el('mvEditor').style.display = '';
-    el('mvEditor').scrollIntoView({block: 'nearest'});
-  }
-  function handleLegacySave(event) {
-    if (legacyEditingId === null) return;
-    if (el('mvEditorId').textContent !== '"' + legacyEditingId + '"') { legacyEditingId = null; return; }
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    var id = legacyEditingId;
-    var steps; var stepsArms;
-    try {
-      steps = JSON.parse(el('mvSteps').value || '[]');
-      var armsText = (el('mvStepsArms').value || '').trim();
-      stepsArms = armsText ? JSON.parse(armsText) : null;
-      if (!Array.isArray(steps) || (stepsArms !== null && !Array.isArray(stepsArms))) {
-        throw new Error('must be a JSON array');
-      }
-    } catch (error) {
-      notify('Invalid steps JSON: ' + error.message, 'error');
-      return;
-    }
-    var payload = {
-      name: el('mvName').value,
-      type: el('mvType').value,
-      description: el('mvDescription').value,
-      steps: steps,
-      steps_arms: stepsArms
+  function DEFAULT_STEP() {
+    return {
+      left_height: 50, right_height: 50, left_leg: 50, right_leg: 50,
+      left_main: null, left_forearm: null, left_hand: null,
+      right_main: null, right_forearm: null, right_hand: null,
+      speed: 0.85, hold_time: 0, movement: null, arm_speed: null
     };
-    return fetch('/movements/' + encodeURIComponent(id), {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload)
-    }).then(function (r) {
-      return r.json().then(function (d) {
-        if (!r.ok) return {ok: false, d: d};
-        return {ok: true, d: d};
-      });
-    }).then(function (res) {
-      if (!res.ok) { notify(res.d.error || 'Save failed.', 'error'); return false; }
-      legacyEditingId = null;
-      el('mvEditor').style.display = 'none';
-      notify('Saved "' + id + '"', 'success');
-      return fetchPool();
-    }).catch(function (error) {
-      notify(error && error.message ? error.message : 'Save failed.', 'error');
-      return false;
-    });
+  }
+  function renderEditor() {
+    var pane = el('meEditor');
+    if (!pane || !draft) return;
+    pane.hidden = false;
+    el('meEditorTitle').textContent = draft.id ? (draft.entry.name || draft.id) : 'New movement';
+    el('meIdInput').value = draft.id || '';
+    el('meNameInput').value = draft.entry.name || '';
+    el('meTypeSelect').value = draft.entry.type || 'legs_only';
+    el('meDescInput').value = draft.entry.description || '';
+    el('meDirtyDot').hidden = true;
+    el('meSaveBtn').setAttribute('data-state', 'CLEAN');
+    el('meSaveBtn').disabled = false;
+  }
+  function openForEdit(id) {
+    if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
+    draft = {id: id, entry: deepCopy(pool[id]), baseSnapshot: deepCopy(pool[id])};
+    savedSnapshot = stableStringify(draft.entry);
+    selected = {branch: 'steps', index: 0};
+    renderEditor();
+    return true;
+  }
+  function openCreate() {
+    draft = {id: '', entry: {
+      name: '', type: 'legs_only', description: '', steps: [DEFAULT_STEP()], steps_arms: null
+    }, baseSnapshot: null};
+    savedSnapshot = stableStringify(draft.entry);
+    selected = {branch: 'steps', index: 0};
+    renderEditor();
+    return true;
+  }
+  function closeEditor() {
+    var pane = el('meEditor');
+    if (pane) pane.hidden = true;
+    draft = null;
+    savedSnapshot = null;
   }
   function notify(message, type) {
     if (window.showToast) window.showToast(message, type || 'info');
@@ -529,11 +501,6 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
-  function disarmLegacyBridge() { legacyEditingId = null; }
-  if (el('mvPoolList')) el('mvPoolList').addEventListener('click', function (event) { if (event.target.closest('button')) disarmLegacyBridge(); }, true);
-  if (el('mvNewBtn')) el('mvNewBtn').addEventListener('click', disarmLegacyBridge, true);
-  if (el('mvSaveBtn')) el('mvSaveBtn').addEventListener('click', handleLegacySave, true);
-  if (el('mvCancelBtn')) el('mvCancelBtn').addEventListener('click', disarmLegacyBridge);
   fetchPool(); fetchDefaults();
 
 

@@ -1,4 +1,5 @@
 <div class="tab-pane fade" id="movements" role="tabpanel">
+  <div class="me-studio-layout">
   <div class="me-library body-panel">
     <div class="me-toolbar">
       <input id="meLibSearch" class="hud-input" type="search" placeholder="Search movements…" aria-label="Search movements">
@@ -17,6 +18,36 @@
     </div>
     <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
     <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
+  </div>
+  <section id="meEditor" class="me-editor body-panel" hidden aria-label="Movement editor">
+    <header class="me-editor-header">
+      <button id="meBackBtn" type="button" class="hud-btn hud-btn-secondary" title="Back to library">‹ Back to library</button>
+      <h2 id="meEditorTitle">New movement</h2>
+      <span id="meDirtyDot" class="me-dirty-dot" hidden aria-label="Unsaved changes">●</span>
+      <button id="meModeVisual" type="button" class="hud-btn hud-btn-secondary" aria-pressed="true">VISUAL</button>
+      <button id="meModeRaw" type="button" class="hud-btn hud-btn-secondary" aria-pressed="false">RAW</button>
+      <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
+    </header>
+    <div class="me-metadata-grid">
+      <label class="me-id-field">Movement id
+        <span id="meIdEdit"><input id="meIdInput" class="hud-input" autocomplete="off"></span>
+        <span id="meIdHint">a–z 0–9 _</span>
+        <span id="meIdError" class="me-field-error" aria-live="polite"></span>
+      </label>
+      <label>Display name<input id="meNameInput" class="hud-input" autocomplete="off"></label>
+      <label>Type<select id="meTypeSelect" class="hud-select"><option value="legs_only">legs_only</option><option value="has_arms">has_arms</option></select></label>
+      <label class="me-description-field">Description<input id="meDescInput" class="hud-input" autocomplete="off"><small>The voice assistant reads this when choosing a movement — say what it does.</small></label>
+    </div>
+    <div id="meErrorStrip" class="me-error-strip bld-overwrite-confirm" role="alert" aria-live="assertive" hidden></div>
+    <div id="meDraftBanner" class="me-draft-banner" hidden></div>
+    <div class="me-editor-workspace">
+      <section class="me-timeline-panel" aria-label="Movement timeline">
+        <div id="meTimeline" class="me-timeline"></div>
+        <div class="me-timeline-actions"><button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button></div>
+      </section>
+      <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
+    </div>
+  </section>
   </div>
   <div class="body-panel me-legacy"><h3>JSON editor (legacy — replaced by the visual editor in the next update)</h3>
   <div class="builder-wrap">
