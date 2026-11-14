@@ -238,6 +238,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meSaveBtn').setAttribute('data-state', 'CLEAN');
     el('meSaveBtn').disabled = false;
     updateIdStatus();
+    renderTimeline();
   }
   function handleMetadataInput(event) {
     if (!draft) return;
@@ -261,6 +262,72 @@ document.addEventListener('DOMContentLoaded', function () {
     else return;
     target.classList.toggle('me-field-invalid', !String(target.value).trim());
     markDirty();
+  }
+  function selectedStep() {
+    if (!draft || !Array.isArray(draft.entry.steps)) return null;
+    return draft.entry.steps[selected.index] || null;
+  }
+  function stepSummary(step) {
+    if (step && step.movement) return '⚡ ' + step.movement;
+    function valueFor(field) {
+      var value = step[field];
+      if (value === null || value === undefined || value === 0) return '–';
+      if (value === -1) return 'H';
+      return value;
+    }
+    var parts = [
+      'LH ' + valueFor('left_height'), 'RH ' + valueFor('right_height'),
+      'LL ' + valueFor('left_leg'), 'RL ' + valueFor('right_leg')
+    ];
+    [['LM', 'left_main'], ['LF', 'left_forearm'], ['LH2', 'left_hand'],
+      ['RM', 'right_main'], ['RF', 'right_forearm'], ['RH2', 'right_hand']].forEach(function (item) {
+      if (step[item[1]] !== null && step[item[1]] !== undefined && step[item[1]] !== 0) {
+        parts.push(item[0] + ' ' + valueFor(item[1]));
+      }
+    });
+    parts.push('⏱ ' + valueFor('speed'), '⏸ ' + valueFor('hold_time'));
+    return parts.join(' · ');
+  }
+  function renderSelectedStep() {
+    var panel = el('mePosePanel');
+    var step = selectedStep();
+    if (!panel) return;
+    panel.innerHTML = '';
+    if (!step) { panel.textContent = 'No position selected.'; return; }
+    var title = document.createElement('h3');
+    title.textContent = step.movement ? '⚡ ' + step.movement : 'Step ' + (selected.index + 1);
+    var summary = document.createElement('p');
+    summary.className = 'me-selected-summary';
+    summary.textContent = stepSummary(step);
+    panel.appendChild(title);
+    panel.appendChild(summary);
+  }
+  function renderTimeline() {
+    var timeline = el('meTimeline');
+    if (!timeline) return;
+    timeline.innerHTML = '';
+    var steps = draft && Array.isArray(draft.entry.steps) ? draft.entry.steps : [];
+    steps.forEach(function (step, index) {
+      var kind = step && step.movement ? 'ref' : 'pose';
+      var card = document.createElement('div');
+      card.className = 'meStepCard' + (index === selected.index ? ' me-selected' : '');
+      card.setAttribute('data-step-index', String(index));
+      card.setAttribute('data-kind', kind);
+      card.setAttribute('role', 'button');
+      card.setAttribute('tabindex', '0');
+      card.textContent = (index + 1) + ' ' + (kind === 'ref' ? '⚡ ' : '▦ ') + stepSummary(step);
+      timeline.appendChild(card);
+    });
+    renderSelectedStep();
+  }
+  function selectStep(index) {
+    var steps = draft && Array.isArray(draft.entry.steps) ? draft.entry.steps : [];
+    selected.index = Math.max(0, Math.min(index, steps.length - 1));
+    renderTimeline();
+  }
+  function handleTimelineClick(event) {
+    var card = event.target.closest('.meStepCard');
+    if (card) selectStep(Number(card.getAttribute('data-step-index')));
   }
   function openForEdit(id) {
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
@@ -576,6 +643,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
   }
+  if (el('meTimeline')) el('meTimeline').addEventListener('click', handleTimelineClick);
   fetchPool(); fetchDefaults();
 
 

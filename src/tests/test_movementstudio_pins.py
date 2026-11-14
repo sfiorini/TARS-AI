@@ -203,6 +203,18 @@ def test_dirty_uses_stable_stringify_snapshot():
     assert "function markDirty()" in JS and "dirty ? 'DIRTY' : 'CLEAN'" in function_source("markDirty")
 
 
+def test_timeline_card_contract():
+    render = function_source("renderTimeline")
+    summary = function_source("stepSummary")
+    assert "meStepCard" in render and "data-step-index" in render and "data-kind" in render
+    assert "'pose'" in render and "'ref'" in render
+    assert "selectStep(Number(card.getAttribute('data-step-index')))" in function_source("handleTimelineClick")
+    for glyph in ("LH ", "RH ", "LL ", "RL ", "⏱ ", "⏸ ", "–", "H", "·"):
+        assert glyph in summary
+    ref_summary = summary.split("if (step && step.movement)", 1)[1].split("function valueFor", 1)[0]
+    assert "⚡" in ref_summary and "⏸" not in ref_summary
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

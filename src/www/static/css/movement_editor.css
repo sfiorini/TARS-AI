@@ -138,6 +138,19 @@
 .me-error-strip:not([hidden]), .me-draft-banner:not([hidden]) { display: block; margin: 0.6rem 0; padding: 0.65rem; border: 1px solid var(--red); color: var(--red); }
 .me-field-error { color: var(--red); font-size: 0.72rem; }
 .me-timeline-actions { margin-top: 0.65rem; }
+.meStepCard {
+  margin: 0.25rem 0;
+  padding: 0.65rem;
+  border: 1px solid rgba(var(--accent-rgb), 0.16);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font: 0.76rem var(--font-mono);
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.meStepCard.me-selected { border-color: rgba(var(--accent-rgb), 0.7); color: var(--text); box-shadow: 0 0 0 1px rgba(var(--accent-rgb), 0.14); }
+.meStepCard[data-kind="ref"] { color: rgb(var(--accent-rgb)); }
+.me-selected-summary { color: var(--text-dim); font: 0.78rem var(--font-mono); overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .me-studio-layout, .me-editor-workspace { grid-template-columns: minmax(0, 1fr); }
 }
