@@ -1,6 +1,6 @@
 <div class="tab-pane fade" id="movements" role="tabpanel">
   <div class="me-studio-layout">
-    <div class="me-library body-panel">
+    <div class="me-library body-panel me-view-library">
       <div class="me-toolbar">
         <input id="meLibSearch" class="hud-input" type="search" placeholder="Search movements…" aria-label="Search movements">
         <div id="meLibTypeFilter" class="me-type-filter" role="group" aria-label="Filter movement type">
@@ -20,29 +20,19 @@
       <div id="meDraftBanner" class="me-draft-banner" hidden></div>
       <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
     </div>
-    <section id="meEditor" class="me-editor body-panel" hidden aria-label="Movement editor">
+    <section id="meEditor" class="me-editor body-panel me-view-editor" hidden aria-label="Movement editor">
       <header class="me-editor-header">
-        <button id="meBackBtn" type="button" class="hud-btn hud-btn-secondary" title="Back to library">‹ Back to library</button>
+        <button id="meBackBtn" type="button" class="hud-btn hud-btn-secondary" title="Back to library">‹ Library</button>
         <h2 id="meEditorTitle">New movement</h2>
         <span id="meDirtyDot" class="me-dirty-dot" hidden aria-label="Unsaved changes">●</span>
         <span id="meBusyChip" class="me-busy-chip" role="status" hidden></span>
         <span id="meServoOfflineChip" class="me-servo-offline-chip" role="status" hidden>Servo controller offline</span>
-        <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button">PLAY BASE</button>
-        <div class="me-live-controls">
-          <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
-          <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
-            <span id="meLiveClampNotice" hidden>Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)</span>
-            <span>SKIP servos hold their last live value in preview.</span>
-          </div>
-        </div>
-        <button id="meNeutralBtn" type="button" class="hud-btn hud-btn-secondary">↺ NEUTRAL</button>
         <button id="meModeVisual" type="button" class="hud-btn hud-btn-secondary" aria-pressed="true">VISUAL</button>
         <button id="meModeRaw" type="button" class="hud-btn hud-btn-secondary" aria-pressed="false">RAW</button>
         <div class="me-overflow-wrap">
           <button id="meOverflowBtn" type="button" class="hud-btn hud-btn-secondary" aria-label="Editor actions" aria-expanded="false">⋯</button>
           <div id="meOverflowMenu" class="me-overflow-menu" role="menu" hidden></div>
         </div>
-        <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
       </header>
       <div class="me-metadata-grid">
         <label class="me-id-field">Movement id
@@ -85,6 +75,18 @@
           </div>
         </section>
         <section id="mePosePanel" class="me-pose-panel" aria-label="Pose editor"></section>
+      </div>
+      <div class="me-sticky" role="group" aria-label="Movement actions">
+        <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button">PLAY BASE</button>
+        <div class="me-live-controls">
+          <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
+          <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
+            <span id="meLiveClampNotice" hidden>Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)</span>
+            <span>SKIP servos hold their last live value in preview.</span>
+          </div>
+        </div>
+        <button id="meNeutralBtn" type="button" class="hud-btn hud-btn-secondary">↺ NEUTRAL</button>
+        <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
       </div>
     </section>
   </div>

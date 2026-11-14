@@ -869,3 +869,28 @@ def test_neutral_uses_move_legs_not_neutral_legs():
     assert "if (!r.ok)" in neutral and "notifyLiveError" in neutral
 
 
+def test_mobile_stacked_views_and_sticky_bar():
+    html = MOVEMENTS_HTML
+    css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
+    show = function_source("showView")
+    open_edit = function_source("openForEdit")
+    open_create = function_source("openCreate")
+    close = function_source("closeEditor")
+    back = function_source("handleLibraryClick")
+    assert "me-view-library" in html and "me-view-editor" in html
+    assert "function showView(view)" in show and "setAttribute('data-me-view', view)" in show
+    assert "scrollTop = 0" in show and "window.scrollTo(0, 0)" in show
+    assert "showView('editor');" in open_edit and "showView('editor');" in open_create
+    assert "showView('library');" in close
+    assert 'id="meBackBtn"' in html and "‹ Library" in html
+    assert "target.closest('#meBackBtn')" in back and "closeEditor();" in back
+    sticky = html.split('class="me-sticky"', 1)[1].split('</section>', 1)[0]
+    for element_id in ('mePlayBtn', 'meLiveToggle', 'meNeutralBtn', 'meSaveBtn'):
+        assert f'id="{element_id}"' in sticky
+    assert 'data-state="CLEAN"' in sticky and "save.setAttribute('data-state', state)" in function_source("setSaveState")
+    assert re.search(r"@media\s*\(max-width:\s*768px\)", css)
+    assert re.search(r"@media\s*\(max-width:\s*400px\)", css)
+    assert ".me-sticky .hud-btn" in css and "min-height: 44px" in css
+    assert "grid-template-areas" in css and "me-servo-label" in css and "me-mode-chips" in css
+
+

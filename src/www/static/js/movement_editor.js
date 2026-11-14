@@ -1922,6 +1922,7 @@ document.addEventListener('DOMContentLoaded', function () {
     savedSnapshot = stableStringify(draft.entry);
     resetBranchState();
     renderEditor();
+    showView('editor');
     return true;
   }
   function openCreate(discarded) {
@@ -1936,6 +1937,21 @@ document.addEventListener('DOMContentLoaded', function () {
     savedSnapshot = stableStringify(draft.entry);
     resetBranchState();
     renderEditor();
+    showView('editor');
+    return true;
+  }
+  function showView(view) {
+    if (view !== 'library' && view !== 'editor') return false;
+    var pane = el('movements');
+    var library = pane && pane.querySelector('.me-view-library');
+    var editor = pane && pane.querySelector('.me-view-editor');
+    if (!pane || !library || !editor) return false;
+    pane.setAttribute('data-me-view', view);
+    library.scrollTop = 0;
+    editor.scrollTop = 0;
+    if (el('meLibList')) el('meLibList').scrollTop = 0;
+    if (el('meTimeline')) el('meTimeline').scrollTop = 0;
+    if (window.scrollTo) window.scrollTo(0, 0);
     return true;
   }
   function closeEditor(discarded) {
@@ -1948,6 +1964,7 @@ document.addEventListener('DOMContentLoaded', function () {
     clearDraft();
     draft = null;
     savedSnapshot = null;
+    showView('library');
     return true;
   }
   function notify(message, type) {
