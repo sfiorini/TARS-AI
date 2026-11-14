@@ -91,3 +91,9 @@ def test_badges_use_defaults_with_degraded_mode():
     s = JS
     for needle in ("fetch('/movements/defaults'", "'default'", "'modified'", "'custom'", 'defaultsOk = false'):
         assert needle in s
+
+
+def test_play_calls_play_saved_sequence_and_surfaces_errors():
+    s = JS
+    for needle in ("fetch('/play_saved_sequence'", 'name:', 'res.d.error'):
+        assert needle in s

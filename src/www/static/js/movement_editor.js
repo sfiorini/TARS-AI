@@ -50,5 +50,11 @@ document.addEventListener('DOMContentLoaded', function () {
       .then(function (d) { defaultsData = d.movements || {}; defaultsOk = true; applyBadges(); })
       .catch(function () { defaultsOk = false; });
   }
+  function playMovement(id) {
+    fetch('/play_saved_sequence', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({name: id})})
+      .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
+      .then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); });
+  }
   fetchPool(); fetchDefaults();
+
 });
