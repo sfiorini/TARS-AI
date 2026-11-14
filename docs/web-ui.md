@@ -25,9 +25,7 @@ Templates in `src/www/templates/tabs/`:
 | **dashboard** | memory graph, topics, mood, interactions (`/api/dashboard/*`) |
 | **config** | full `config.ini` editor with per-key (i) descriptions |
 | **motion** | movement buttons from the registry + sequence player |
-| **legs** / **arms** / **body** | direct servo sliders per channel group |
-| **builder** | step-sequence editor → movement store entries (`src/movements.json`) |
-| **movements** | whole movement pool: play / edit / delete / reset (`/movements/*`) |
+| **movements** | **Movement Studio** — merged movement library + Visual/RAW editor; pool CRUD via `/movements*`, status badges from `GET /movements/defaults`, branch-accurate PLAY, 3D leg preview |
 | **emotions** | emotion/sprite control (`POST /emotion`, `/api/eyes/mood`) |
 | **sys** | system metrics (`/api/system/metrics`), console logs, reboot button, wifi |
 | **wifi** | `/api/wifi/status`, networks, connect, hotspot |
@@ -64,7 +62,7 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 
 ## Motion tab
 
-Driven by the **movement store** (`src/modules/module_movementstore.py`, rebuilt into the registry after every change): `GET /get_movements` returns every movement with id, display name, and type (`legs_only` / `has_arms` / `system`), so movements created in the **movements** tab appear automatically. Arm movements are gated when `[SERVO] arms_present = False`. The **builder** saves step sequences as movement store entries (id = name: lowercase, digits, underscores).
+Driven by the **movement store** (`src/modules/module_movementstore.py`, rebuilt into the registry after every change): `GET /get_movements` returns every movement with id, display name, and type (`legs_only` / `has_arms` / `system`), so movements created in the **Movement Studio** appear automatically. Arm movements are gated when `[SERVO] arms_present = False`. The Studio creates entries with `POST /movements` and edits them with `PUT /movements/<mid>`, using a proper auto-slugged id (no id=name coercion) while preserving both movement branches.
 
 ```bash
 curl -b /tmp/tars.cookie http://<pi-ip>/get_movements | python3 -m json.tool | head -30

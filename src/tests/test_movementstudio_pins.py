@@ -1017,3 +1017,22 @@ def test_studio_adopts_preview_hook_contract():
     assert "IntersectionObserver" in preview_source and "observer.observe(viewport)" in preview_source
 
 
+def test_bottom_nav_label_and_aria_stability():
+    button = re.search(r'<button[^>]*data-tab-index="5"[^>]*>.*?</button>', INDEX_HTML, re.S)
+    assert button
+    declaration = button.group(0)
+    assert 'aria-label="Movements"' in declaration and "<span>Studio</span>" in declaration
+    assert "<span>Move+</span>" not in INDEX_HTML
+
+
+def test_webui_tabs_table_cutover():
+    webui = (REPO_ROOT / "docs" / "web-ui.md").read_text()
+    assert "| **builder**" not in webui
+    assert "| **legs** / **arms** / **body**" not in webui
+    assert "Movement Studio" in webui
+    assert "GET /movements" in webui and "GET /movements/defaults" in webui
+    endpoints = webui.split("## Key endpoints", 1)[1].split("\n## ", 1)[0]
+    movement_route_rows = [row for row in endpoints.splitlines() if "`GET /movements`" in row]
+    assert len(movement_route_rows) == 1 and "`GET /movements/defaults`" in movement_route_rows[0]
+
+
