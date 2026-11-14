@@ -252,6 +252,17 @@ def test_step_reorder_controls():
     assert "steps.splice(from, 1)" in move and "steps.splice(to, 0, moved)" in move
 
 
+def test_clear_branch_confirm_and_undo_scoped_to_one_branch():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    clear = function_source("clearBranch")
+    confirmed = function_source("confirmClearBranch")
+    assert 'id="meClearBranch"' in html and "meClearBranch" in JS
+    assert "one neutral step" in clear and "confirm-clear-branch" in clear
+    assert "draft.entry.steps = [DEFAULT_STEP()]" in confirmed
+    assert "showUndoToast(function" in confirmed and "draft.entry.steps = before" in confirmed
+    assert "steps_arms =" not in confirmed
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

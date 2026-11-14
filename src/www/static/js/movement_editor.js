@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var defaultsOk = false;
   var defaultsFailureNotified = false;
   var pendingAction = null;
+  var pendingClearSnapshot = null;
   var draft = null;
   var savedSnapshot = null;
   var selected = {branch: 'steps', index: 0};
@@ -345,8 +346,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (event.target.closest('#meDupStep')) dupStep(selected.index);
     else if (event.target.closest('#meDelStep')) delStep(selected.index);
   }
-  function showUndoToast(onUndo) {
-    if (window.showToast) window.showToast('Position deleted', 'info', 5000);
+  function showUndoToast(onUndo, message) {
+    if (window.showToast) window.showToast(message || 'Position deleted', 'info', 5000);
     var container = el('toastContainer');
     var toast = container && container.lastElementChild;
     if (!toast) return;
@@ -384,6 +385,34 @@ document.addEventListener('DOMContentLoaded', function () {
       markDirty();
       renderTimeline();
     });
+    return true;
+  }
+  function clearBranch(branch) {
+    if (!draft || (branch || 'steps') !== 'steps') return false;
+    pendingClearSnapshot = deepCopy(draft.entry.steps);
+    pendingAction = {type: 'clear-branch'};
+    showConfirmStrip('Replace the ' + pendingClearSnapshot.length + ' steps of BASE with one neutral step?', [
+      {label: 'Clear', action: 'confirm-clear-branch', danger: true},
+      {label: 'Cancel', action: 'cancel'}
+    ], true);
+    return true;
+  }
+  function confirmClearBranch() {
+    if (!draft || !pendingClearSnapshot) return false;
+    var before = pendingClearSnapshot;
+    pendingClearSnapshot = null;
+    pendingAction = null;
+    clearConfirmStrip();
+    draft.entry.steps = [DEFAULT_STEP()];
+    selected.index = 0;
+    markDirty();
+    renderTimeline();
+    showUndoToast(function () {
+      draft.entry.steps = before;
+      selected.index = 0;
+      markDirty();
+      renderTimeline();
+    }, 'BASE branch cleared');
     return true;
   }
   function renderTimeline() {
@@ -695,7 +724,10 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!button) return;
     var action = button.getAttribute('data-action');
     if (action === 'cancel' || action === 'cancel-delete') {
-      pendingAction = null; clearConfirmStrip(); return;
+      pendingAction = null; pendingClearSnapshot = null; clearConfirmStrip(); return;
+    }
+    if (action === 'confirm-clear-branch' && pendingAction && pendingAction.type === 'clear-branch') {
+      confirmClearBranch(); return;
     }
     if (action === 'confirm-delete' && pendingAction && pendingAction.type === 'delete') {
       var id = pendingAction.id; pendingAction = null; clearConfirmStrip(); performDelete(id); return;
@@ -842,6 +874,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meTimeline').addEventListener('pointercancel', handleTimelinePointerCancel);
   }
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
+  if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch('steps'); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults();
 
