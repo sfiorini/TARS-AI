@@ -79,6 +79,14 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!draft) return [];
     return draft.entry[name] || [];
   }
+  function configurePreviewAvailability() {
+    if (typeof THREE === 'undefined') {
+      var offlineNote = el('mePreviewOffline');
+      var previewButton = el('bldPreview');
+      if (offlineNote) offlineNote.hidden = false;
+      if (previewButton) previewButton.hidden = true;
+    }
+  }
   function renderComposerControls() {
     var select = el('meImportSelect');
     if (select) {
@@ -2541,6 +2549,8 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch(branch); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
+  configurePreviewAvailability();
+  window._bldGetSteps = function () { return deepCopy(branchSteps(activeBranch())); };
   fetchPool(); fetchDefaults(); fetchArmsStatus();
 
 

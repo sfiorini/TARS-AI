@@ -253,3 +253,13 @@
   .meLibRow { gap: 0.35rem; }
   .me-row-detail { flex-wrap: wrap; }
 }
+.me-play-note { flex: 1 1 100%; color: var(--text-dim); font: 0.7rem var(--font-sans); }
+.me-preview { margin-top: 0.9rem; padding: 0.8rem; border: 1px solid rgba(var(--accent-rgb), 0.18); background: rgba(var(--panel-rgb), 0.36); }
+.me-preview h3 { margin: 0 0 0.35rem; color: var(--text); font: 600 0.85rem var(--font-hud); }
+.me-preview-caption, .me-preview-offline { margin: 0.25rem 0 0.55rem; color: var(--text-dim); font: 0.72rem var(--font-sans); }
+.me-preview-offline { color: var(--orange); }
+.me-preview-offline[hidden] { display: none; }
+.me-preview-details > summary { min-height: 36px; color: rgb(var(--accent-rgb)); cursor: pointer; font: 600 0.75rem var(--font-hud); }
+.me-preview-viewport { width: 100%; min-height: 280px; overflow: hidden; border: 1px solid rgba(var(--accent-rgb), 0.18); border-radius: var(--radius-sm); background: rgba(var(--panel-rgb), 0.5); }
+.me-preview-viewport canvas { display: block; max-width: 100%; }
+.me-preview-actions { display: flex; gap: 0.45rem; margin-top: 0.5rem; }

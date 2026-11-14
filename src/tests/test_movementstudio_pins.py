@@ -72,8 +72,8 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     js_tag = re.search(r'<script[^>]+movement_editor\.js[^>]*></script>', INDEX_HTML)
     css_tag = re.search(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)
     assert js_tag and len(re.findall(r'movement_editor\.js', INDEX_HTML)) == 1
-    assert '?v=7.9' in js_tag.group(0)
-    assert "filename='js/main.js') }}?v=7.9" in INDEX_HTML
+    assert '?v=8.0' in js_tag.group(0)
+    assert "filename='js/main.js') }}?v=8.0" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
     assert '?v=7.9' in css_tag.group(0)
@@ -976,5 +976,44 @@ def test_builder_orphan_templates_deleted():
     orphan_templates = ("builder.html", "body.html", "arms.html", "legs.html", "builder_content.html")
     for template in orphan_templates:
         assert not (TEMPLATE_ROOT / "tabs" / template).exists(), f"orphan template remains: {template}"
+
+
+def test_tars_preview_js_file_unchanged():
+    preview_path = REPO_ROOT / "src" / "www" / "static" / "js" / "tars_preview.js"
+    # SHA-256 recorded at the frozen project baseline (8308fa9d; same blob since 9b671d6).
+    expected_sha256 = "f8cf2568afa1ca652f3a48d9268c402a0ae89cec97469d1b454c05fd21b946b6"
+    assert hashlib.sha256(preview_path.read_bytes()).hexdigest() == expected_sha256
+
+
+def test_studio_adopts_preview_hook_contract():
+    preview_ids = ("bldPreviewViewport", "bldPreview", "bldPreviewStop")
+    for element_id in preview_ids:
+        assert MOVEMENTS_HTML.count(f'id="{element_id}"') == 1
+    include_re = re.compile(r"{%\s*include\s+'([^']+)'\s*%}")
+    queue = [TEMPLATE_ROOT / "index.html"]
+    included = set()
+    while queue:
+        path = queue.pop().resolve()
+        if path in included:
+            continue
+        included.add(path)
+        queue.extend(TEMPLATE_ROOT / name for name in include_re.findall(path.read_text()))
+    template_ids = [value for path in included for value in re.findall(r'id="([^"]+)"', path.read_text())]
+    for element_id in preview_ids:
+        assert template_ids.count(element_id) == 1, f"{element_id} must occur once across the included templates"
+
+    hook = re.search(r"window\._bldGetSteps\s*=\s*function\s*\(\)\s*\{([^}]+)\}", JS)
+    assert hook, "Studio must define the preview data hook"
+    assert "deepCopy(branchSteps(activeBranch()))" in hook.group(1)
+    assert "Legs only · ref steps skipped · approximate timing" in MOVEMENTS_HTML
+    assert "3D preview unavailable offline" in MOVEMENTS_HTML
+    assert "typeof THREE === 'undefined'" in JS
+    assert "previewButton.hidden = true" in JS
+    assert 'id="mePlayNote"' in MOVEMENTS_HTML
+    assert "Plays to completion — no mid-move stop in v1" in MOVEMENTS_HTML
+    details = re.search(r"<details\b([^>]*)class=\"me-preview-details\"([^>]*)>", MOVEMENTS_HTML)
+    assert details and " open" not in details.group(1) + details.group(2)
+    preview_source = (REPO_ROOT / "src" / "www" / "static" / "js" / "tars_preview.js").read_text()
+    assert "IntersectionObserver" in preview_source and "observer.observe(viewport)" in preview_source
 
 

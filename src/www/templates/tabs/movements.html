@@ -78,6 +78,7 @@
       </div>
       <div class="me-sticky" role="group" aria-label="Movement actions">
         <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button" title="Plays to completion — no mid-move stop in v1">PLAY BASE</button>
+        <small id="mePlayNote" class="me-play-note">Plays to completion — no mid-move stop in v1</small>
         <div class="me-live-controls">
           <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
           <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
@@ -88,6 +89,19 @@
         <button id="meNeutralBtn" type="button" class="hud-btn hud-btn-secondary">↺ NEUTRAL</button>
         <button id="meSaveBtn" type="button" class="hud-btn hud-btn-primary" data-state="CLEAN">SAVE</button>
       </div>
+      <section class="me-preview body-panel" aria-label="3D movement preview">
+        <h3>3D preview</h3>
+        <p class="me-preview-caption">Legs only · ref steps skipped · approximate timing</p>
+        <p id="mePreviewOffline" class="me-preview-offline" role="status" hidden>3D preview unavailable offline</p>
+        <details class="me-preview-details">
+          <summary>Open 3D preview</summary>
+          <div id="bldPreviewViewport" class="me-preview-viewport" aria-label="Movement preview"></div>
+          <div class="me-preview-actions">
+            <button id="bldPreview" type="button" class="hud-btn hud-btn-secondary">Preview</button>
+            <button id="bldPreviewStop" type="button" class="hud-btn hud-btn-secondary" style="display:none">Stop preview</button>
+          </div>
+        </details>
+      </section>
     </section>
   </div>
 </div>
