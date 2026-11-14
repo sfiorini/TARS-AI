@@ -97,3 +97,9 @@ def test_play_calls_play_saved_sequence_and_surfaces_errors():
     s = JS
     for needle in ("fetch('/play_saved_sequence'", 'name:', 'res.d.error'):
         assert needle in s
+
+
+def test_duplicate_posts_full_copy_with_free_suffix():
+    s = JS
+    for needle in ("'_copy'", "'/movements'", "'POST'", 'steps:', 'steps_arms:'):
+        assert needle in s

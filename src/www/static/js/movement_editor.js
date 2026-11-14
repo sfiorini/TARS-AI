@@ -55,6 +55,12 @@ document.addEventListener('DOMContentLoaded', function () {
       .then(function (r) { return r.json().then(function (d) { return {ok: r.ok, d: d}; }); })
       .then(function (res) { if (!res.ok && res.d.error) window.showToast(res.d.error); });
   }
+  function duplicateMovement(id) {
+    var entry = pool[id]; var newId = id + '_copy'; var n = 2;
+    while (pool[newId]) newId = id + '_copy' + n++;
+    fetch('/movements', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: newId, name: entry.name + ' (copy)', type: entry.type, description: entry.description, steps: JSON.parse(JSON.stringify(entry.steps)), steps_arms: JSON.parse(JSON.stringify(entry.steps_arms))})}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
+  }
   fetchPool(); fetchDefaults();
+
 
 });
