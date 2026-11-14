@@ -2375,6 +2375,29 @@ document.addEventListener('DOMContentLoaded', function () {
       applyBranchImport(importAction);
       return;
     }
+    if (action === 'confirm-import-replace' && pendingAction && pendingAction.type === 'import-set') {
+      var replaceSetAction = pendingAction;
+      pendingAction = null;
+      clearConfirmStrip();
+      if (draft && (isDirty() || rawDirty())) {
+        return meConfirmDiscard(function () {
+          performImport(replaceSetAction.entries, 'replace', 'overwrite', replaceSetAction.fileName);
+        });
+      }
+      return performImport(replaceSetAction.entries, 'replace', 'overwrite', replaceSetAction.fileName);
+    }
+    if (action === 'confirm-import-merge-overwrite' && pendingAction && pendingAction.type === 'import-set') {
+      var overwriteSetAction = pendingAction;
+      pendingAction = null;
+      clearConfirmStrip();
+      return performImport(overwriteSetAction.entries, 'merge', 'overwrite', overwriteSetAction.fileName);
+    }
+    if (action === 'confirm-import-merge-skip' && pendingAction && pendingAction.type === 'import-set') {
+      var skipSetAction = pendingAction;
+      pendingAction = null;
+      clearConfirmStrip();
+      return performImport(skipSetAction.entries, 'merge', 'skip', skipSetAction.fileName);
+    }
     if (action === 'confirm-remove-arms-variant' && pendingAction && pendingAction.type === 'remove-arms-variant') {
       pendingAction = null; removeArmsVariant(); return;
     }
@@ -2555,6 +2578,243 @@ document.addEventListener('DOMContentLoaded', function () {
       if (importBtn) importBtn.disabled = false;
     });
   }
+  function handleImportText(text, fileName) {
+    var parsed = null;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseError) {
+      showConfirmStrip('Could not parse ' + fileName + ': ' +
+        (parseError && parseError.message ? parseError.message : String(parseError)) +
+        '\nNothing has been changed.', [{label: 'Close', action: 'cancel'}], true);
+      return;
+    }
+    var entries = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed.movements : null;
+    if (!entries || typeof entries !== 'object' || Array.isArray(entries) ||
+        !Object.keys(entries).length) {
+      showConfirmStrip("No 'movements' object in " + fileName +
+        ' — nothing is imported.', [{label: 'Close', action: 'cancel'}], true);
+      return;
+    }
+    var fileIds = Object.keys(entries);
+    var colliding = [];
+    var newIds = [];
+    fileIds.forEach(function (id) {
+      if (Object.prototype.hasOwnProperty.call(pool, id)) colliding.push(id);
+      else newIds.push(id);
+    });
+    // per-mode candidate maps (audit R1-F2): each policy lands a different
+    // candidate set, so each gets its own ref+cycle verdict.
+    // replaceMap: file entries only (server replace semantics).
+    // overwriteMap: pool overlaid with ALL file entries (file wins collisions).
+    // skipMap: pool overlaid with only the NON-colliding entries (local wins).
+    var replaceMap = {};
+    var overwriteMap = {};
+    var skipMap = {};
+    fileIds.forEach(function (id) { replaceMap[id] = entries[id]; });
+    Object.keys(pool).forEach(function (id) {
+      overwriteMap[id] = pool[id];
+      skipMap[id] = pool[id];
+    });
+    fileIds.forEach(function (id) {
+      overwriteMap[id] = entries[id];
+      if (newIds.indexOf(id) !== -1) skipMap[id] = entries[id];
+    });
+
+    var MOVEMENT_PATH = '.movement';
+    function classify(mid, entry, error) {
+      // HARD lets every mode 400 (schema, refs resolving NEITHER in the pool
+      // NOR the file, non-string movement values).  CYCLE errors are
+      // mode-specific (E23/E26): a landed ref graph cycle only blocks the
+      // modes whose candidate map carries it.  UNKNOWN top-level entry keys
+      // are client-only — the server's validate_entry ignores them (E24).
+      if (error.path.indexOf('entry.') === 0) return 'client-only';
+      var match = /^(steps|steps_arms)\[(\d+)\]\.movement$/.exec(error.path);
+      if (match) {
+        var branch = entry[match[1]] || [];
+        var step = branch[Number(match[2])];
+        if (!step || typeof step.movement !== 'string') return 'hard';
+        if (step.movement === mid) return 'cycle';  // self-ref by VALUE (E26)
+      }
+      if (error.msg.indexOf('reference cycle') === 0) return 'cycle';
+      if (error.msg === 'movement does not exist') return 'missing-ref';
+      return 'hard';
+    }
+
+    var clientOnlyMids = {};
+    var hardErrors = [];
+    var overwriteCycle = null;
+    var replaceBlocked = [];
+    var skipBlocked = [];
+    var overwriteBad = [];
+    fileIds.forEach(function (mid) {
+      // union pass against the file-wins map: schema and nowhere-resolving
+      // refs are HARD; union cycles block overwrite only
+      var outcome = validateEntry(entries[mid], {id: mid, existingIds: overwriteMap});
+      (outcome.errors || []).forEach(function (error) {
+        var kind = classify(mid, entries[mid], error);
+        if (kind === 'client-only') { clientOnlyMids[mid] = true; return; }
+        if (kind === 'cycle') {
+          if (overwriteBad.indexOf(mid) === -1) overwriteBad.push(mid);
+          if (!overwriteCycle) overwriteCycle =
+            error.msg.indexOf('reference cycle: ') === 0
+              ? error.msg.slice('reference cycle: '.length)
+              : error.msg;
+          return;
+        }
+        hardErrors.push(mid + ': ' + error.path + ' ' + error.msg);
+      });
+    });
+    newIds.forEach(function (mid) {
+      // replace pass: refs must resolve WITHIN the file (server 400s wholesale)
+      var outcome = validateEntry(entries[mid], {id: mid, existingIds: replaceMap});
+      (outcome.errors || []).forEach(function (error) {
+        if (classify(mid, entries[mid], error) === 'client-only') return;
+        if (replaceBlocked.indexOf(mid) === -1) replaceBlocked.push(mid);
+      });
+    });
+    newIds.forEach(function (mid) {
+      // skip pass: only NON-colliding entries land — a cycle there blocks keep-mine
+      var outcome = validateEntry(entries[mid], {id: mid, existingIds: skipMap});
+      (outcome.errors || []).forEach(function (error) {
+        if (classify(mid, entries[mid], error) === 'client-only') return;
+        if (skipBlocked.indexOf(mid) === -1) skipBlocked.push(mid);
+      });
+    });
+
+    if (hardErrors.length) {
+      var shown = hardErrors.slice(0, 5);
+      var moreCount = hardErrors.length - shown.length;
+      var refusal = 'Import ' + fileIds.length + ' movements from ' + fileName +
+        '? ' + hardErrors.length + ' invalid — nothing is imported:\n' +
+        shown.join('\n');
+      if (moreCount) refusal += '\n(+' + moreCount + ' more)';
+      showConfirmStrip(refusal, [{label: 'Close', action: 'cancel'}], true);
+      return;
+    }
+
+    var noticeCount = Object.keys(clientOnlyMids).length;
+    var replaceAvailable = replaceBlocked.length === 0;
+    var overwriteAvailable = overwriteBad.length === 0;
+    var skipAvailable = skipBlocked.length === 0;
+    var refTargetsKept = false;
+    fileIds.forEach(function (mid) {
+      ['steps', 'steps_arms'].forEach(function (branchName) {
+        var branch = entries[mid][branchName];
+        if (!Array.isArray(branch)) return;
+        branch.forEach(function (step) {
+          if (step && typeof step.movement === 'string' &&
+              colliding.indexOf(step.movement) !== -1) refTargetsKept = true;
+        });
+      });
+    });
+    var collidingText = colliding.slice(0, 5).join(', ') +
+      (colliding.length > 5 ? ' +' + (colliding.length - 5) + ' more' : '');
+    if (!replaceAvailable && !overwriteAvailable && !skipAvailable) {
+      var reasons = ['Import ' + fileIds.length + ' movements from ' + fileName +
+        '? No import mode is available for this file.'];
+      if (replaceBlocked.length) reasons.push(replaceLine());
+      if (overwriteBad.length) reasons.push(overwriteLine());
+      if (skipBlocked.length) reasons.push(skipLine());
+      showConfirmStrip(reasons.join('\n'), [{label: 'Close', action: 'cancel'}], true);
+      return;
+    }
+    var message = 'Import ' + fileIds.length + ' movements from ' + fileName +
+      '? ' + newIds.length + ' new · ' + colliding.length +
+      (colliding.length ? ' collide with current movements (' + collidingText + ').'
+                        : ' collide.');
+    if (replaceAvailable) {
+      message += '\nReplace deletes all ' + Object.keys(pool).length +
+        ' current movements (edits and custom movements on this robot are lost).';
+    }
+    if (colliding.length && skipAvailable && refTargetsKept) {
+      message += '\nWith keep-mine, imported steps referencing a kept movement play your version.';
+    }
+    if (noticeCount) {
+      message += '\n' + noticeCount + ' entries carry extra fields the robot ignores.';
+    }
+    if (replaceBlocked.length) message += '\n' + replaceLine();
+    if (overwriteBad.length) message += '\n' + overwriteLine();
+    if (skipBlocked.length) message += '\n' + skipLine();
+    var buttons = [];
+    if (colliding.length && overwriteAvailable) {
+      buttons.push({label: 'Merge — file wins', action: 'confirm-import-merge-overwrite'});
+    }
+    if (colliding.length && skipAvailable) {
+      buttons.push({label: 'Merge — keep mine', action: 'confirm-import-merge-skip'});
+    }
+    if (replaceAvailable) {
+      buttons.push({label: 'Replace everything', action: 'confirm-import-replace', danger: true});
+    }
+    if (!colliding.length) {
+      // zero collisions: the policies are behaviorally identical (audit R2 note 1)
+      buttons.push({label: 'Merge', action: 'confirm-import-merge-overwrite'});
+    }
+    buttons.push({label: 'Cancel', action: 'cancel'});
+    pendingAction = {type: 'import-set', entries: entries, fileName: fileName};
+    showConfirmStrip(message, buttons, replaceAvailable);
+
+    function replaceLine() {
+      var list = replaceBlocked.slice(0, 5).join(', ') +
+        (replaceBlocked.length > 5 ? ' +' + (replaceBlocked.length - 5) + ' more' : '');
+      return 'Replace is unavailable: ' + replaceBlocked.length +
+        ' imported movements reference current movements not in the file (' +
+        list + ') — Merge keeps them.';
+    }
+    function overwriteLine() {
+      return 'Merge — file wins is unavailable: imported entries would create ' +
+        'a reference cycle (' + overwriteCycle + ') — keep-mine avoids it.';
+    }
+    function skipLine() {
+      return 'Merge — keep mine is unavailable: the landed entries would create ' +
+        'a reference cycle — file-wins or Replace avoids it.';
+    }
+  }
+  function performImport(entries, mode, onConflict, fileName) {
+    var exportBtn = el('meExportBtn');
+    var importBtn = el('meImportFileBtn');
+    if (importBtn) { importBtn.disabled = true; importBtn.setAttribute('aria-busy', 'true'); }
+    if (exportBtn) exportBtn.disabled = true;
+    return fetch('/movements/import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, on_conflict: onConflict, movements: entries })
+    }).then(function (r) {
+      return r.json().then(function (d) { return { ok: r.ok, d: d }; });
+    }).then(function (res) {
+      if (!res.ok) {
+        var errors = (res.d && res.d.errors && res.d.errors.length)
+          ? res.d.errors : [res.d && res.d.error || 'Import failed.'];
+        var shown = errors.slice(0, 8).join('\n');
+        if (errors.length > 8) shown += '\n(+' + (errors.length - 8) + ' more)';
+        showConfirmStrip('Import failed — ' + errors.length +
+          ' problem(s). Nothing changed.\n' + shown,
+          [{ label: 'Close', action: 'cancel' }], true);
+        notify('Import failed: ' + errors.length + ' error(s)', 'error');
+        return false;
+      }
+      clearConfirmStrip();
+      var d = res.d;
+      notify(mode === 'replace'
+        ? 'Imported ' + d.count + ' movements from ' + fileName
+        : 'Merged ' + (d.added.length + d.overwritten.length) + ' movements from ' +
+          fileName + ' (added ' + d.added.length + ', overwritten ' +
+          d.overwritten.length + ', skipped ' + d.skipped.length + ')', 'success');
+      return fetchPool().then(function (refreshed) {
+        window.dispatchEvent(new CustomEvent('movements-pool-changed'));
+        // audit R1-F15: fetchPool catches its own errors and resolves false —
+        // only trust the draft guard when the pool actually refreshed.
+        if (refreshed && mode === 'replace' && draft && !Object.prototype.hasOwnProperty.call(pool, draft.id)) closeEditor(true);
+        return true;
+      });
+    }).catch(function (error) {
+      showConfirmStrip(error && error.message ? error.message : 'Import failed.',
+        [{ label: 'Close', action: 'cancel' }], true);
+      return false;
+    }).finally(function () {
+      if (importBtn) { importBtn.disabled = false; importBtn.removeAttribute('aria-busy'); }
+      if (exportBtn) exportBtn.disabled = false;
+    });
+  }
   if (el('movements')) el('movements').addEventListener('click', handleLibraryClick);
   if (el('meConfirmStrip')) el('meConfirmStrip').addEventListener('click', handleConfirmClick);
   document.addEventListener('click', handleOverflowOutsideClick);
@@ -2567,6 +2827,16 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meExportBtn')) el('meExportBtn').addEventListener('click', exportMovements);
+  if (el('meImportFileBtn')) el('meImportFileBtn').addEventListener('click', function () { el('meImportFile').click(); });
+  if (el('meImportFile')) el('meImportFile').addEventListener('change', function () {
+    var file = el('meImportFile').files && el('meImportFile').files[0];
+    el('meImportFile').value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () { handleImportText(String(reader.result), file.name); };
+    reader.onerror = function () { notify('Could not read the file.', 'error'); };
+    reader.readAsText(file);
+  });
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   if (el('mePlayBtn')) el('mePlayBtn').addEventListener('click', playActiveBranch);
   if (el('meNeutralBtn')) el('meNeutralBtn').addEventListener('click', sendNeutral);

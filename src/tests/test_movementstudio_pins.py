@@ -131,6 +131,84 @@ def test_export_click_wiring():
     assert "if (el('meExportBtn')) el('meExportBtn').addEventListener('click', exportMovements);" in JS
 
 
+def test_handle_import_text_pure_preview_and_candidate_maps():
+    preview = function_source("handleImportText")
+    for needle in (
+        "JSON.parse", "catch",
+        "existingIds:", "validateEntry(",
+        "replaceMap", "overwriteMap", "skipMap",
+        "Object.prototype.hasOwnProperty.call(pool, id)",
+        "Object.keys(pool).length",
+        "slice(0, 5)",
+        "typeof step.movement !== 'string'",
+    ):
+        assert needle in preview, needle
+    assert '"fetch(" not in preview'  # self-referential guard for the guard below
+    assert "fetch(" not in preview, "handleImportText is a pure preview — no network"
+    assert "must reference another existing movement" not in preview, \
+        "self-ref classification is by step VALUE, never by validateEntry message"
+
+
+def test_handle_import_text_hard_refusal_and_strip_contract():
+    preview = function_source("handleImportText")
+    for needle in (
+        "nothing is imported:",
+        "action: 'confirm-import-merge-overwrite'",
+        "action: 'confirm-import-merge-skip'",
+        "action: 'confirm-import-replace', danger: true",
+        "Replace deletes all ",
+        " collide with current movements",
+        "With keep-mine, imported steps referencing a kept movement play your version.",
+        "Replace is unavailable:",
+        "Merge — file wins is unavailable:",
+        "extra fields the robot ignores",
+    ):
+        assert needle in preview, needle
+    assert preview.index("confirm-import-merge-overwrite") < \
+        preview.index("confirm-import-merge-skip") < \
+        preview.index("confirm-import-replace")
+
+
+def test_import_confirm_actions_carry_policy_literals():
+    confirm = function_source("handleConfirmClick")
+    for action in ("confirm-import-replace", "confirm-import-merge-overwrite",
+                   "confirm-import-merge-skip"):
+        branch = f"action === '{action}' && pendingAction && pendingAction.type === 'import-set'"
+        assert branch in confirm, action
+    merge_overwrite = confirm.split("'confirm-import-merge-overwrite'", 1)[1].split("'confirm-import-merge-skip'", 1)[0]
+    assert "'merge', 'overwrite'" in merge_overwrite
+    merge_skip = confirm.split("'confirm-import-merge-skip'", 1)[1]
+    assert "'merge', 'skip'" in merge_skip
+    replace_branch = confirm.split("'confirm-import-replace'", 1)[1].split("'confirm-import-merge-overwrite'", 1)[0]
+    assert "'replace', 'overwrite'" in replace_branch
+    assert "meConfirmDiscard(" in replace_branch
+
+
+def test_perform_import_contract():
+    perform = function_source("performImport")
+    for needle in (
+        "fetch('/movements/import'", "r.ok",
+        "errors.slice(0, 8).join('\\n')", "(errors.length - 8)", "' more)'",
+        "clearConfirmStrip()", "notify(", "fetchPool()",
+        "window.dispatchEvent(new CustomEvent('movements-pool-changed'))",
+        "if (refreshed && mode === 'replace' && draft && !Object.prototype.hasOwnProperty.call(pool, draft.id)) closeEditor(true);",
+        "importBtn.disabled = false;",
+        "importBtn.removeAttribute('aria-busy');",
+    ):
+        assert needle in perform, needle
+
+
+def test_import_file_input_wiring():
+    for needle in (
+        "if (el('meImportFileBtn')) el('meImportFileBtn').addEventListener('click'",
+        "el('meImportFile').click()",
+        "if (el('meImportFile')) el('meImportFile').addEventListener('change'",
+        "reader.readAsText(file)",
+        "el('meImportFile').value = ''",
+    ):
+        assert needle in JS, needle
+
+
 def test_movements_html_is_studio_shell_with_library_contract():
     for needle in (
         'id="meLibSearch"', 'id="meLibTypeFilter"', 'id="meLibSort"',
