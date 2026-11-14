@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var id = row.getAttribute('data-mid');
     if (action === 'play') playMovement(id, actionButton);
     else if (action === 'edit') openLegacyEditor(id);
-    else if (action === 'dup') duplicateMovement(id);
+    else if (action === 'dup') duplicateMovement(id, actionButton);
     else if (action === 'del') deleteMovement(id);
   }
   function matchesFilters(id, entry) {
@@ -274,10 +274,41 @@ document.addEventListener('DOMContentLoaded', function () {
       if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
     });
   }
-  function duplicateMovement(id) {
-    var entry = pool[id]; var newId = id + '_copy'; var n = 2;
-    while (pool[newId]) newId = id + '_copy' + n++;
-    fetch('/movements', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({id: newId, name: entry.name + ' (copy)', type: entry.type, description: entry.description, steps: JSON.parse(JSON.stringify(entry.steps)), steps_arms: JSON.parse(JSON.stringify(entry.steps_arms))})}).then(function (r) { if (!r.ok) return r.json().then(function (d) { window.showToast(d.error); }); fetchPool(); });
+  function deepCopy(value) {
+    return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
+  }
+  function duplicateMovement(id, button) {
+    var entry = pool[id];
+    if (!entry) { notify('Movement is no longer in the library.', 'error'); return; }
+    var newId = id + '_copy';
+    var suffix = 2;
+    while (Object.prototype.hasOwnProperty.call(pool, newId)) newId = id + '_copy' + suffix++;
+    if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+    var payload = {
+      id: newId,
+      name: (entry.name || id) + ' (copy)',
+      type: entry.type,
+      description: entry.description,
+      steps: deepCopy(entry.steps),
+      steps_arms: deepCopy(entry.steps_arms)
+    };
+    return fetch('/movements', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (!r.ok) return r.json().then(function (d) { return {ok: false, d: d}; });
+      return r.json().then(function (d) { return {ok: true, d: d}; });
+    }).then(function (res) {
+      if (!res.ok) { notify(res.d.error || 'Duplicate failed.', 'error'); return false; }
+      notify('Duplicated as ' + newId, 'success');
+      return fetchPool();
+    }).catch(function (error) {
+      notify(error && error.message ? error.message : 'Duplicate failed.', 'error');
+      return false;
+    }).finally(function () {
+      if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+    });
   }
   function findReferrers(targetId) {
     var refs = [];
