@@ -507,3 +507,35 @@ def test_prune_preview_lists_custom_ids_and_defensive_ref_check():
     assert "fetch(" not in preview
 
 
+def test_branch_bar_and_per_branch_state():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    for branch_id, branch_value, subtitle in (
+        ("meBranchBase", "steps", "plays when arms are absent"),
+        ("meBranchArms", "steps_arms", "plays when arms are installed"),
+    ):
+        assert f'id="{branch_id}"' in html
+        assert f'data-branch="{branch_value}"' in html
+        assert subtitle in html
+    assert re.search(
+        r"var branchState = \{\s*steps: \{index: 0, scrollTop: 0, undoStack: \[\]\},\s*"
+        r"steps_arms: \{index: 0, scrollTop: 0, undoStack: \[\]\}\s*\};", JS
+    )
+    branch_steps = function_source("branchSteps")
+    assert "draft.entry[name] || []" in branch_steps
+    switch = function_source("setBranch")
+    assert "branchState[branch].scrollTop = timeline.scrollTop" in switch
+    assert "selected = branchState[name]" in switch
+    assert "timeline.scrollTop = branchState[name].scrollTop" in switch
+    assert "renderTimeline()" in switch
+    timeline = function_source("renderTimeline")
+    pose = function_source("renderSelectedStep")
+    selected_step = function_source("selectedStep")
+    assert "var steps = branchSteps(branch)" in timeline
+    assert "var steps = branchSteps(branch)" in selected_step
+    assert "var step = selectedStep()" in pose
+    clear = function_source("clearBranch")
+    confirm_clear = function_source("confirmClearBranch")
+    assert "var branch = branchName || activeBranch()" in clear
+    assert "branchState[branchName].undoStack.push(undoRecord)" in confirm_clear
+
+

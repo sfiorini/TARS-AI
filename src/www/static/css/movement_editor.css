@@ -150,6 +150,11 @@
 .me-raw-notice { min-height: 1.2em; margin-top: 0.35rem; color: var(--text-dim); font-size: 0.78rem; }
 .me-editor.me-raw-mode .me-metadata-grid > label:not(.me-id-field) { display: none; }
 .me-field-error { color: var(--red); font-size: 0.72rem; }
+.me-branch-bar { display: flex; gap: 0.35rem; margin-bottom: 0.6rem; }
+.me-branch-bar button { display: grid; gap: 0.12rem; min-width: 7rem; text-align: left; }
+.me-branch-bar button[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.65); color: rgb(var(--accent-rgb)); }
+.me-branch-bar small { color: var(--text-dim); font: 0.65rem var(--font-sans); }
+.me-timeline { max-height: 55vh; overflow: auto; }
 .me-timeline-actions { margin-top: 0.65rem; }
 .meStepCard {
   margin: 0.25rem 0;

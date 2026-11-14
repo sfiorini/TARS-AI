@@ -16,7 +16,12 @@ document.addEventListener('DOMContentLoaded', function () {
   var draftTimer = null;
   var draftAutosaveDisabled = false;
   var quotaNoticeShown = false;
-  var selected = {branch: 'steps', index: 0};
+  var branch = 'steps';
+  var branchState = {
+    steps: {index: 0, scrollTop: 0, undoStack: []},
+    steps_arms: {index: 0, scrollTop: 0, undoStack: []}
+  };
+  var selected = branchState[branch];
   var editorMode = 'visual';
   var dragFrom = null;
   var pointerDragFrom = null;
@@ -53,6 +58,40 @@ document.addEventListener('DOMContentLoaded', function () {
     {field: 'hold_time', sliderId: 'meHoldSlider', numberId: 'meHoldNumber', label: 'Hold', min: 0, max: 10, step: 0.1, defaultValue: 0, caption: 'hold time · seconds'}
   ];
   function el(id) { return document.getElementById(id); }
+  function activeBranch() { return branch; }
+  function branchSteps(name) {
+    if (!draft) return [];
+    return draft.entry[name] || [];
+  }
+  function resetBranchState() {
+    branch = 'steps';
+    branchState = {
+      steps: {index: 0, scrollTop: 0, undoStack: []},
+      steps_arms: {index: 0, scrollTop: 0, undoStack: []}
+    };
+    selected = branchState[branch];
+  }
+  function renderBranchBar() {
+    ['steps', 'steps_arms'].forEach(function (name) {
+      var button = el(name === 'steps' ? 'meBranchBase' : 'meBranchArms');
+      if (button) button.setAttribute('aria-pressed', branch === name ? 'true' : 'false');
+    });
+    var clear = el('meClearBranch');
+    if (clear) clear.textContent = 'Clear ' + (branch === 'steps' ? 'BASE' : 'ARMS');
+  }
+  function setBranch(name) {
+    if (!draft || (name !== 'steps' && name !== 'steps_arms') || name === branch) return false;
+    var timeline = el('meTimeline');
+    if (timeline) branchState[branch].scrollTop = timeline.scrollTop;
+    branch = name;
+    selected = branchState[name];
+    var steps = branchSteps(name);
+    selected.index = steps.length ? Math.max(0, Math.min(selected.index, steps.length - 1)) : 0;
+    renderBranchBar();
+    renderTimeline();
+    if (timeline) timeline.scrollTop = branchState[name].scrollTop;
+    return true;
+  }
   var selectedType = 'all';
   var selectedSort = 'id';
   function renderError() {
@@ -313,7 +352,7 @@ document.addEventListener('DOMContentLoaded', function () {
     idManuallyEdited = isCreating && !!stored.id;
     draft = {id: stored.id || '', entry: deepCopy(stored.entry), baseSnapshot: deepCopy(stored.baseSnapshot)};
     savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
-    selected = {branch: 'steps', index: 0};
+    resetBranchState();
     renderEditor();
     savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
     el('meDraftBanner').hidden = true;
@@ -482,6 +521,7 @@ document.addEventListener('DOMContentLoaded', function () {
       setSaveState('CLEAN');
     }
     updateIdStatus();
+    renderBranchBar();
     renderTimeline();
     renderOverflowMenu();
   }
@@ -509,8 +549,8 @@ document.addEventListener('DOMContentLoaded', function () {
     markDirty();
   }
   function selectedStep() {
-    if (!draft || !Array.isArray(draft.entry.steps)) return null;
-    return draft.entry.steps[selected.index] || null;
+    var steps = branchSteps(branch);
+    return Array.isArray(steps) ? (steps[selected.index] || null) : null;
   }
   function stepSummary(step) {
     if (step && step.movement) return '⚡ ' + step.movement;
@@ -737,7 +777,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function addStep(step) {
     if (!draft) return false;
-    var steps = draft.entry.steps;
+    if (!Array.isArray(draft.entry[branch])) draft.entry[branch] = [];
+    var steps = branchSteps(branch);
     var nextStep = deepCopy(step === undefined ? DEFAULT_STEP() : step);
     steps.push(nextStep);
     selected.index = steps.length - 1;
@@ -748,10 +789,11 @@ document.addEventListener('DOMContentLoaded', function () {
     return true;
   }
   function dupStep(index) {
-    if (!draft || !draft.entry.steps.length) return false;
+    var steps = branchSteps(branch);
+    if (!draft || !steps.length) return false;
     var currentIndex = index === undefined ? selected.index : index;
-    var copiedStep = deepCopy(draft.entry.steps[currentIndex]);
-    draft.entry.steps.splice(currentIndex + 1, 0, copiedStep);
+    var copiedStep = deepCopy(steps[currentIndex]);
+    steps.splice(currentIndex + 1, 0, copiedStep);
     selected.index = currentIndex + 1;
     markDirty();
     renderTimeline();
@@ -794,8 +836,9 @@ document.addEventListener('DOMContentLoaded', function () {
     toast.appendChild(undoButton);
   }
   function delStep(index) {
-    if (!draft || !draft.entry.steps.length) return false;
-    var steps = draft.entry.steps;
+    var branchName = branch;
+    var steps = branchSteps(branchName);
+    if (!draft || !steps.length) return false;
     var removed = steps.splice(index, 1)[0];
     var replacement = null;
     if (!steps.length) {
@@ -803,22 +846,31 @@ document.addEventListener('DOMContentLoaded', function () {
       steps.push(replacement);
     }
     selected.index = Math.min(index, steps.length - 1);
+    var undoRecord = {removed: removed};
+    branchState[branchName].undoStack.push(undoRecord);
     markDirty();
     renderTimeline();
     showUndoToast(function () {
+      var stack = branchState[branchName].undoStack;
+      var recordIndex = stack.indexOf(undoRecord);
+      if (recordIndex !== -1) stack.splice(recordIndex, 1);
       if (replacement && steps.length === 1 && steps[0] === replacement) steps.splice(0, 1);
       steps.splice(index, 0, removed);
-      selected.index = index;
+      branchState[branchName].index = index;
+      if (branchName === branch) selected = branchState[branch];
       markDirty();
       renderTimeline();
     });
     return true;
   }
-  function clearBranch(branch) {
-    if (!draft || (branch || 'steps') !== 'steps') return false;
-    pendingClearSnapshot = deepCopy(draft.entry.steps);
+  function clearBranch(branchName) {
+    var branch = branchName || activeBranch();
+    var steps = branchSteps(branch);
+    if (!draft || (branch !== 'steps' && branch !== 'steps_arms') || !steps.length) return false;
+    pendingClearSnapshot = {branch: branch, steps: deepCopy(steps)};
     pendingAction = {type: 'clear-branch'};
-    showConfirmStrip('Replace the ' + pendingClearSnapshot.length + ' steps of BASE with one neutral step?', [
+    var label = branch === 'steps' ? 'BASE' : 'ARMS';
+    showConfirmStrip('Replace the ' + pendingClearSnapshot.steps.length + ' steps of ' + label + ' with one neutral step?', [
       {label: 'Clear', action: 'confirm-clear-branch', danger: true},
       {label: 'Cancel', action: 'cancel'}
     ], true);
@@ -826,27 +878,38 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function confirmClearBranch() {
     if (!draft || !pendingClearSnapshot) return false;
-    var before = pendingClearSnapshot;
+    var branchName = pendingClearSnapshot.branch;
+    var before = pendingClearSnapshot.steps;
+    var undoRecord = {steps: before};
     pendingClearSnapshot = null;
     pendingAction = null;
     clearConfirmStrip();
-    draft.entry.steps = [DEFAULT_STEP()];
-    selected.index = 0;
+    branchState[branchName].undoStack.push(undoRecord);
+    if (branchName === 'steps') draft.entry.steps = [DEFAULT_STEP()];
+    else draft.entry[branchName] = [DEFAULT_STEP()];
+    branchState[branchName].index = 0;
+    if (branchName === branch) selected = branchState[branch];
     markDirty();
     renderTimeline();
+    var label = branchName === 'steps' ? 'BASE' : 'ARMS';
     showUndoToast(function () {
-      draft.entry.steps = before;
-      selected.index = 0;
+      var stack = branchState[branchName].undoStack;
+      var recordIndex = stack.indexOf(undoRecord);
+      if (recordIndex !== -1) stack.splice(recordIndex, 1);
+      if (branchName === 'steps') draft.entry.steps = before;
+      else draft.entry[branchName] = before;
+      branchState[branchName].index = 0;
+      if (branchName === branch) selected = branchState[branch];
       markDirty();
       renderTimeline();
-    }, 'BASE branch cleared');
+    }, label + ' branch cleared');
     return true;
   }
   function renderTimeline() {
     var timeline = el('meTimeline');
     if (!timeline) return;
     timeline.innerHTML = '';
-    var steps = draft && Array.isArray(draft.entry.steps) ? draft.entry.steps : [];
+    var steps = branchSteps(branch);
     steps.forEach(function (step, index) {
       var kind = step && step.movement ? 'ref' : 'pose';
       var card = document.createElement('div');
@@ -882,8 +945,8 @@ document.addEventListener('DOMContentLoaded', function () {
     renderSelectedStep();
   }
   function selectStep(index) {
-    var steps = draft && Array.isArray(draft.entry.steps) ? draft.entry.steps : [];
-    selected.index = Math.max(0, Math.min(index, steps.length - 1));
+    var steps = branchSteps(branch);
+    selected.index = steps.length ? Math.max(0, Math.min(index, steps.length - 1)) : 0;
     renderTimeline();
   }
   function handleTimelineClick(event) {
@@ -900,8 +963,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if (card) selectStep(Number(card.getAttribute('data-step-index')));
   }
   function moveStep(from, to) {
-    if (!draft || from < 0 || to < 0 || from >= draft.entry.steps.length || to >= draft.entry.steps.length || from === to) return false;
-    var steps = draft.entry.steps;
+    var steps = branchSteps(branch);
+    if (!draft || from < 0 || to < 0 || from >= steps.length || to >= steps.length || from === to) return false;
     var moved = steps.splice(from, 1)[0];
     steps.splice(to, 0, moved);
     selected.index = to;
@@ -1009,6 +1072,10 @@ document.addEventListener('DOMContentLoaded', function () {
       {label: 'Apply', action: 'raw-apply-pending'},
       {label: 'Discard edits', action: 'raw-discard-pending'}
     ], false);
+  }
+  function handleBranchClick(event) {
+    var button = event.target.closest('#meBranchBase, #meBranchArms');
+    if (button) setBranch(button.getAttribute('data-branch'));
   }
   function handleModeClick(event) {
     if (event.target.closest('#meRawApply')) {
@@ -1180,7 +1247,7 @@ document.addEventListener('DOMContentLoaded', function () {
     idManuallyEdited = false;
     draft = {id: id, entry: deepCopy(pool[id]), baseSnapshot: deepCopy(pool[id])};
     savedSnapshot = stableStringify(draft.entry);
-    selected = {branch: 'steps', index: 0};
+    resetBranchState();
     renderEditor();
     return true;
   }
@@ -1194,7 +1261,7 @@ document.addEventListener('DOMContentLoaded', function () {
       name: '', type: 'legs_only', description: '', steps: [DEFAULT_STEP()], steps_arms: null
     }, baseSnapshot: null};
     savedSnapshot = stableStringify(draft.entry);
-    selected = {branch: 'steps', index: 0};
+    resetBranchState();
     renderEditor();
     return true;
   }
@@ -1651,6 +1718,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   window.addEventListener('beforeunload', handleBeforeUnload);
   if (el('meEditor')) {
+    el('meEditor').addEventListener('click', handleBranchClick);
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
     el('meEditor').addEventListener('click', handleModeClick);
@@ -1668,7 +1736,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meTimeline').addEventListener('pointercancel', handleTimelinePointerCancel);
   }
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
-  if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch('steps'); });
+  if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch(branch); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults();
 

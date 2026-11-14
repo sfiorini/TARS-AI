@@ -52,6 +52,14 @@
       </div>
       <div class="me-editor-workspace">
         <section class="me-timeline-panel" aria-label="Movement timeline">
+          <div class="me-branch-bar" role="group" aria-label="Movement branch">
+            <button id="meBranchBase" type="button" class="hud-btn hud-btn-secondary" data-branch="steps" aria-pressed="true">
+              <span>BASE</span><small>plays when arms are absent</small>
+            </button>
+            <button id="meBranchArms" type="button" class="hud-btn hud-btn-secondary" data-branch="steps_arms" aria-pressed="false">
+              <span>ARMS</span><small>plays when arms are installed</small>
+            </button>
+          </div>
           <div id="meTimeline" class="me-timeline"></div>
           <div class="me-timeline-actions"><button id="meAddStep" type="button" class="hud-btn hud-btn-secondary">+ Position</button><button id="meClearBranch" type="button" class="hud-btn hud-btn-danger">Clear BASE</button></div>
         </section>
