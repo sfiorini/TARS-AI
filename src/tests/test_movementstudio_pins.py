@@ -76,7 +76,7 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     assert "filename='js/main.js') }}?v=8.0" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
-    assert '?v=8.1' in css_tag.group(0)
+    assert '?v=8.2' in css_tag.group(0)
     assert INDEX_HTML.index("css/main.css") < css_tag.start()
     assert (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").stat().st_size > 100
 
@@ -750,6 +750,20 @@ def test_timeline_actions_grouped_by_function_with_tooltips():
     actions_rule = css.split(".me-timeline-actions {", 1)[1].split("}", 1)[0]
     assert "flex-direction: column" in actions_rule
     assert ".me-action-group-label" in css
+
+
+def test_branch_buttons_do_not_clip_their_labels():
+    # User nuance 2026-11-14: BASE/ARMS buttons inherit .hud-btn's
+    # overflow:hidden + white-space:nowrap, clipping the long subtitle.
+    # The branch buttons must wrap their text and share the row width.
+    css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
+    btn_rule = css.split(".me-branch-bar button {", 1)[1].split("}", 1)[0]
+    assert "white-space: normal" in btn_rule
+    assert "overflow: visible" in btn_rule
+    assert "min-width: 0" in btn_rule
+    small_rule = css.split(".me-branch-bar small {", 1)[1].split("}", 1)[0]
+    assert "overflow-wrap: anywhere" in small_rule
+    assert "text-transform: none" in small_rule
 
 
 def test_ref_validation_client_dfs():
