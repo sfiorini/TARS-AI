@@ -20,7 +20,8 @@ def test_movements_doc_documents_the_store():
     doc = _read("movements.md")
     for needle in ("movements.json", "movements_defaults.json",
                    "app-movements.py", "reset", "prune", "export",
-                   "import", "validate", "/movements/", "left_height",
+                   "import", "merge", "app-movements.py merge", "validate",
+                   "/movements/", "left_height",
                    "hold_time", "movement"):
         assert needle in doc, f"movements.md lost '{needle}'"
 

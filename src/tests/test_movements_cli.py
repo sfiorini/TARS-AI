@@ -178,5 +178,126 @@ class TestMovementsCli(_CliTestCase):
                               if ln.strip()]), 33)
 
 
+def _entry(name="New Move"):
+    return {"name": name, "type": "legs_only",
+            "description": "a movement used by the CLI merge tests",
+            "steps": [{"left_height": 50, "right_height": 50,
+                       "left_leg": 50, "right_leg": 50,
+                       "left_main": None, "left_forearm": None,
+                       "left_hand": None, "right_main": None,
+                       "right_forearm": None, "right_hand": None,
+                       "speed": 0.9, "hold_time": 0.0, "movement": None}],
+            "steps_arms": None}
+
+
+def _pack(movements):
+    import tempfile as _tempfile
+    fd, path = _tempfile.mkstemp(suffix=".json")
+    os.close(fd)
+    with open(path, "w") as fh:
+        json.dump({"version": 1, "movements": movements}, fh)
+    return path
+
+
+class TestMovementsMergeCli(_CliTestCase):
+    """`merge <path> [skip]` — union import with a collision policy."""
+
+    def _mixed_pack(self):
+        self.seed()
+        bow = self._read_store()["movements"]["bow"]
+        colliding = dict(bow)
+        colliding["name"] = "CLI Bow"
+        return _pack({"cli_new_one": _entry("New One"),
+                      "cli_new_two": _entry("New Two"),
+                      "bow": colliding})
+
+    def test_merge_reports_counts_and_updates_store(self):
+        pack = self._mixed_pack()
+        result = self.run_cli("merge", pack)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            f"Merged 3 movement(s) from {pack} "
+            f"(added 2, overwritten 1, skipped 0)")
+        store = self._read_store()["movements"]
+        self.assertIn("cli_new_one", store)
+        self.assertIn("cli_new_two", store)
+        self.assertEqual(store["bow"]["name"], "CLI Bow")
+
+    def test_merge_skip_flag_keeps_local_versions(self):
+        pack = self._mixed_pack()
+        result = self.run_cli("merge", pack, "skip")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            result.stdout.strip(),
+            f"Merged 2 movement(s) from {pack} "
+            f"(added 2, overwritten 0, skipped 1)")
+        store = self._read_store()["movements"]
+        self.assertEqual(store["bow"]["name"], "Bow")
+        for entry in store.values():
+            self.assertNotEqual(entry["name"], "CLI Bow")
+
+    def test_merge_unknown_flag_shows_usage_and_exits_1(self):
+        pack = self._mixed_pack()
+        before = self._read_store()
+        result = self.run_cli("merge", pack, "skyp")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("merge <path> [skip]", result.stderr)
+        # all-or-nothing: nothing ran — the store file is untouched
+        self.assertEqual(self._read_store(), before)
+
+    def test_merge_malformed_file_clean_error_no_traceback(self):
+        self.seed()
+        bad = os.path.join(self.tmp, "garbage.json")
+        with open(bad, "w") as fh:
+            fh.write("{ this is not json")
+        result = self.run_cli("merge", bad)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(len(result.stderr.strip().splitlines()), 1)
+        self.assertTrue(result.stderr.strip().startswith(f"{bad}: "),
+                        result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_merge_invalid_entry_all_or_nothing(self):
+        self.seed()
+        bad = _entry("Broken")
+        bad["type"] = "flurb"
+        pack = _pack({"pack_good": _entry("Good"), "pack_bad": bad})
+        result = self.run_cli("merge", pack)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("pack_bad", result.stderr)
+        store = self._read_store()["movements"]
+        self.assertNotIn("pack_good", store)
+
+    def test_merge_respects_store_override_seeding(self):
+        pack = _pack(json.loads(
+            open(os.path.join(_SRC, "movements_defaults.json")).read()
+        )["movements"])
+        result = self.run_cli("merge", pack)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(os.path.exists(self.store_path),
+                        "merge must seed the override store from defaults")
+        store = self._read_store()["movements"]
+        self.assertEqual(set(store),
+                         set(json.load(open(pack))["movements"]))
+
+    def test_usage_documents_merge_command(self):
+        result = self.run_cli("--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("merge <path> [skip]", result.stdout)
+
+    def test_import_replace_stdout_and_exit_unchanged(self):
+        self.seed()
+        export = os.path.join(self.tmp, "export.json")
+        self.assertEqual(self.run_cli("export", export).returncode, 0)
+        self.env["TARS_MOVEMENTS_STORE"] = os.path.join(self.tmp, "other.json")
+        result = self.run_cli("import", export)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # the printed result line is exactly today's contract (the seeding
+        # notice line, if any, only precedes it on a fresh override path)
+        self.assertEqual(result.stdout.strip().splitlines()[-1],
+                         f"Imported 33 movements from {export}")
+
+
 if __name__ == "__main__":
     unittest.main()

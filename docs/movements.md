@@ -48,10 +48,12 @@ python3 src/app-movements.py reset       # "Restored 33 movements from defaults,
 python3 src/app-movements.py prune       # "Restored 33 movements from defaults, pruned N orphan(s)"
 python3 src/app-movements.py export /tmp/backup.json   # "Exported 33 movements to /tmp/backup.json"
 python3 src/app-movements.py import /tmp/backup.json   # all-or-nothing; errors name the bad entry
+python3 src/app-movements.py merge /tmp/pack.json      # "Merged 2 movement(s) from ... (added 2, overwritten 0, skipped 0)"
+python3 src/app-movements.py merge /tmp/pack.json skip # collisions keep the LOCAL movements ("skipped 1")
 python3 src/app-movements.py validate    # "movements.json is valid" (exit 0) or per-entry errors (exit 1)
 ```
 
-`validate` never touches the file. `import` validates every entry first — one invalid entry means **nothing** is imported and the error names the offending id. `edit` exits non-zero with the reason on stderr when the edited entry fails validation. The `TARS_MOVEMENTS_STORE` env var overrides the live store path (used by tests and offline tooling); `TARS_CONFIG_PATH` is respected by the config bootstrap.
+`validate` never touches the file. `import` validates every entry first — one invalid entry means **nothing** is imported and the error names the offending id. `merge` is the same all-or-nothing union: movement references resolve against **current+imported ids**, the merged reference graph must be acyclic, and colliding ids are **overwritten** unless `skip` is given (then the local versions are kept — an imported step referencing a kept id plays your version). `import` is replace: the pool becomes exactly the file. `edit` exits non-zero with the reason on stderr when the edited entry fails validation. The `TARS_MOVEMENTS_STORE` env var overrides the live store path (used by tests and offline tooling); `TARS_CONFIG_PATH` is respected by the config bootstrap.
 
 ## Web UI
 

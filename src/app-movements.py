@@ -9,6 +9,9 @@ Commands:
   prune                reset + delete ids absent from defaults
   export <path>        write the whole pool to <path>
   import <path>        replace the pool from <path> (all-or-nothing)
+  merge <path> [skip]  merge <path> into the pool — all-or-nothing; refs
+                       resolve against current+imported ids; collisions
+                       overwrite unless 'skip' is given
   validate             report per-entry errors without touching the file
 
 Operates on src/movements.json via get_movement_store(); the
@@ -137,14 +140,33 @@ def cmd_export(store, args):
     return 0
 
 
-def cmd_import(store, args):
+def cmd_import(store, args, mode="replace", on_conflict="overwrite"):
     path = os.path.abspath(args[0])
-    errors = store.import_from(path)
-    if errors:
-        for error in errors:
+    try:
+        with open(path, "r") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print(f"{path}: {exc}", file=sys.stderr)
+        return 1
+    entries = data.get("movements") if isinstance(data, dict) else None
+    if not isinstance(entries, dict) or not entries:
+        # same format as today's import_from error path (keep replace-path
+        # stderr identical; no "movements: " prefix)
+        print(f"{path}: no movements object", file=sys.stderr)
+        return 1
+    result = store.import_entries(entries, mode=mode, on_conflict=on_conflict)
+    if not result["ok"]:
+        for error in result["errors"]:
             print(error, file=sys.stderr)
         return 1
-    print(f"Imported {len(store.get_all())} movements from {path}")
+    if mode == "replace":
+        print(f"Imported {result['count']} movements from {path}")
+    else:
+        print(f"Merged {len(result['added']) + len(result['overwritten'])} "
+              f"movement(s) from {path} "
+              f"(added {len(result['added'])}, "
+              f"overwritten {len(result['overwritten'])}, "
+              f"skipped {len(result['skipped'])})")
     return 0
 
 
@@ -179,7 +201,13 @@ def main(argv):
     if command == "export" and args:
         return cmd_export(store, args)
     if command == "import" and args:
-        return cmd_import(store, args)
+        return cmd_import(store, args, mode="replace")
+    if command == "merge" and args:
+        if args[1:] not in ([], ["skip"]):
+            print(USAGE, file=sys.stderr)
+            return 1
+        return cmd_import(store, args, mode="merge",
+                          on_conflict="skip" if args[1:] == ["skip"] else "overwrite")
     if command == "validate":
         return cmd_validate(store, args)
     print(USAGE, file=sys.stderr)
