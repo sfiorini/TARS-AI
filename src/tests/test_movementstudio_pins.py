@@ -805,3 +805,57 @@ def test_busy_chip_and_play_disable():
     assert "refreshBusyUI();" in poll and "refreshBusyUI();" in render_library
 
 
+def test_live_clamp_constants_and_skip_proxy():
+    clamp = function_source("clampForLive")
+    send = function_source("sendLive")
+    servo_binding = function_source("bindServoRow")
+    pose_click = function_source("handlePoseClick")
+    assert "var LIVE_RANGES = {min: 5, max: 100, speedMin: 0.65, speedMax: 1.0};" in JS
+    assert "var lastLiveLegValues = {left_height: 50, right_height: 50, left_leg: 50, right_leg: 50};" in JS
+    assert "LIVE_RANGES.min" in clamp and "LIVE_RANGES.max" in clamp
+    assert "LIVE_RANGES.speedMin" in clamp and "LIVE_RANGES.speedMax" in clamp
+    assert "lastLiveLegValues[field]" in send
+    assert "var value = step[field];" in send
+    assert "value === null || value === undefined || value === 0 ? lastLiveLegValues[field]" in send
+    assert "var liveValues = clampForLive(legs, step.speed);" in send
+    assert "fetch('/move_legs'" in send
+    assert send.index("clampForLive(legs, step.speed)") < send.index("fetch('/move_legs'")
+    assert "body: JSON.stringify({" in send
+    assert "left_height: liveValues.legs.left_height" in send
+    assert "right_height: liveValues.legs.right_height" in send
+    assert "left_leg: liveValues.legs.left_leg" in send
+    assert "right_leg: liveValues.legs.right_leg" in send
+    assert "speed: liveValues.speed" in send
+    assert "if (liveValues.clamped) showLiveClampNotice();" in send
+    assert "step[field] =" not in send and "step.speed =" not in send and "legs[field] =" not in clamp
+    assert "slider.addEventListener('change'" in servo_binding
+    assert "number.addEventListener('change', commitNumber)" in servo_binding
+    assert "config.group === 'legs'" in servo_binding and "sendLive(step);" in servo_binding
+    assert "sendLive(liveStep);" in pose_click
+    assert "Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)" in MOVEMENTS_HTML
+    assert "SKIP servos hold their last live value in preview." in MOVEMENTS_HTML
+    assert "clampNotice.hidden = false;" in function_source("showLiveClampNotice")
+    assert "if (!liveClampToastShown)" in function_source("showLiveClampNotice")
+
+
+def test_live_checks_r_ok_rate_limits_and_forces_off():
+    send = function_source("sendLive")
+    notify_error = function_source("notifyLiveError")
+    force_off = function_source("forceLiveOff")
+    close = function_source("closeEditor")
+    visibility = function_source("handleVisibilityChange")
+    init_toggle = function_source("initializeLiveToggle")
+    assert 'id="meLiveToggle"' in MOVEMENTS_HTML and 'type="checkbox"' in MOVEMENTS_HTML
+    assert "liveToggle.checked = false;" in init_toggle and "initializeLiveToggle();" in JS
+    assert "if (!liveToggle || !liveToggle.checked) return false;" in send
+    assert "fetch('/move_legs'" in send and "if (!r.ok)" in send
+    assert "notifyLiveError" in send and "5000" in notify_error
+    calls = re.findall(r"(?:window\.)?localStorage\.(?:getItem|setItem|removeItem)\(([^)]*)\)", JS)
+    assert calls and all(argument.split(",", 1)[0].strip() == "DRAFT_KEY" for argument in calls)
+    assert "var DRAFT_KEY = 'tars.movementEditor.draft.v1';" in JS
+    assert "liveToggle" not in function_source("readDraft") + function_source("writeDraft")
+    assert "toggle.checked = false;" in force_off
+    assert "forceLiveOff();" in close and "forceLiveOff();" in visibility
+    assert "if (document.hidden)" in visibility
+
+

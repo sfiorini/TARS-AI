@@ -28,6 +28,13 @@
         <span id="meBusyChip" class="me-busy-chip" role="status" hidden></span>
         <span id="meServoOfflineChip" class="me-servo-offline-chip" role="status" hidden>Servo controller offline</span>
         <button id="mePlayBtn" type="button" class="hud-btn hud-btn-primary me-play-button">PLAY BASE</button>
+        <div class="me-live-controls">
+          <label class="me-live-toggle-label"><input id="meLiveToggle" type="checkbox"> LIVE</label>
+          <div id="meLiveNotice" class="me-live-notice" role="status" aria-live="polite">
+            <span id="meLiveClampNotice" hidden>Live preview clamps to 5–100 · speed 0.65–1.0 (stored values unchanged)</span>
+            <span>SKIP servos hold their last live value in preview.</span>
+          </div>
+        </div>
         <button id="meModeVisual" type="button" class="hud-btn hud-btn-secondary" aria-pressed="true">VISUAL</button>
         <button id="meModeRaw" type="button" class="hud-btn hud-btn-secondary" aria-pressed="false">RAW</button>
         <div class="me-overflow-wrap">

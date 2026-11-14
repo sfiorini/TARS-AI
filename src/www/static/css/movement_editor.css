@@ -133,6 +133,12 @@
 .me-overflow-menu button { min-height: 36px; padding: 0.45rem 0.65rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); text-align: left; cursor: pointer; font: 0.78rem var(--font-hud); }
 .me-overflow-menu button:hover, .me-overflow-menu button:focus-visible { background: rgba(var(--accent-rgb), 0.12); color: rgb(var(--accent-rgb)); }
 .me-dirty-dot { color: var(--orange); }
+.me-live-controls { min-width: 10rem; max-width: 18rem; display: grid; gap: 0.25rem; }
+.me-live-toggle-label { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; color: var(--text); font: 600 0.78rem var(--font-hud); cursor: pointer; }
+.me-live-toggle-label input { width: 1.1rem; height: 1.1rem; accent-color: rgb(var(--accent-rgb)); }
+.me-live-notice { display: grid; gap: 0.15rem; color: var(--text-dim); font: 0.66rem var(--font-sans); }
+.me-live-notice [hidden] { display: none; }
+.me-live-notice #meLiveClampNotice { color: var(--orange); }
 .me-busy-chip, .me-servo-offline-chip { min-height: 24px; padding: 0.2rem 0.55rem; border: 1px solid var(--orange); border-radius: 999px; color: var(--orange); font: 600 0.68rem var(--font-mono); }
 .me-busy-chip[hidden], .me-servo-offline-chip[hidden] { display: none; }
 .me-busy-chip.me-busy-active { animation: me-busy-pulse 1.2s ease-in-out infinite alternate; }

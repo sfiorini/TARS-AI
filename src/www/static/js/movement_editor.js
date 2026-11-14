@@ -23,6 +23,11 @@ document.addEventListener('DOMContentLoaded', function () {
   var rawSnapshot = '';
   var rawPendingAction = null;
   var DRAFT_KEY = 'tars.movementEditor.draft.v1';
+  var LIVE_RANGES = {min: 5, max: 100, speedMin: 0.65, speedMax: 1.0};
+  var LIVE_LEG_FIELDS = ['left_height', 'right_height', 'left_leg', 'right_leg'];
+  var lastLiveLegValues = {left_height: 50, right_height: 50, left_leg: 50, right_leg: 50};
+  var liveClampToastShown = false;
+  var lastLiveErrorToastAt = -5000;
   var draftTimer = null;
   var draftAutosaveDisabled = false;
   var quotaNoticeShown = false;
@@ -657,6 +662,77 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
     renderOverflowMenu();
   }
+  function clampForLive(legs, speed) {
+    var safeLegs = {};
+    var clamped = false;
+    LIVE_LEG_FIELDS.forEach(function (field) {
+      var value = Number(legs[field]);
+      var safeValue = Math.max(LIVE_RANGES.min, Math.min(LIVE_RANGES.max, value));
+      if (safeValue !== value) clamped = true;
+      safeLegs[field] = safeValue;
+    });
+    var numericSpeed = Number(speed);
+    var safeSpeed = Math.max(LIVE_RANGES.speedMin, Math.min(LIVE_RANGES.speedMax, numericSpeed));
+    if (safeSpeed !== numericSpeed) clamped = true;
+    return {legs: safeLegs, speed: safeSpeed, clamped: clamped};
+  }
+  function showLiveClampNotice() {
+    var clampNotice = el('meLiveClampNotice');
+    if (clampNotice) clampNotice.hidden = false;
+    if (!liveClampToastShown) {
+      liveClampToastShown = true;
+      notify('Live preview clamped to 5–100 · speed 0.65–1.0', 'warning');
+    }
+  }
+  function notifyLiveError(message) {
+    var now = Date.now();
+    if (now - lastLiveErrorToastAt < 5000) return;
+    lastLiveErrorToastAt = now;
+    notify(message, 'error');
+  }
+  function sendLive(step) {
+    var liveToggle = el('meLiveToggle');
+    if (!liveToggle || !liveToggle.checked) return false;
+    if (!step || step.movement) return false;
+    var legs = {};
+    LIVE_LEG_FIELDS.forEach(function (field) {
+      var value = step[field];
+      legs[field] = value === null || value === undefined || value === 0 ? lastLiveLegValues[field] : Number(value);
+    });
+    var liveValues = clampForLive(legs, step.speed);
+    if (liveValues.clamped) showLiveClampNotice();
+    return fetch('/move_legs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        left_height: liveValues.legs.left_height,
+        right_height: liveValues.legs.right_height,
+        left_leg: liveValues.legs.left_leg,
+        right_leg: liveValues.legs.right_leg,
+        speed: liveValues.speed
+      })
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        if (!r.ok) throw new Error(d.error || 'Live preview failed.');
+        return d;
+      });
+    }).then(function (response) {
+      LIVE_LEG_FIELDS.forEach(function (field) { lastLiveLegValues[field] = liveValues.legs[field]; });
+      return response;
+    }).catch(function (error) {
+      notifyLiveError(error && error.message ? error.message : 'Live preview failed.');
+      return false;
+    });
+  }
+  function initializeLiveToggle() {
+    var liveToggle = el('meLiveToggle');
+    if (!liveToggle) return;
+    liveToggle.checked = false;
+  }
+  function forceLiveOff() {
+    var toggle = el('meLiveToggle');
+    if (toggle) toggle.checked = false;
+  }
   function renderPlayButton() {
     var playButton = el('mePlayBtn');
     if (!playButton) return;
@@ -723,6 +799,7 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function handleVisibilityChange() {
     if (document.hidden) {
+      forceLiveOff();
       stopBusyPoll();
       return;
     }
@@ -1165,6 +1242,8 @@ document.addEventListener('DOMContentLoaded', function () {
     number.min = '1'; number.max = '100';
     var lastValid = deriveMode(config.field, step[config.field]) === 'set' ? Number(step[config.field]) :
       (Object.prototype.hasOwnProperty.call(lastSetValues, config.field) ? lastSetValues[config.field] : 50);
+    var lastCommittedNumber = number.value;
+    var lastCommittedSlider = slider.value;
     function updateSummary() {
       if (display) display.textContent = String(step[config.field]);
       var card = el('meTimeline').querySelector('[data-step-index="' + selected.index + '"] .me-step-summary');
@@ -1182,6 +1261,10 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     slider.addEventListener('input', function () {
       setValue(Number(slider.value));
+    });
+    slider.addEventListener('change', function () {
+      if (config.group === 'legs' && String(slider.value) !== lastCommittedSlider) sendLive(step);
+      lastCommittedSlider = String(slider.value);
     });
     number.addEventListener('input', function () {
       if (number.value === '') return;
@@ -1201,6 +1284,8 @@ document.addEventListener('DOMContentLoaded', function () {
       var noteText = entered === 0 ? '0 means SKIP — use the SKIP mode' :
         (snapped !== entered ? 'Value clamped to 1–100.' : '');
       setValue(snapped);
+      if (config.group === 'legs' && String(snapped) !== lastCommittedNumber) sendLive(step);
+      lastCommittedNumber = String(snapped);
       if (noteText) {
         note.textContent = noteText;
         number.classList.add('me-clamp');
@@ -1261,6 +1346,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (chip) {
       var row = chip.closest('.meServoRow');
       var field = row.getAttribute('data-field');
+      var liveStep = selectedStep();
       var mode = chip.getAttribute('data-mode');
       if (mode === 'skip') setStepField(field, null);
       else if (mode === 'hold') setStepField(field, -1);
@@ -1268,6 +1354,7 @@ document.addEventListener('DOMContentLoaded', function () {
         Object.prototype.hasOwnProperty.call(lastSetValues, field) ? lastSetValues[field] : 50);
       markDirty();
       renderTimeline();
+      if (LIVE_LEG_FIELDS.indexOf(field) !== -1) sendLive(liveStep);
       return;
     }
     if (event.target.closest('#meDupStep')) dupStep(selected.index);
@@ -1840,6 +1927,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (!discarded && draft && (isDirty() || rawDirty())) {
       return meConfirmDiscard(function () { closeEditor(true); });
     }
+    forceLiveOff();
     var pane = el('meEditor');
     if (pane) pane.hidden = true;
     clearDraft();
@@ -2315,6 +2403,7 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
   if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   if (el('mePlayBtn')) el('mePlayBtn').addEventListener('click', playActiveBranch);
+  initializeLiveToggle();
   window.addEventListener('beforeunload', handleBeforeUnload);
   if (el('meEditor')) {
     el('meEditor').addEventListener('click', handleBranchClick);
