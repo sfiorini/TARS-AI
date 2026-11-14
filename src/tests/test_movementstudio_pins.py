@@ -289,6 +289,20 @@ def test_two_way_binding_and_clamp_notes():
     assert "number.addEventListener('change'" in bind and "number.addEventListener('blur'" in bind
 
 
+def test_timing_footer_ranges_visual_cap_at_ten():
+    render = function_source("renderSelectedStep")
+    timing = function_source("renderTimingField")
+    assert "renderTimingField" in render
+    assert "slider.id = config.sliderId" in timing and "number.id = config.numberId" in timing
+    assert "meSpeedSlider" in JS and "meSpeedNumber" in JS and "meHoldSlider" in JS and "meHoldNumber" in JS
+    timing_fields = re.search(r"var TIMING_FIELDS = \[(.*?)\n  \];", JS, re.S)
+    assert timing_fields
+    assert "step: 0.05" in timing_fields.group(1)
+    assert re.search(r"field: 'hold_time'.*?max: 10", timing_fields.group(1))
+    assert "ramp speed · higher = faster" in timing_fields.group(1)
+    assert "slider.max = String(config.max)" in timing
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

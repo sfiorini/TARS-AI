@@ -164,6 +164,11 @@
 .meModeChip[aria-pressed="true"] { border-color: rgba(var(--accent-rgb), 0.6); color: rgb(var(--accent-rgb)); background: rgba(var(--accent-rgb), 0.1); }
 .me-servo-value { min-width: 3rem; color: var(--text); text-align: right; font: 0.82rem var(--font-mono); }
 .me-field-legend { color: var(--text-dim); font-size: 0.72rem; }
+.me-timing-footer { margin-top: 0.9rem; padding-top: 0.7rem; border-top: 1px solid rgba(var(--accent-rgb), 0.18); }
+.me-timing-row { display: grid; grid-template-columns: 5rem minmax(6rem, 1fr) 4rem; align-items: center; gap: 0.4rem; margin: 0.35rem 0; }
+.me-timing-row label { color: var(--text); font: 0.78rem var(--font-hud); }
+.me-timing-row small, .me-timing-row .me-clamp-note { grid-column: 2 / -1; color: var(--text-dim); font-size: 0.7rem; }
+.me-timing-row .me-clamp-note { color: var(--orange); }
 #meDupStep, #meDelStep { min-height: 32px; margin: 0.25rem; }
 .me-step-delete, .me-step-move { float: right; min-width: 32px; min-height: 32px; border: 0; border-radius: var(--radius-sm); color: rgb(var(--accent-rgb)); background: rgba(var(--panel-rgb), 0.55); cursor: pointer; }
 .me-step-delete { color: var(--red); }

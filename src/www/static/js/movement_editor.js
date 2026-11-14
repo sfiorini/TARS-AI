@@ -29,6 +29,10 @@ document.addEventListener('DOMContentLoaded', function () {
     {field: 'right_hand', code: 'RH2', label: 'Right hand', group: 'arms', min: 1, max: 100, step: 1}
   ];
   var lastSetValues = {};
+  var TIMING_FIELDS = [
+    {field: 'speed', sliderId: 'meSpeedSlider', numberId: 'meSpeedNumber', label: 'Speed', min: 0, max: 1, step: 0.05, defaultValue: 0.85, caption: 'ramp speed · higher = faster'},
+    {field: 'hold_time', sliderId: 'meHoldSlider', numberId: 'meHoldNumber', label: 'Hold', min: 0, max: 10, step: 0.1, defaultValue: 0, caption: 'hold time · seconds'}
+  ];
   function el(id) { return document.getElementById(id); }
   var selectedType = 'all';
   var selectedSort = 'id';
@@ -368,6 +372,9 @@ document.addEventListener('DOMContentLoaded', function () {
         row.appendChild(slider); row.appendChild(number); row.appendChild(note); panel.appendChild(row);
         bindServoRow(config, row, step);
       });
+      var timingFooter = document.createElement('div'); timingFooter.className = 'me-timing-footer';
+      TIMING_FIELDS.forEach(function (config) { renderTimingField(config, step, timingFooter); });
+      panel.appendChild(timingFooter);
       var duplicate = document.createElement('button');
       duplicate.id = 'meDupStep'; duplicate.type = 'button';
       duplicate.className = 'hud-btn hud-btn-secondary'; duplicate.textContent = '⧉ Duplicate position';
@@ -377,6 +384,68 @@ document.addEventListener('DOMContentLoaded', function () {
     remove.id = 'meDelStep'; remove.type = 'button';
     remove.className = 'hud-btn hud-btn-danger'; remove.textContent = '× Delete position';
     panel.appendChild(remove);
+  }
+  function renderTimingField(config, step, parent) {
+    var row = document.createElement('div'); row.className = 'me-timing-row';
+    var label = document.createElement('label'); label.textContent = config.label;
+    var caption = document.createElement('small'); caption.textContent = config.caption;
+    var current = step[config.field];
+    var value = current === null || current === undefined ? config.defaultValue : Number(current);
+    var slider = document.createElement('input'); slider.id = config.sliderId; slider.type = 'range';
+    slider.className = 'meTimingSlider hud-range'; slider.min = String(config.min); slider.max = String(config.max);
+    slider.step = String(config.step); slider.value = String(value);
+    var number = document.createElement('input'); number.id = config.numberId; number.type = 'number';
+    number.className = 'meTimingNumber hud-input'; number.setAttribute('inputmode', 'decimal');
+    number.min = String(config.min); number.max = String(config.max); number.step = String(config.step);
+    number.value = String(value);
+    var note = document.createElement('span'); note.className = 'me-clamp-note'; note.setAttribute('aria-live', 'polite');
+    row.appendChild(label); row.appendChild(slider); row.appendChild(number); row.appendChild(caption); row.appendChild(note);
+    parent.appendChild(row);
+    bindTimingControl(config, row, step);
+  }
+  function bindTimingControl(config, row, step) {
+    var slider = row.querySelector('.meTimingSlider');
+    var number = row.querySelector('.meTimingNumber');
+    var note = row.querySelector('.me-clamp-note');
+    var lastValid = Number(step[config.field]);
+    function setValue(value) {
+      lastValid = value;
+      step[config.field] = value;
+      slider.value = String(value);
+      number.value = String(value);
+      updateStepSummary(step);
+      markDirty();
+    }
+    slider.addEventListener('input', function () { setValue(Number(slider.value)); });
+    number.addEventListener('input', function () {
+      if (number.value === '') return;
+      var value = Number(number.value);
+      if (!isFinite(value) || value < config.min || value > config.max) return;
+      setValue(value);
+    });
+    function commitNumber() {
+      if (number.value === '' || !isFinite(Number(number.value))) { number.value = String(lastValid); return; }
+      var entered = Number(number.value);
+      var clamped = Math.max(config.min, Math.min(config.max, entered));
+      var snapped = Number((Math.round((clamped - config.min) / config.step) * config.step + config.min).toFixed(3));
+      var noteText = config.field === 'hold_time' && entered > 10 ? 'Hold max is 10 s' :
+        (snapped !== entered ? 'Value clamped to ' + config.min + '–' + config.max + '.' : '');
+      setValue(snapped);
+      if (noteText) {
+        note.textContent = noteText; number.classList.add('me-clamp');
+        setTimeout(function () { number.classList.remove('me-clamp'); note.textContent = ''; }, 1500);
+      }
+    }
+    number.addEventListener('change', commitNumber);
+    number.addEventListener('blur', commitNumber);
+    number.addEventListener('keydown', function (event) { if (event.key === 'Enter') { event.preventDefault(); commitNumber(); } });
+    number.addEventListener('focus', function () { number.select(); });
+  }
+  function updateStepSummary(step) {
+    var card = el('meTimeline').querySelector('[data-step-index="' + selected.index + '"] .me-step-summary');
+    if (card) card.textContent = (selected.index + 1) + ' ▦ ' + stepSummary(step);
+    var summary = el('mePosePanel').querySelector('.me-selected-summary');
+    if (summary) summary.textContent = stepSummary(step);
   }
   function bindServoRow(config, row, step) {
     var slider = row.querySelector('.meSlider');
