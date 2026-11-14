@@ -492,6 +492,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function updateTabLeaveGuard() {
     if (draft && (isDirty() || rawDirty())) {
       window._meTabLeaveGuard = function (nextIndex) {
+        if (window.getCurrentTabIndex && window.getCurrentTabIndex() === nextIndex) return true;
         pendingTabIndex = nextIndex;
         restoreSwipeTrack();
         showTabLeaveConfirm(nextIndex);
@@ -900,7 +901,9 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       if (errorStrip) {
         errorStrip.hidden = false;
-        errorStrip.textContent = firstError ? firstError.path + ': ' + firstError.msg : 'Playback validation failed.';
+        var displayPath = firstError ? firstError.path : '';
+        if (playBranch === 'steps_arms') displayPath = displayPath.replace(/^steps\[/, 'steps_arms[');
+        errorStrip.textContent = firstError ? displayPath + ': ' + firstError.msg : 'Playback validation failed.';
       }
       return false;
     }

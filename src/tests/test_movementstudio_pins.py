@@ -759,7 +759,11 @@ def test_play_sequence_branch_labeled_preflight_and_409():
     assert "if (!validation.ok)" in play and "me-card-error" in play
     assert "selected.index = Number(badStep[1]);" in play
     assert "badCard.classList.add('me-card-error')" in play
-    assert "firstError.path + ': ' + firstError.msg" in play
+    assert "displayPath + ': ' + firstError.msg" in play
+    # M3 audit-B F7: ARMS-branch errors display steps_arms[N] paths.
+    assert r"if (playBranch === 'steps_arms') displayPath = displayPath.replace(/^steps\[/, 'steps_arms[');" in play
+    # M3 audit-B F2: honesty copy — no mid-move stop in v1.
+    assert 'title="Plays to completion — no mid-move stop in v1"' in MOVEMENTS_HTML
     assert "JSON.stringify({steps: playSteps})" in play
     assert "playInFlight = true;" in play and "playInFlight = false;" in play
     assert "refreshBusyUI();" in render_label and "playButton.disabled = robotMoving || playInFlight;" in function_source("refreshBusyUI")
@@ -770,6 +774,9 @@ def test_play_sequence_branch_labeled_preflight_and_409():
     assert "renderPlayButton();" in function_source("setBranch")
     movement_css = (REPO_ROOT / "src" / "www" / "static" / "css" / "movement_editor.css").read_text()
     assert ".meStepCard.me-card-error" in movement_css and "var(--red)" in movement_css
+    # M3 audit-B F1: error cards are auto-selected; same specificity means the
+    # error rule must be declared AFTER the selected rule to win the cascade.
+    assert movement_css.index(".meStepCard.me-card-error") > movement_css.index(".meStepCard.me-selected")
 
 
 def test_busy_poll_single_owner_and_lifecycle():
@@ -927,6 +934,9 @@ def test_studio_registers_leave_guard_and_desktop_intercept():
     confirm = function_source("handleConfirmClick")
     assert "window._meTabLeaveGuard = function (nextIndex)" in update_guard
     assert "if (draft && (isDirty() || rawDirty()))" in update_guard
+    # M3 audit-B F4: navigating to the ALREADY-ACTIVE tab is a no-op — never
+    # prompt (matches the desktop interceptor's skip).
+    assert "if (window.getCurrentTabIndex && window.getCurrentTabIndex() === nextIndex) return true;" in update_guard
     assert "pendingTabIndex = nextIndex;" in update_guard and "showTabLeaveConfirm(nextIndex);" in update_guard
     assert "restoreSwipeTrack();" in update_guard
     assert "delete window._meTabLeaveGuard;" in update_guard
