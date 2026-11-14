@@ -326,6 +326,23 @@ def test_missing_keys_auto_filled_and_unknown_keys_rejected():
     assert "['name', 'type', 'description', 'steps', 'steps_arms']" in validate
 
 
+def test_save_state_machine_and_movements_family_exclusive():
+    save = function_source("saveEntry")
+    for state in ("CLEAN", "DIRTY", "SAVING", "SAVED", "ERROR"):
+        assert state in JS
+    assert "fetch('/movements'," in save and "method: 'POST'" in save
+    assert "fetch('/movements/'" in save and "method: 'PUT'" in save
+    assert "steps_arms:" in save and "r.ok" in save
+    assert "'/save_sequence'" not in JS
+
+
+def test_create_flip_locks_id_and_surfaces_server_errors():
+    save = function_source("saveEntry")
+    assert "isCreating = false" in save and "renderEditor()" in save and "meIdLock" in function_source("renderEditor")
+    assert "strip.textContent = res.d.error" in save
+    assert "meNameInput').value = ''" not in save
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

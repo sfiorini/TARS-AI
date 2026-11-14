@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', function () {
   var pendingClearSnapshot = null;
   var draft = null;
   var savedSnapshot = null;
+  var savedFlashTimer = null;
   var selected = {branch: 'steps', index: 0};
   var editorMode = 'visual';
   var dragFrom = null;
@@ -219,16 +220,24 @@ document.addEventListener('DOMContentLoaded', function () {
       speed: 0.85, hold_time: 0, movement: null, arm_speed: null
     };
   }
+  function setSaveState(state) {
+    var save = el('meSaveBtn');
+    if (!save) return;
+    if (savedFlashTimer && state !== 'SAVED') { clearTimeout(savedFlashTimer); savedFlashTimer = null; }
+    save.setAttribute('data-state', state);
+    var labels = {CLEAN: 'SAVE', DIRTY: 'SAVE', SAVING: 'SAVING…', SAVED: '✓ SAVED', ERROR: 'SAVE'};
+    save.textContent = labels[state];
+    var validNewId = !isCreating || (draft && draft.id && ID_PATTERN.test(draft.id) && !idTaken(draft.id));
+    save.disabled = state === 'CLEAN' || state === 'SAVING' || !validNewId;
+  }
   function isDirty() {
     return !!draft && (stableStringify(draft.entry) !== savedSnapshot || (isCreating && !!draft.id));
   }
   function markDirty() {
     var dirty = isDirty();
     var dot = el('meDirtyDot');
-    var save = el('meSaveBtn');
     if (dot) dot.hidden = !dirty;
-    if (save) save.setAttribute('data-state', dirty ? 'DIRTY' : 'CLEAN');
-    if (save && !isCreating) save.disabled = false;
+    setSaveState(dirty ? 'DIRTY' : 'CLEAN');
     renderLibrary();
   }
   function slugify(text) {
@@ -339,7 +348,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var message = idTaken(draft.id) ? 'id exists' :
       (!ID_PATTERN.test(draft.id) ? 'Use lowercase letters, digits, and underscores.' : '');
     if (error) error.textContent = message;
-    el('meSaveBtn').disabled = !draft.id || !ID_PATTERN.test(draft.id) || idTaken(draft.id);
+    setSaveState(el('meSaveBtn').getAttribute('data-state') || 'CLEAN');
   }
   function renderEditor() {
     var pane = el('meEditor');
@@ -361,8 +370,7 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meTypeSelect').value = draft.entry.type || 'legs_only';
     el('meDescInput').value = draft.entry.description || '';
     el('meDirtyDot').hidden = true;
-    el('meSaveBtn').setAttribute('data-state', 'CLEAN');
-    el('meSaveBtn').disabled = false;
+    setSaveState('CLEAN');
     updateIdStatus();
     renderTimeline();
   }
@@ -850,6 +858,75 @@ document.addEventListener('DOMContentLoaded', function () {
     clearDropIndicator();
     if (to !== null) moveStep(from, to);
   }
+  function saveEntry() {
+    if (!draft || el('meSaveBtn').getAttribute('data-state') === 'SAVING') return false;
+    var validation = validateEntry(draft.entry, {id: draft.id, isCreate: isCreating, existingIds: pool});
+    var strip = el('meErrorStrip');
+    if (!validation.ok) {
+      strip.hidden = false;
+      strip.textContent = validation.errors.slice(0, 5).map(function (error) {
+        return error.path + ': ' + error.msg;
+      }).join('\n');
+      return false;
+    }
+    draft.entry = validation.entry;
+    if (validation.warnings.length) {
+      strip.hidden = false;
+      strip.textContent = validation.warnings.slice(0, 5).map(function (warning) {
+        return warning.path + ': ' + warning.msg;
+      }).join('\n');
+    }
+    var wasCreate = isCreating;
+    var savedId = draft.id;
+    var payload = {
+      name: draft.entry.name,
+      type: draft.entry.type,
+      description: draft.entry.description,
+      steps: deepCopy(draft.entry.steps),
+      steps_arms: deepCopy(draft.entry.steps_arms)
+    };
+    if (wasCreate) payload.id = savedId;
+    setSaveState('SAVING');
+    var request = wasCreate ? fetch('/movements', {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    }) : fetch('/movements/' + encodeURIComponent(savedId), {
+      method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)
+    });
+    return request.then(function (r) {
+      return r.json().then(function (d) { return {ok: r.ok, d: d}; });
+    }).then(function (res) {
+      if (!res.ok) {
+        setSaveState('ERROR');
+        strip.hidden = false;
+        strip.textContent = res.d.error;
+        if (!strip.textContent) strip.textContent = 'Save failed.';
+        notify(res.d.error || 'Save failed.', 'error');
+        return false;
+      }
+      isCreating = false;
+      idManuallyEdited = false;
+      draft.id = savedId;
+      savedSnapshot = stableStringify(draft.entry);
+      draft.baseSnapshot = deepCopy(draft.entry);
+      strip.hidden = true;
+      strip.textContent = '';
+      renderEditor();
+      setSaveState('SAVED');
+      savedFlashTimer = setTimeout(function () {
+        if (el('meSaveBtn').getAttribute('data-state') === 'SAVED') setSaveState('CLEAN');
+        savedFlashTimer = null;
+      }, 1500);
+      notify('Saved "' + draft.entry.name + '"', 'success');
+      fetchPool();
+      return true;
+    }).catch(function (error) {
+      setSaveState('ERROR');
+      strip.hidden = false;
+      strip.textContent = error && error.message ? error.message : 'Save failed.';
+      notify(strip.textContent, 'error');
+      return false;
+    });
+  }
   function openForEdit(id) {
     if (!Object.prototype.hasOwnProperty.call(pool, id)) return false;
     isCreating = false;
@@ -1163,6 +1240,7 @@ document.addEventListener('DOMContentLoaded', function () {
   });
   if (el('meResetBtn')) el('meResetBtn').addEventListener('click', showResetConfirmation);
   if (el('mePruneBtn')) el('mePruneBtn').addEventListener('click', showPruneConfirmation);
+  if (el('meSaveBtn')) el('meSaveBtn').addEventListener('click', saveEntry);
   if (el('meEditor')) {
     el('meEditor').addEventListener('input', handleMetadataInput);
     el('meEditor').addEventListener('change', handleMetadataInput);
