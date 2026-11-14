@@ -610,3 +610,18 @@ def test_arms_group_gated_by_arms_present():
     assert "steps_arms" in function_source("rawEntryFromDraft")
 
 
+def test_hold_mode_stores_minus_one():
+    render = function_source("renderSelectedStep")
+    handle = function_source("handlePoseClick")
+    set_field = function_source("setStepField")
+    derive = function_source("deriveMode")
+    assert "config.group === 'arms' ? ['skip', 'hold', 'set']" in render
+    assert "chip.setAttribute('data-mode', mode)" in render
+    assert "chip.title = 'Re-poke the last position (keeps this arm energized).'" in render
+    assert "display.textContent = storedMode === 'hold' ? 'HOLD'" in render
+    assert "number.placeholder = storedMode === 'hold' ? 'HOLD'" in render
+    assert "if (mode === 'hold') setStepField(field, -1)" in handle
+    assert "value === -1" in set_field and "step[field] = -1" in set_field
+    assert "value === -1" in derive and "return 'hold'" in derive
+
+

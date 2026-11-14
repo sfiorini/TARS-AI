@@ -625,6 +625,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var step = selectedStep();
     if (!step) return false;
     if (value === null) step[field] = null;
+    else if (value === -1) step[field] = -1;
     else {
       step[field] = value;
       if (typeof value === 'number' && value > 0 && value !== -1) lastSetValues[field] = value;
@@ -697,14 +698,16 @@ document.addEventListener('DOMContentLoaded', function () {
           var modes = document.createElement('span'); modes.className = 'me-mode-chips';
           var storedMode = deriveMode(config.field, step[config.field]);
           if (storedMode === 'set') lastSetValues[config.field] = step[config.field];
-          ['skip', 'set'].forEach(function (mode) {
+          var modeOptions = config.group === 'arms' ? ['skip', 'hold', 'set'] : ['skip', 'set'];
+          modeOptions.forEach(function (mode) {
             var chip = document.createElement('button'); chip.type = 'button';
             chip.className = 'meModeChip'; chip.setAttribute('data-mode', mode);
             chip.setAttribute('aria-pressed', storedMode === mode ? 'true' : 'false');
+            if (mode === 'hold') chip.title = 'Re-poke the last position (keeps this arm energized).';
             chip.textContent = mode.toUpperCase(); modes.appendChild(chip);
           });
           var display = document.createElement('span'); display.className = 'me-servo-value';
-          display.textContent = storedMode === 'skip' ? '–' : String(step[config.field]);
+          display.textContent = storedMode === 'hold' ? 'HOLD' : (storedMode === 'skip' ? '–' : String(step[config.field]));
           var slider = document.createElement('input'); slider.type = 'range'; slider.className = 'meSlider hud-range';
           slider.min = '1'; slider.max = '100'; slider.step = String(config.step);
           slider.setAttribute('data-field', config.field); slider.value = storedMode === 'set' ? String(step[config.field]) : '50';
@@ -712,7 +715,7 @@ document.addEventListener('DOMContentLoaded', function () {
           var number = document.createElement('input'); number.type = 'number'; number.className = 'meNumber hud-input';
           number.setAttribute('inputmode', 'numeric'); number.min = '1'; number.max = '100'; number.step = String(config.step);
           number.setAttribute('data-field', config.field); number.value = storedMode === 'set' ? String(step[config.field]) : '';
-          number.placeholder = storedMode === 'skip' ? '–' : '';
+          number.placeholder = storedMode === 'hold' ? 'HOLD' : (storedMode === 'skip' ? '–' : '');
           number.disabled = storedMode !== 'set';
           var note = document.createElement('span'); note.className = 'me-clamp-note'; note.setAttribute('aria-live', 'polite');
           row.appendChild(label); row.appendChild(modes); row.appendChild(display);
@@ -891,6 +894,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var field = row.getAttribute('data-field');
       var mode = chip.getAttribute('data-mode');
       if (mode === 'skip') setStepField(field, null);
+      else if (mode === 'hold') setStepField(field, -1);
       else setStepField(field,
         Object.prototype.hasOwnProperty.call(lastSetValues, field) ? lastSetValues[field] : 50);
       markDirty();
