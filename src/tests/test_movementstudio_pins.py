@@ -336,7 +336,7 @@ def test_save_state_machine_and_movements_family_exclusive():
 
 def test_create_flip_locks_id_and_surfaces_server_errors():
     save = function_source("saveEntry")
-    assert "isCreating = false" in save and "renderEditor()" in save and "meIdLock" in function_source("renderEditor")
+    assert "isCreating = false" in save and "renderEditor(true)" in save and "meIdLock" in function_source("renderEditor")
     assert "strip.textContent = res.d.error" in save
     assert "meNameInput').value = ''" not in save
 
