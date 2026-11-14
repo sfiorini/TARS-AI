@@ -456,7 +456,7 @@ document.addEventListener('DOMContentLoaded', function () {
     if (error) error.textContent = message;
     setSaveState(el('meSaveBtn').getAttribute('data-state') || 'CLEAN');
   }
-  function renderEditor() {
+  function renderEditor(preserveSaveState) {
     var pane = el('meEditor');
     if (!pane || !draft) return;
     pane.hidden = false;
@@ -477,8 +477,10 @@ document.addEventListener('DOMContentLoaded', function () {
     el('meNameInput').value = draft.entry.name || '';
     el('meTypeSelect').value = draft.entry.type || 'legs_only';
     el('meDescInput').value = draft.entry.description || '';
-    el('meDirtyDot').hidden = true;
-    setSaveState('CLEAN');
+    if (!preserveSaveState) {
+      el('meDirtyDot').hidden = true;
+      setSaveState('CLEAN');
+    }
     updateIdStatus();
     renderTimeline();
     renderOverflowMenu();
@@ -1107,7 +1109,8 @@ document.addEventListener('DOMContentLoaded', function () {
       clearDraft();
       strip.hidden = true;
       strip.textContent = '';
-      renderEditor();
+      renderEditor(true);
+      el('meDirtyDot').hidden = true;
       setSaveState('SAVED');
       savedFlashTimer = setTimeout(function () {
         if (el('meSaveBtn').getAttribute('data-state') === 'SAVED') setSaveState('CLEAN');
