@@ -561,6 +561,12 @@ document.addEventListener('DOMContentLoaded', function () {
     summary.textContent = stepSummary(step);
     panel.appendChild(title);
     panel.appendChild(summary);
+    if (step.movement) {
+      var refNote = document.createElement('p');
+      refNote.className = 'me-ref-note';
+      refNote.textContent = 'Timing belongs to the referenced movement — this step\'s stored hold/speed are not applied at playback.';
+      panel.appendChild(refNote);
+    }
     if (!step.movement) {
       var groupTitle = document.createElement('h4'); groupTitle.textContent = 'LEGS'; panel.appendChild(groupTitle);
       var legend = document.createElement('p'); legend.className = 'me-field-legend';
@@ -1373,7 +1379,7 @@ document.addEventListener('DOMContentLoaded', function () {
       'restore-default': 'Restore default',
       close: 'Close'
     };
-    var visible = draft && draft.id ? ['duplicate', 'delete'] : [];
+    var visible = draft && draft.id && !isCreating ? ['duplicate', 'delete'] : [];
     if (shouldShowRestoreDefault()) visible.push('restore-default');
     if (draft) visible.push('close');
     visible.forEach(function (action) {
@@ -1386,6 +1392,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function handleOverflowClick(event) {
     if (event.target.closest('#meOverflowBtn')) {
       var menu = el('meOverflowMenu');
+      if (menu.hidden) renderOverflowMenu();
       menu.hidden = !menu.hidden;
       el('meOverflowBtn').setAttribute('aria-expanded', menu.hidden ? 'false' : 'true');
       return;

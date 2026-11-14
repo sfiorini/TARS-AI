@@ -271,6 +271,8 @@ def test_mode_chips_derive_from_stored_value():
     handler = function_source("handlePoseClick")
     assert "value === null" in derive and "value === undefined" in derive and "value === 0" in derive
     assert "value === -1" in derive and "return 'hold'" in derive and "return 'set'" in derive
+    assert "return 'skip'" in derive
+    assert "Timing belongs to the referenced movement" in render
     assert "data-mode" in render and "deriveMode" in render
     assert "setStepField(field, null)" in handler
 
@@ -282,6 +284,7 @@ def test_two_way_binding_and_clamp_notes():
     assert "slider.min = '1'" in bind and "slider.max = '100'" in bind
     assert "0 means SKIP — use the SKIP mode" in bind and "Number(" in bind
     assert "parseInt" not in bind and "me-clamp" in bind
+    assert "number.classList.add('me-clamp')" in bind and "note.textContent = noteText" in bind
     assert "slider.addEventListener('input'" in bind and "number.addEventListener('input'" in bind
     assert "number.addEventListener('change'" in bind and "number.addEventListener('blur'" in bind
 
@@ -400,6 +403,10 @@ def test_editor_overflow_menu_contract():
         assert f"'{action}'" in render
     assert "defaultsOk" in gate and "defaultsData" in gate
     assert "stableStringify(draft.entry) !== stableStringify(defaultsData[draft.id])" in gate
+    assert "shouldShowRestoreDefault()" in render
+    assert "!isCreating" in render
+    click = function_source("handleOverflowClick")
+    assert "renderOverflowMenu()" in click
 
 
 def test_restore_default_puts_default_entry_with_confirm():
@@ -437,6 +444,7 @@ def test_play_calls_play_saved_sequence_and_surfaces_errors():
 def test_duplicate_posts_full_copy_with_free_suffix():
     duplicate = function_source("duplicateMovement")
     assert "'_copy'" in duplicate and "_copy' + suffix" in duplicate
+    assert "var newId = id + '_copy';" in duplicate
     assert "while (Object.prototype.hasOwnProperty.call(pool, newId))" in duplicate
     assert "steps: deepCopy(entry.steps)" in duplicate
     assert "steps_arms: deepCopy(entry.steps_arms)" in duplicate
