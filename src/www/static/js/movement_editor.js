@@ -84,6 +84,18 @@ document.addEventListener('DOMContentLoaded', function () {
     var append = el('meImportAppend');
     if (replace) replace.textContent = label;
     if (append) append.textContent = label + ' (append)';
+    var refSelect = el('meRefSelect');
+    if (refSelect) {
+      var priorRefId = refSelect.value;
+      refSelect.innerHTML = '';
+      var refPrompt = document.createElement('option'); refPrompt.value = ''; refPrompt.textContent = 'Select movement…';
+      refSelect.appendChild(refPrompt);
+      Object.keys(pool).filter(function (id) { return !draft || id !== draft.id; }).sort().forEach(function (id) {
+        var option = document.createElement('option'); option.value = id; option.textContent = id;
+        refSelect.appendChild(option);
+      });
+      if (priorRefId && Object.prototype.hasOwnProperty.call(pool, priorRefId) && (!draft || priorRefId !== draft.id)) refSelect.value = priorRefId;
+    }
   }
   function resetBranchState() {
     branch = 'steps';
@@ -532,11 +544,14 @@ document.addEventListener('DOMContentLoaded', function () {
         } else if (step.hold_time > 10) {
           warnings.push({path: path + '.hold_time', msg: 'clamped to 10 on save'});
         }
-        if (step.movement !== null) {
+            if (step.movement !== null) {
           if (typeof step.movement !== 'string' || step.movement === id) {
             errors.push({path: path + '.movement', msg: 'must reference another existing movement'});
           } else if (!Object.prototype.hasOwnProperty.call(existingIds, step.movement) && step.movement !== id) {
             errors.push({path: path + '.movement', msg: 'movement does not exist'});
+          }
+          if (typeof step.movement === 'string' && step.movement && step.hold_time > 0) {
+            warnings.push({path: path + '.hold_time', msg: 'stored, not applied at playback'});
           }
         }
         branch[index] = step;
@@ -616,8 +631,17 @@ document.addEventListener('DOMContentLoaded', function () {
     var steps = branchSteps(branch);
     return Array.isArray(steps) ? (steps[selected.index] || null) : null;
   }
+  function playableSteps(entry) {
+    var armsSteps = entry && Array.isArray(entry.steps_arms) ? entry.steps_arms : [];
+    if (armsPresent && armsSteps.length) return armsSteps;
+    return entry && Array.isArray(entry.steps) ? entry.steps : [];
+  }
   function stepSummary(step) {
-    if (step && step.movement) return '⚡ ' + step.movement;
+    if (step && step.movement) {
+      var reference = pool[step.movement];
+      var count = reference ? playableSteps(reference).length : 0;
+      return '⚡ ' + step.movement + ' · plays ' + count + ' steps';
+    }
     function valueFor(field) {
       var value = step[field];
       if (value === null || value === undefined || value === 0) return '–';
@@ -667,10 +691,7 @@ document.addEventListener('DOMContentLoaded', function () {
     panel.appendChild(title);
     panel.appendChild(summary);
     if (step.movement) {
-      var refNote = document.createElement('p');
-      refNote.className = 'me-ref-note';
-      refNote.textContent = 'Timing belongs to the referenced movement — this step\'s stored hold/speed are not applied at playback.';
-      panel.appendChild(refNote);
+      renderRefPanel(step, panel, 'Timing belongs to the referenced movement — this step\'s stored hold/speed are not applied at playback.');
     }
     if (!step.movement) {
       var groupTitle = document.createElement('h4'); groupTitle.textContent = 'LEGS'; panel.appendChild(groupTitle);
@@ -832,6 +853,28 @@ document.addEventListener('DOMContentLoaded', function () {
     number.addEventListener('change', commitNumber);
     number.addEventListener('blur', commitNumber);
   }
+  function refSummary(id) {
+    var entry = pool[id];
+    var steps = entry ? playableSteps(entry) : [];
+    var hold = 0;
+    steps.forEach(function (step) {
+      var seconds = Number(step && step.hold_time);
+      if (isFinite(seconds)) hold += Math.min(10, Math.max(0, seconds));
+    });
+    return {id: id, name: entry && entry.name ? entry.name : id, steps: steps.length, hold: hold};
+  }
+  function renderRefPanel(step, panel, caption) {
+    var summary = refSummary(step.movement);
+    var details = document.createElement('p'); details.className = 'me-ref-summary';
+    details.textContent = summary.id + ' — ' + summary.name + ' · ' + summary.steps + ' steps · ' + summary.hold.toFixed(1) + 's total hold';
+    panel.appendChild(details);
+    var open = document.createElement('button'); open.type = 'button';
+    open.className = 'hud-btn hud-btn-secondary me-ref-open'; open.setAttribute('data-action', 'open-ref');
+    open.setAttribute('data-ref-id', step.movement); open.textContent = 'open ↗';
+    panel.appendChild(open);
+    var refNote = document.createElement('p'); refNote.className = 'me-ref-note';
+    refNote.textContent = caption; panel.appendChild(refNote);
+  }
   function renderTimingField(config, step, parent) {
     var row = document.createElement('div'); row.className = 'me-timing-row';
     var label = document.createElement('label'); label.textContent = config.label;
@@ -976,7 +1019,25 @@ document.addEventListener('DOMContentLoaded', function () {
     renderTimeline();
     return true;
   }
+  function addRef(id) {
+    if (!draft || !id || id === draft.id || !Object.prototype.hasOwnProperty.call(pool, id)) return false;
+    var step = {
+      left_height: null, right_height: null, left_leg: null, right_leg: null,
+      left_main: null, left_forearm: null, left_hand: null,
+      right_main: null, right_forearm: null, right_hand: null,
+      speed: 0.85, hold_time: 0, movement: id, arm_speed: null
+    };
+    if (!Array.isArray(draft.entry[branch])) draft.entry[branch] = [];
+    var steps = branchSteps(branch);
+    steps.push(step);
+    selected.index = steps.length - 1;
+    markDirty();
+    renderTimeline();
+    return true;
+  }
   function handlePoseClick(event) {
+    var open = event.target.closest('[data-action="open-ref"]');
+    if (open) { openForEdit(open.getAttribute('data-ref-id')); return; }
     var chip = event.target.closest('.meModeChip');
     if (chip) {
       var row = chip.closest('.meServoRow');
@@ -2035,6 +2096,10 @@ document.addEventListener('DOMContentLoaded', function () {
   if (el('meAddStep')) el('meAddStep').addEventListener('click', function () { addStep(); });
   if (el('meImportReplace')) el('meImportReplace').addEventListener('click', function () { importIntoBranch('replace'); });
   if (el('meImportAppend')) el('meImportAppend').addEventListener('click', function () { importIntoBranch('append'); });
+  if (el('meAddRef')) el('meAddRef').addEventListener('click', function () {
+    var select = el('meRefSelect');
+    if (select) addRef(select.value);
+  });
   if (el('meClearBranch')) el('meClearBranch').addEventListener('click', function () { clearBranch(branch); });
   if (el('mePosePanel')) el('mePosePanel').addEventListener('click', handlePoseClick);
   fetchPool(); fetchDefaults(); fetchArmsStatus();

@@ -660,3 +660,39 @@ def test_import_from_cached_pool_per_branch():
     assert "'/get_movement_steps'" not in JS and '"/get_movement_steps"' not in JS
 
 
+def test_ref_cards_expose_no_timing_controls():
+    render = function_source("renderSelectedStep")
+    ref_panel = function_source("renderRefPanel")
+    step_summary = function_source("stepSummary")
+    assert "renderRefPanel(step, panel," in render
+    assert "refNote.textContent = caption" in ref_panel
+    assert "renderRefPanel(step, panel, 'Timing belongs to the referenced movement — this step\\'s stored hold/speed are not applied at playback.')" in render
+    for timing_id in ("meHoldSlider", "meSpeedSlider", "meArmSpeedSlider"):
+        assert timing_id not in ref_panel
+    assert "plays " in step_summary and "playableSteps(reference)" in step_summary
+    validate = function_source("validateEntry")
+    assert "stored, not applied at playback" in validate
+
+
+def test_ref_step_neutral_keys_and_open_link():
+    html = (TEMPLATE_ROOT / "tabs" / "movements.html").read_text()
+    controls = function_source("renderComposerControls")
+    add_ref = function_source("addRef")
+    ref_summary = function_source("refSummary")
+    ref_panel = function_source("renderRefPanel")
+    pose_click = function_source("handlePoseClick")
+    for element_id in ("meRefSelect", "meAddRef"):
+        assert f'id="{element_id}"' in html
+    ref_options = controls.split("var refSelect = el('meRefSelect');", 1)[1]
+    assert "filter(function (id) { return !draft || id !== draft.id; })" in ref_options
+    for key in (
+        "left_height", "right_height", "left_leg", "right_leg", "left_main", "left_forearm",
+        "left_hand", "right_main", "right_forearm", "right_hand", "speed", "hold_time", "movement", "arm_speed",
+    ):
+        assert f"{key}:" in add_ref
+    assert "speed: 0.85" in add_ref and "hold_time: 0" in add_ref and "arm_speed: null" in add_ref
+    assert "movement: id" in add_ref and "playableSteps(entry)" in ref_summary
+    assert "open ↗" in ref_panel and "data-ref-id" in ref_panel
+    assert "openForEdit(open.getAttribute('data-ref-id'))" in pose_click
+
+
