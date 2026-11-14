@@ -29,6 +29,17 @@ document.addEventListener('DOMContentLoaded', function () {
     {field: 'right_hand', code: 'RH2', label: 'Right hand', group: 'arms', min: 1, max: 100, step: 1}
   ];
   var lastSetValues = {};
+  var STEP_DEFAULTS_MIRROR = {
+    left_height: 50, right_height: 50, left_leg: 50, right_leg: 50,
+    left_main: null, left_forearm: null, left_hand: null,
+    right_main: null, right_forearm: null, right_hand: null,
+    speed: 0.85, hold_time: 0, movement: null, arm_speed: null
+  };
+  var _STEP_KEYS = [
+    'left_height', 'right_height', 'left_leg', 'right_leg',
+    'left_main', 'left_forearm', 'left_hand', 'right_main', 'right_forearm', 'right_hand',
+    'speed', 'hold_time', 'movement', 'arm_speed'
+  ];
   var TIMING_FIELDS = [
     {field: 'speed', sliderId: 'meSpeedSlider', numberId: 'meSpeedNumber', label: 'Speed', min: 0, max: 1, step: 0.05, defaultValue: 0.85, caption: 'ramp speed · higher = faster'},
     {field: 'hold_time', sliderId: 'meHoldSlider', numberId: 'meHoldNumber', label: 'Hold', min: 0, max: 10, step: 0.1, defaultValue: 0, caption: 'hold time · seconds'}
@@ -225,6 +236,100 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   function idTaken(id) {
     return Object.prototype.hasOwnProperty.call(pool, id);
+  }
+  function validateEntry(entry, ctx) {
+    ctx = ctx || {};
+    entry = entry && typeof entry === 'object' && !Array.isArray(entry) ? entry : {};
+    var normalized = deepCopy(entry);
+    var errors = [];
+    var warnings = [];
+    var filledCount = 0;
+    var topLevelKeys = ['name', 'type', 'description', 'steps', 'steps_arms'];
+    Object.keys(normalized).forEach(function (key) {
+      if (topLevelKeys.indexOf(key) === -1) {
+        var detail = key === 'id' ? 'id is supplied by the editor' : 'unknown top-level key';
+        errors.push({path: 'entry.' + key, msg: detail});
+      }
+    });
+    var id = ctx.id;
+    if (!id || !ID_PATTERN.test(id)) errors.push({path: 'id', msg: 'must match ^[a-z0-9_]+$'});
+    var existingIds = ctx.existingIds || pool;
+    if (ctx.isCreate && id && Object.prototype.hasOwnProperty.call(existingIds, id)) {
+      errors.push({path: 'id', msg: 'id exists'});
+    }
+    if (typeof normalized.name !== 'string' || !normalized.name.trim()) {
+      errors.push({path: 'name', msg: 'must be a non-empty string'});
+    }
+    if (typeof normalized.description !== 'string' || !normalized.description.trim()) {
+      errors.push({path: 'description', msg: 'must be a non-empty string'});
+    }
+    if (normalized.type !== 'legs_only' && normalized.type !== 'has_arms') {
+      errors.push({path: 'type', msg: 'must be legs_only or has_arms'});
+    }
+    if (!Array.isArray(normalized.steps) || normalized.steps.length === 0) {
+      errors.push({path: 'steps', msg: 'steps must be a non-empty list'});
+    }
+    if (!Object.prototype.hasOwnProperty.call(normalized, 'steps_arms')) normalized.steps_arms = null;
+    if (normalized.steps_arms !== null && !Array.isArray(normalized.steps_arms)) {
+      errors.push({path: 'steps_arms', msg: 'must be a list or null'});
+    }
+    var legFields = ['left_height', 'right_height', 'left_leg', 'right_leg'];
+    var armFields = ['left_main', 'left_forearm', 'left_hand', 'right_main', 'right_forearm', 'right_hand'];
+    function validateSteps(branchName, branch) {
+      if (!Array.isArray(branch)) return;
+      branch.forEach(function (rawStep, index) {
+        var path = branchName + '[' + index + ']';
+        if (!rawStep || typeof rawStep !== 'object' || Array.isArray(rawStep)) {
+          errors.push({path: path, msg: 'must be an object'});
+          return;
+        }
+        var step = deepCopy(rawStep);
+        Object.keys(step).forEach(function (key) {
+          if (_STEP_KEYS.indexOf(key) === -1) errors.push({path: path + '.' + key, msg: 'unknown field'});
+        });
+        _STEP_KEYS.forEach(function (key) {
+          if (!Object.prototype.hasOwnProperty.call(step, key)) {
+            step[key] = deepCopy(STEP_DEFAULTS_MIRROR[key]);
+            filledCount++;
+          }
+        });
+        legFields.forEach(function (field) {
+          var value = step[field];
+          if (value !== null && (typeof value !== 'number' || !isFinite(value) || value < 0 || value > 100)) {
+            errors.push({path: path + '.' + field, msg: 'must be null or a number in 0..100'});
+          }
+        });
+        armFields.forEach(function (field) {
+          var value = step[field];
+          if (value !== null && value !== -1 && (typeof value !== 'number' || !isFinite(value) || value < 0 || value > 100)) {
+            errors.push({path: path + '.' + field, msg: 'must be null, -1, or a number in 0..100'});
+          }
+        });
+        if (typeof step.speed !== 'number' || !isFinite(step.speed) || step.speed < 0 || step.speed > 1) {
+          errors.push({path: path + '.speed', msg: 'must be a number in 0..1'});
+        }
+        if (step.arm_speed !== null && (typeof step.arm_speed !== 'number' || !isFinite(step.arm_speed) || step.arm_speed < 0 || step.arm_speed > 1)) {
+          errors.push({path: path + '.arm_speed', msg: 'must be null or a number in 0..1'});
+        }
+        if (typeof step.hold_time !== 'number' || !isFinite(step.hold_time) || step.hold_time < 0) {
+          errors.push({path: path + '.hold_time', msg: 'must be a number >= 0'});
+        } else if (step.hold_time > 10) {
+          warnings.push({path: path + '.hold_time', msg: 'clamped to 10 on save'});
+        }
+        if (step.movement !== null) {
+          if (typeof step.movement !== 'string' || step.movement === id) {
+            errors.push({path: path + '.movement', msg: 'must reference another existing movement'});
+          } else if (!Object.prototype.hasOwnProperty.call(existingIds, step.movement) && step.movement !== id) {
+            errors.push({path: path + '.movement', msg: 'movement does not exist'});
+          }
+        }
+        branch[index] = step;
+      });
+    }
+    validateSteps('steps', normalized.steps);
+    validateSteps('steps_arms', normalized.steps_arms);
+    var notice = filledCount ? 'Filled ' + filledCount + ' missing step fields.' : '';
+    return {ok: errors.length === 0, errors: errors, warnings: warnings, filledCount: filledCount, notice: notice, entry: normalized};
   }
   function updateIdStatus() {
     var input = el('meIdInput');

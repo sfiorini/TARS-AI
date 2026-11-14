@@ -303,6 +303,29 @@ def test_timing_footer_ranges_visual_cap_at_ten():
     assert "slider.max = String(config.max)" in timing
 
 
+def test_validation_mirrors_server_rules():
+    validate = function_source("validateEntry")
+    assert "^[a-z0-9_]+$" in JS and ".trim()" in validate
+    assert "normalized.name.trim()" in validate and "normalized.description.trim()" in validate
+    assert "legs_only" in validate and "has_arms" in validate
+    assert "steps must be a non-empty list" in validate and "must be a list or null" in validate
+    assert "0..100" in validate and "0..1" in validate
+    assert "step.hold_time > 10" in validate and "clamped to 10 on save" in validate
+
+
+def test_missing_keys_auto_filled_and_unknown_keys_rejected():
+    validate = function_source("validateEntry")
+    for field in (
+        "left_height", "right_height", "left_leg", "right_leg", "left_main", "left_forearm",
+        "left_hand", "right_main", "right_forearm", "right_hand", "speed", "hold_time", "movement", "arm_speed",
+    ):
+        assert f"{field}:" in JS
+    assert "STEP_DEFAULTS_MIRROR" in JS and "Filled " in validate
+    assert "step[key] = deepCopy(STEP_DEFAULTS_MIRROR[key])" in validate and "filledCount++" in validate
+    assert "if (_STEP_KEYS.indexOf(key) === -1)" in validate and "unknown field" in validate
+    assert "['name', 'type', 'description', 'steps', 'steps_arms']" in validate
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")
