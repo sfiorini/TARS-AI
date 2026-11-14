@@ -13,6 +13,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | Forced `MODE2 = 0x04` at every PCA9685 init — the only output-drive state that moves servos on this board | `initialize_pca9685()` |
 | Fork web endpoints `GET /servo_status` and `POST /servo_reinit` (no-reboot recovery) | `src/modules/module_chatui.py`, [web-ui.md](web-ui.md) |
 | Movement store: 33 shipped movements in a tracked `movements_defaults.json`, a gitignored live `movements.json`, full CRUD via UI/CLI (`app-movements.py`), reset/prune from defaults | `src/modules/module_movementstore.py`, [movements.md](movements.md) |
+| Movement Studio: the old Builder + Movements tabs merged into one editor — library with defaults-vs-live badges, Visual pose/timeline (slider **and** numeric entry per servo), advanced RAW JSON mode, BASE/ARMS branch editing, ref-step composition, approximate 3D leg preview, branch-accurate PLAY, persistent CRUD + browser draft autosave | `src/www/static/js/movement_editor.js`, [web-ui.md](web-ui.md), [movements.md](movements.md) |
 | Deferred reply loop (D1): result-bearing tools speak a holding line, run, then a follow-up LLM completion speaks the final answer; epoch cancellation, hop bound, one-line rollback switch | `src/modules/module_toolloop.py`, [voice-pipeline.md](voice-pipeline.md) |
 | Agent Skills pool: spec-pure SKILL.md packages installable from folder/zip, progressive disclosure, one shipped example (`dice-roll`) enabled out of the box | `src/modules/module_agent_skills.py`, [skills.md](skills.md) |
 | MCP client: external tool servers (stdio + Streamable HTTP, legacy era) exposed as `mcp_<server>_<tool>`, restart backoff + degraded state, one shipped example server enabled out of the box | `src/modules/module_mcp.py`, `src/mcp_example_server.py`, [mcp.md](mcp.md) |
@@ -28,9 +29,9 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 - [Hardware & Wiring](hardware.md) — BOM summary, 3D-print folders, PCA9685 @ 0x40 (incl. the batch defect workaround), buck converter, INA260 @ 0x41, wiring SVGs.
 - [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; `scripts/configure_tars_client.sh` for pointing at the server host server.
 - [Running TARS](running.md) — `tars-launcher.sh`, `App-Start.py`/`App-Stop.py`, XDG autostart, logs, restart without reboot.
-- [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, motion tab, `/servo_status` + `/servo_reinit`.
+- [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, Movement Studio, motion tab, `/servo_status` + `/servo_reinit`.
 - [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, the configurable TTS provider chain.
-- [Movements](movements.md) — the movement store (defaults vs live), reset/prune, the builder, CLI, how to add a movement.
+- [Movements](movements.md) — the movement store (defaults vs live), reset/prune, the Movement Studio, CLI, how to add a movement.
 - [Agent Skills](skills.md) — the SKILL.md format, install/create/edit, the script contract, the `dice-roll` example.
 - [MCP](mcp.md) — the MCP client, the registry, the example server, lifecycle and troubleshooting.
 - [Server Mode](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/srv`.
@@ -91,7 +92,7 @@ Each page starts with a one-paragraph overview and stays practical: real config 
 - `!!! note` — context worth knowing.
 - `!!! warning` — gotchas that bite in practice (e.g. the PCA9685 green-terminal defect, MODE2 = 0x04, never committing `.env`).
 
-The pages cross-link heavily; the nav in `mkdocs.yml` lists all twelve. If you only read three: [Quickstart](quickstart.md), [Configuration](configuration.md), [Troubleshooting](troubleshooting.md).
+The pages cross-link heavily; the nav in `mkdocs.yml` lists every page. If you only read three: [Quickstart](quickstart.md), [Configuration](configuration.md), [Troubleshooting](troubleshooting.md).
 
 ## Conventions used in these pages
 

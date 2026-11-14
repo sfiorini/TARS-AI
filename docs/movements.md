@@ -25,7 +25,7 @@ Playback goes through `module_movementstore.py`: `execute(id)` picks the right b
 
 - `id` — lowercase letters, digits, underscores (`[a-z0-9_]+`).
 - `type` — `legs_only` or `has_arms`. `has_arms` entries are skipped with an INFO log (`Skipping <id> - arm servos not installed`) when `[SERVO] arms_present = False`.
-- Each **step** has exactly the builder fields: `left_height`, `right_height`, `left_leg`, `right_leg`, `left_main`, `left_forearm`, `left_hand`, `right_main`, `right_forearm`, `right_hand`, `speed`, `hold_time`, `movement`.
+- Each **step** has exactly the fields the Movement Studio edits: `left_height`, `right_height`, `left_leg`, `right_leg`, `left_main`, `left_forearm`, `left_hand`, `right_main`, `right_forearm`, `right_hand`, `speed`, `hold_time`, `movement`.
     - `null` leg/arm value = **skip** that servo.
     - `-1` arm value = **HOLD** (re-poke the last position).
     - `speed` — 0–1 (higher is faster); `hold_time` — seconds to sleep after the step (>= 0).

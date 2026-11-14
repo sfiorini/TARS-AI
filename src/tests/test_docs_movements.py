@@ -43,3 +43,23 @@ def test_web_ui_documents_movements_routes():
     doc = _read("web-ui.md")
     for endpoint in ("/movements", "/movements/reset"):
         assert endpoint in doc, f"web-ui.md lost endpoint '{endpoint}'"
+
+
+def _section(text: str, heading: str) -> str:
+    return text.split(heading, 1)[1].split("\n## ", 1)[0]
+
+
+def test_readme_fork_delta_lists_movement_studio():
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    section = _section(readme, "## What this fork adds (V3)")
+    assert "Movement Studio" in section, \
+        "README's fork-delta list lost the Movement Studio entry"
+
+
+def test_docs_home_documents_movement_studio():
+    index = _read("index.md")
+    table = _section(index, "## What V3 adds over upstream")
+    assert "Movement Studio" in table, \
+        "docs home page delta table lost the Movement Studio row"
+    assert "the builder" not in index, \
+        "docs home page still advertises the removed Builder tab"
