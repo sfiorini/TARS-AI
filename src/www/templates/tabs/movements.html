@@ -17,6 +17,7 @@
         <button type="button" id="mePruneBtn" class="hud-btn hud-btn-danger" title="Reset AND delete movements that no longer exist in the defaults">✂ Prune</button>
       </div>
       <div id="meConfirmStrip" class="me-confirm-strip bld-overwrite-confirm" role="status" aria-live="polite" hidden></div>
+      <div id="meDraftBanner" class="me-draft-banner" hidden></div>
       <div id="meLibList" class="me-lib-list" aria-live="polite">Loading…</div>
     </div>
     <section id="meEditor" class="me-editor body-panel" hidden aria-label="Movement editor">
@@ -39,7 +40,6 @@
         <label class="me-description-field">Description<input id="meDescInput" class="hud-input" autocomplete="off"><small>The voice assistant reads this when choosing a movement — say what it does.</small></label>
       </div>
       <div id="meErrorStrip" class="me-error-strip bld-overwrite-confirm" role="alert" aria-live="assertive" hidden></div>
-      <div id="meDraftBanner" class="me-draft-banner" hidden></div>
       <div id="meRawPanel" class="me-raw-panel" hidden>
         <label for="meRawText">Full movement JSON</label>
         <textarea id="meRawText" class="hud-input" spellcheck="false" aria-label="Raw movement JSON"></textarea>

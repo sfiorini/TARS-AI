@@ -358,6 +358,27 @@ def test_raw_apply_pipeline_and_intercepts():
     assert "rawDirty()" in toggle and "rawDirty()" in save
 
 
+def test_draft_key_debounce_clear():
+    write = function_source("writeDraft")
+    schedule = function_source("scheduleDraftWrite")
+    save = function_source("saveEntry")
+    banner = function_source("showDraftBanner")
+    assert "tars.movementEditor.draft.v1" in JS and "500" in schedule
+    assert "window.localStorage.setItem" in write and "removeItem" in function_source("clearDraft")
+    assert "clearDraft()" in save and "meDraftBanner" in banner
+    assert "[Restore]" in banner and "[Discard]" in banner
+
+
+def test_draft_drift_and_quota_degrade():
+    write = function_source("writeDraft")
+    banner = function_source("showDraftBanner")
+    check = function_source("checkDraftBanner")
+    assert "changed on the robot since" in banner
+    assert "QuotaExceededError" in write and "quotaNoticeShown" in write
+    assert "baseSnapshot" in banner and "stableStringify" in banner
+    assert "restoreDraft(" not in check
+
+
 def test_badges_use_defaults_with_degraded_mode():
     defaults = function_source("fetchDefaults")
     badges = function_source("applyBadges")

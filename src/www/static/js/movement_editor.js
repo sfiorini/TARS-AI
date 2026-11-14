@@ -11,6 +11,10 @@ document.addEventListener('DOMContentLoaded', function () {
   var savedFlashTimer = null;
   var rawSnapshot = '';
   var rawPendingAction = null;
+  var DRAFT_KEY = 'tars.movementEditor.draft.v1';
+  var draftTimer = null;
+  var draftAutosaveDisabled = false;
+  var quotaNoticeShown = false;
   var selected = {branch: 'steps', index: 0};
   var editorMode = 'visual';
   var dragFrom = null;
@@ -78,9 +82,11 @@ document.addEventListener('DOMContentLoaded', function () {
       }
       pool = d.movements;
       renderLibrary();
+      checkDraftBanner();
       return true;
     }).catch(function () {
       renderError();
+      checkDraftBanner();
       return false;
     });
   }
@@ -106,6 +112,8 @@ document.addEventListener('DOMContentLoaded', function () {
       renderLibrary();
       return;
     }
+    if (action === 'restore-draft') { restoreDraft(readDraft()); return; }
+    if (action === 'discard-draft') { discardDraft(); return; }
     var row = actionButton.closest('.meLibRow');
     if (!row) return;
     var id = row.getAttribute('data-mid');
@@ -222,6 +230,99 @@ document.addEventListener('DOMContentLoaded', function () {
       speed: 0.85, hold_time: 0, movement: null, arm_speed: null
     };
   }
+  function readDraft() {
+    try {
+      var raw = window.localStorage.getItem(DRAFT_KEY);
+      if (!raw) return null;
+      var value = JSON.parse(raw);
+      if (!value || value.v !== 1 || !value.entry || typeof value.entry !== 'object') return null;
+      return value;
+    } catch (error) {
+      return null;
+    }
+  }
+  function writeDraft() {
+    if (!draft || !isDirty() || draftAutosaveDisabled) return false;
+    var value = {
+      v: 1,
+      id: draft.id || null,
+      savedAt: Date.now(),
+      entry: deepCopy(draft.entry),
+      baseSnapshot: deepCopy(draft.baseSnapshot)
+    };
+    try {
+      window.localStorage.setItem(DRAFT_KEY, JSON.stringify(value));
+      return true;
+    } catch (error) {
+      draftAutosaveDisabled = true;
+      if (!quotaNoticeShown) {
+        quotaNoticeShown = true;
+        var message = error && error.name === 'QuotaExceededError'
+          ? 'Draft autosave unavailable (storage quota exceeded); edits remain protected until you leave.'
+          : 'Draft autosave unavailable; edits remain protected until you leave.';
+        notify(message, 'warning');
+      }
+      return false;
+    }
+  }
+  function scheduleDraftWrite() {
+    if (draftAutosaveDisabled) return;
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(function () {
+      draftTimer = null;
+      writeDraft();
+    }, 500);
+  }
+  function clearDraft() {
+    if (draftTimer) { clearTimeout(draftTimer); draftTimer = null; }
+    try { window.localStorage.removeItem(DRAFT_KEY); }
+    catch (error) { /* Storage may be unavailable in private browsing. */ }
+    var banner = el('meDraftBanner');
+    if (banner) { banner.innerHTML = ''; banner.hidden = true; }
+  }
+  function showDraftBanner(stored) {
+    var banner = el('meDraftBanner');
+    if (!banner) return;
+    banner.innerHTML = '';
+    if (!stored) { banner.hidden = true; return; }
+    var name = stored.entry.name || stored.id || 'new movement';
+    var line = document.createElement('span');
+    line.className = 'me-draft-copy';
+    line.textContent = "Unsaved draft for '" + name + "' from " + new Date(stored.savedAt).toLocaleTimeString() + '.';
+    var serverEntry = stored.id && pool[stored.id];
+    var drift = !!serverEntry && stableStringify(stored.baseSnapshot) !== stableStringify(serverEntry);
+    if (drift) line.textContent += ' changed on the robot since this draft was started.';
+    var restore = document.createElement('button');
+    restore.type = 'button'; restore.className = 'hud-btn hud-btn-primary';
+    restore.setAttribute('data-action', 'restore-draft'); restore.textContent = '[Restore]';
+    var discard = document.createElement('button');
+    discard.type = 'button'; discard.className = 'hud-btn hud-btn-secondary';
+    discard.setAttribute('data-action', 'discard-draft'); discard.textContent = '[Discard]';
+    banner.appendChild(line); banner.appendChild(restore); banner.appendChild(discard);
+    banner.hidden = false;
+  }
+  function checkDraftBanner() {
+    var stored = readDraft();
+    showDraftBanner(stored);
+  }
+  function restoreDraft(stored) {
+    if (!stored) return false;
+    var serverEntry = stored.id && pool[stored.id] ? pool[stored.id] : null;
+    isCreating = !serverEntry;
+    idManuallyEdited = isCreating && !!stored.id;
+    draft = {id: stored.id || '', entry: deepCopy(stored.entry), baseSnapshot: deepCopy(stored.baseSnapshot)};
+    savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
+    selected = {branch: 'steps', index: 0};
+    renderEditor();
+    savedSnapshot = serverEntry ? stableStringify(serverEntry) : stableStringify({});
+    el('meDraftBanner').hidden = true;
+    markDirty();
+    return true;
+  }
+  function discardDraft() {
+    clearDraft();
+    return true;
+  }
   function setSaveState(state) {
     var save = el('meSaveBtn');
     if (!save) return;
@@ -240,6 +341,8 @@ document.addEventListener('DOMContentLoaded', function () {
     var dot = el('meDirtyDot');
     if (dot) dot.hidden = !dirty;
     setSaveState(dirty ? 'DIRTY' : 'CLEAN');
+    if (dirty) scheduleDraftWrite();
+    else clearDraft();
     renderLibrary();
   }
   function slugify(text) {
@@ -999,6 +1102,7 @@ document.addEventListener('DOMContentLoaded', function () {
       draft.id = savedId;
       savedSnapshot = stableStringify(draft.entry);
       draft.baseSnapshot = deepCopy(draft.entry);
+      clearDraft();
       strip.hidden = true;
       strip.textContent = '';
       renderEditor();

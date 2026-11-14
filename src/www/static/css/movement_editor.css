@@ -136,6 +136,8 @@
 .me-timeline-panel, .me-pose-panel { min-width: 0; }
 .me-error-strip[hidden], .me-draft-banner[hidden], .me-raw-panel[hidden] { display: none; }
 .me-error-strip:not([hidden]), .me-draft-banner:not([hidden]) { display: block; margin: 0.6rem 0; padding: 0.65rem; border: 1px solid var(--red); color: var(--red); }
+.me-draft-banner:not([hidden]) { display: flex; align-items: center; flex-wrap: wrap; gap: 0.45rem; border-color: var(--orange); color: var(--text); }
+.me-draft-copy { flex: 1 1 16rem; }
 .me-raw-panel { margin: 0.8rem 0; }
 .me-raw-panel > label { display: block; margin-bottom: 0.4rem; color: var(--text-dim); font: 0.8rem var(--font-hud); }
 #meRawText { width: 100%; min-height: 320px; resize: vertical; color: var(--text); font: 0.78rem var(--font-mono); scrollbar-color: rgba(var(--accent-rgb), 0.38) rgba(var(--panel-rgb), 0.3); }
