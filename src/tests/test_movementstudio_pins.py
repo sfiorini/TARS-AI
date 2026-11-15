@@ -71,6 +71,7 @@ def test_movements_import_route_calls_store_and_maps_errors():
     assert "mode=mode" in route and "on_conflict=on_conflict" in route
     assert '"; ".join(result["errors"])' in route
     assert '"errors": result["errors"]' in route
+    assert '"errors": result["errors"]}), 400' in route
     assert '"success": True' in route
     for key in ("added", "overwritten", "skipped", "count"):
         assert f'"{key}": result["{key}"]' in route

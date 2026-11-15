@@ -2584,16 +2584,16 @@ document.addEventListener('DOMContentLoaded', function () {
       parsed = JSON.parse(text);
     } catch (parseError) {
       showConfirmStrip('Could not parse ' + fileName + ': ' +
-        (parseError && parseError.message ? parseError.message : String(parseError)) +
-        '\nNothing has been changed.', [{label: 'Close', action: 'cancel'}], true);
+        (parseError && parseError.message ? parseError.message : String(parseError)),
+        [{label: 'Close', action: 'cancel'}], true);
       return;
     }
     var entries = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
       ? parsed.movements : null;
     if (!entries || typeof entries !== 'object' || Array.isArray(entries) ||
         !Object.keys(entries).length) {
-      showConfirmStrip("No 'movements' object in " + fileName +
-        ' — nothing is imported.', [{label: 'Close', action: 'cancel'}], true);
+      showConfirmStrip("No 'movements' object in " + fileName + '.',
+        [{label: 'Close', action: 'cancel'}], true);
       return;
     }
     var fileIds = Object.keys(entries);
@@ -2621,7 +2621,6 @@ document.addEventListener('DOMContentLoaded', function () {
       if (newIds.indexOf(id) !== -1) skipMap[id] = entries[id];
     });
 
-    var MOVEMENT_PATH = '.movement';
     function classify(mid, entry, error) {
       // HARD lets every mode 400 (schema, refs resolving NEITHER in the pool
       // NOR the file, non-string movement values).  CYCLE errors are
@@ -2659,10 +2658,15 @@ document.addEventListener('DOMContentLoaded', function () {
           if (!overwriteCycle) overwriteCycle =
             error.msg.indexOf('reference cycle: ') === 0
               ? error.msg.slice('reference cycle: '.length)
-              : error.msg;
+              : mid + ' → ' + mid + ' (self-reference)';
           return;
         }
-        hardErrors.push(mid + ': ' + error.path + ' ' + error.msg);
+        // avoid duplicating the field: validateEntry step messages already
+        // start with the field name (e.g. 'steps must be a non-empty list');
+        // entry-level messages (e.g. id) do not, so prefix the path then.
+        var detail = error.msg.indexOf(error.path) === 0
+          ? error.msg : (error.path + ' ' + error.msg);
+        hardErrors.push(mid + ': ' + detail);
       });
     });
     fileIds.forEach(function (mid) {
@@ -2762,7 +2766,7 @@ document.addEventListener('DOMContentLoaded', function () {
       var list = replaceBlocked.slice(0, 5).join(', ') +
         (replaceBlocked.length > 5 ? ' +' + (replaceBlocked.length - 5) + ' more' : '');
       return 'Replace is unavailable: ' + replaceBlocked.length +
-        ' imported movements reference current movements not in the file (' +
+        ' imported movements cannot be imported as a standalone set (' +
         list + ') — Merge keeps them.';
     }
     function overwriteLine() {
