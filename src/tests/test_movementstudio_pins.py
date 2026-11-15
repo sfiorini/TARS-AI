@@ -261,8 +261,8 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     js_tag = re.search(r'<script[^>]+movement_editor\.js[^>]*></script>', INDEX_HTML)
     css_tag = re.search(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)
     assert js_tag and len(re.findall(r'movement_editor\.js', INDEX_HTML)) == 1
-    assert '?v=8.0' in js_tag.group(0)
-    assert "filename='js/main.js') }}?v=8.0" in INDEX_HTML
+    assert '?v=8.1' in js_tag.group(0)
+    assert "filename='js/main.js') }}?v=8.1" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
     assert '?v=8.2' in css_tag.group(0)
@@ -1285,6 +1285,8 @@ def test_movements_doc_webui_section_describes_studio():
         "SKIP", "last live value", "plays to completion", "no mid-move stop in v1",
         "Legs only · ref steps skipped · approximate timing", "referrer hard-block",
         "shipped movement", "custom_sequences.json", "not migrated",
+        "Export", "Import", "Replace", "Merge", "keep mine", "file wins",
+        "movements-YYYYMMDD-HHMMSS.json", "all-or-nothing",
     ):
         assert needle in section, f"movements.md Web UI section lost '{needle}'"
 
