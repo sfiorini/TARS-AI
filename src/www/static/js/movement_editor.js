@@ -2665,8 +2665,12 @@ document.addEventListener('DOMContentLoaded', function () {
         hardErrors.push(mid + ': ' + error.path + ' ' + error.msg);
       });
     });
-    newIds.forEach(function (mid) {
-      // replace pass: refs must resolve WITHIN the file (server 400s wholesale)
+    fileIds.forEach(function (mid) {
+      // replace pass: REPLACE lands EVERY file entry (the pool becomes the
+      // file), so ALL entries — including colliding ones — must resolve refs
+      // WITHIN the file (server 400s wholesale). Iterating newIds only would
+      // wrongly offer Replace for a colliding entry whose ref points outside
+      // the file (E23: file b->a with a absent from the file).
       var outcome = validateEntry(entries[mid], {id: mid, existingIds: replaceMap});
       (outcome.errors || []).forEach(function (error) {
         if (classify(mid, entries[mid], error) === 'client-only') return;
