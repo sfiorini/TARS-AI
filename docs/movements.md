@@ -65,7 +65,7 @@ python3 src/app-movements.py validate    # "movements.json is valid" (exit 0) or
 - Delete guardrails first apply a **referrer hard-block** when another movement points at the target; deleting it would invalidate the store. An unreferenced shipped movement instead shows a warning about its D-pad, gamepad, and voice consumers before allowing deletion.
 - The optional 3D preview is deliberately approximate: **Legs only · ref steps skipped · approximate timing**. It does not render arms or expand referenced movements; when Three.js is unavailable offline, the preview is disabled with an explanatory note.
 - Sequences in the legacy `src/custom_sequences.json` file are **not migrated**; recreate them as movements in the Studio.
-- The **motion** tab dropdown executes movements through the store; a movement already in progress returns `409 Robot is already moving`.
+- The **motion** tab dropdown executes movements through the store; a movement already in progress returns `409 Robot is already moving`. The dropdown **refreshes automatically after a whole-set import**; after individual saves/deletes it still needs a page reload (known limitation).
 
 ## Voice: the `execute_movement` skill
 

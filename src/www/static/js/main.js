@@ -1250,6 +1250,7 @@ function loadMovements() {
   }).catch(console.error);
 }
 document.addEventListener('DOMContentLoaded', loadMovements);
+window.addEventListener('movements-pool-changed', loadMovements);
 
 function executeAction() {
   const action = $('actionSelect').value;

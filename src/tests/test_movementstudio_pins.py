@@ -209,6 +209,13 @@ def test_import_file_input_wiring():
         assert needle in JS, needle
 
 
+def test_main_js_refreshes_action_select_on_pool_change():
+    needle = "window.addEventListener('movements-pool-changed', loadMovements);"
+    assert MAIN_JS.count(needle) == 1, MAIN_JS.count(needle)
+    assert MAIN_JS.index("document.addEventListener('DOMContentLoaded', loadMovements);") < \
+        MAIN_JS.index(needle)
+
+
 def test_movements_html_is_studio_shell_with_library_contract():
     for needle in (
         'id="meLibSearch"', 'id="meLibTypeFilter"', 'id="meLibSort"',
