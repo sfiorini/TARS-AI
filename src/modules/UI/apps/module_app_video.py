@@ -31,6 +31,23 @@ _should_exit = False       # set by VideoApp when it wants to exit
 _restore_prior = True      # whether to restore prior app on exit
 
 
+def _speak_in_background(text):
+    """Fire TTS in a background thread without blocking the render loop
+    (eyes precedent, module_app_eyes._speak_in_background). D14: a
+    playback failure must be SPOKEN — the error screen renders ≤1 frame
+    before the exit drain."""
+    def _run():
+        try:
+            import asyncio
+            from modules.module_config import load_config
+            from modules.module_tts import play_audio_chunks
+            config = load_config()
+            asyncio.run(play_audio_chunks(text, config['TTS']['ttsoption']))
+        except Exception:
+            pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def request_play(url, title=""):
     """Queue a play request from any thread (called from the skill thread)."""
     global _pending_play, _generation
@@ -80,6 +97,9 @@ class VideoApp:
         "bv[vcodec^=avc1][ext=mp4][height<=720]+ba[ext=m4a]/"
         "bv[height<=720]+ba/b[height<=720]/bv+ba/b"
     )
+    # Class-level default: instances built via __new__ (tests) still have
+    # the handle; __init__/_spawn_mpv set the instance value.
+    _input_conf_path = None
 
     def __init__(self, render_surface, width, height):
         self.surface = render_surface
@@ -87,6 +107,7 @@ class VideoApp:
         self.height = height
         self._proc = None
         self._sock_path = None
+        self._input_conf_path = None
         self._my_generation = 0
         self._title = ""
         self._last_error = ""
@@ -96,11 +117,17 @@ class VideoApp:
     def reset(self):
         """Drain payload store atomically and spawn mpv if play is pending."""
         global _pending_play, _stop_requested, _playing, _generation
+        global _should_exit, _restore_prior
 
         with _payload_lock:
             play = _pending_play
             _pending_play = None
             _stop_requested = False
+            # Clear any stale exit request from a prior instance — an
+            # EOF-exit racing a same-tick fresh replay must not kill the
+            # relaunched video (M4 audit IB-F8).
+            _should_exit = False
+            _restore_prior = True
             self._my_generation = _generation
 
         if play:
@@ -108,7 +135,9 @@ class VideoApp:
             _playing = True
             self._spawn_mpv(play["url"])
         else:
-            _playing = True
+            # No payload (manual launch): NOT playing — stop must say
+            # "No video is playing." (M4 audit IA-F5).
+            _playing = False
 
     def update(self):
         """Called every frame on the UI thread."""
@@ -174,6 +203,12 @@ class VideoApp:
             except OSError:
                 pass
             self._sock_path = None
+        if self._input_conf_path and os.path.exists(self._input_conf_path):
+            try:
+                os.unlink(self._input_conf_path)
+            except OSError:
+                pass
+            self._input_conf_path = None
 
         with _payload_lock:
             global _pending_play, _stop_requested
@@ -245,11 +280,11 @@ class VideoApp:
                 pass
 
         self._proc = subprocess.Popen(argv, **popen_kw)
-
-        try:
-            os.unlink(input_conf)
-        except OSError:
-            pass
+        # Keep the input-conf alive until cleanup(): mpv reads it AFTER
+        # exec — unlinking here races the child (parent wins in µs) and
+        # silently kills tap-to-stop (M4 audit IB-F1/IA-F2, proven with a
+        # fake-mpv-on-PATH probe).
+        self._input_conf_path = input_conf
 
     def _send_ipc_quit(self):
         """Send quit command to mpv via IPC socket."""
@@ -307,10 +342,11 @@ class VideoApp:
             pass
 
     def _handle_mpv_exit(self, rc):
-        """mpv process exited — set error state and request exit."""
+        """mpv process exited — set error state, SPEAK it (D14), exit."""
         self._proc = None
-        if rc != 0 and rc != -9:  # -9 = SIGKILL from stop
+        if rc != 0 and rc != -9:  # -9 = SIGKILL from stop; 0 = EOF
             self._last_error = f"Video playback error (code {rc})"
+            _speak_in_background(self._last_error)
         self._request_exit(restore=True)
 
     def _request_exit(self, restore=True):

@@ -32,6 +32,7 @@ _HOST_SITE_MAP = {
     "www.twitch.tv": "site_twitch",
     "twitch.tv": "site_twitch",
     "m.twitch.tv": "site_twitch",
+    "clips.twitch.tv": "site_twitch",
     "www.cnn.com": "site_us_news",
     "cnn.com": "site_us_news",
     "www.nbcnews.com": "site_us_news",
@@ -244,8 +245,10 @@ def execute(parameters, context):
                 "enable it in the video command settings."
             )
 
-        # Twitch live-stream rejection (bare-channel URLs)
-        if site_key == "site_twitch" and "/videos/" not in url and "/clip/" not in url:
+        # Twitch live-stream rejection (bare-channel URLs). Canonical clip
+        # URLs live on clips.twitch.tv with NO /clip/ segment (audit IB-F6).
+        if (site_key == "site_twitch" and "/videos/" not in url
+                and "/clip/" not in url and "clips.twitch.tv" not in url):
             return "Live streams aren't supported yet."
 
         title = parameters.get("description", "") or "Video"

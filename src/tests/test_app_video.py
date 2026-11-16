@@ -329,11 +329,17 @@ class TestUiFramework(unittest.TestCase):
 
         ui.app_manager = FakeAppManager()
 
-        with mock.patch("os._exit") as mock_exit:
+        # ORDER pin (audit IB-F3/IA-F3): deactivate must precede os._exit —
+        # presence-only let a reorder survive.
+        with mock.patch("os._exit",
+                        side_effect=lambda *a: cleanup_log.append("os_exit")
+                        ) as mock_exit:
             ui.exit_program()
 
         self.assertIn("deactivate", cleanup_log)
         mock_exit.assert_called_once_with(0)
+        self.assertLess(cleanup_log.index("deactivate"),
+                        cleanup_log.index("os_exit"))
 
     # -- 8. initiate_shutdown deactivates before os._exit (R1-F1) ---------
 
@@ -361,13 +367,27 @@ class TestUiFramework(unittest.TestCase):
 
         ui.app_manager = FakeAppManager()
 
-        with mock.patch("os._exit") as mock_exit, mock.patch(
+        with mock.patch("os._exit",
+                        side_effect=lambda *a: cleanup_log.append("os_exit")
+                        ) as mock_exit, mock.patch(
             "subprocess.Popen"
         ) as mock_popen:
             ui.initiate_shutdown()
 
         self.assertIn("deactivate", cleanup_log)
         mock_exit.assert_called_once_with(0)
+        self.assertLess(cleanup_log.index("deactivate"),
+                        cleanup_log.index("os_exit"))
+
+    # -- 8b. run loop wires the video exit-drain (audit IB-F4) ------------
+
+    def test_run_loop_wires_exit_drain(self):
+        """Source pin: run() must call drain_exit_request — removing the
+        whole exit-drain block previously survived the suite."""
+        import inspect
+        src = inspect.getsource(self._ui_mod.UIManager.run)
+        self.assertIn("drain_exit_request", src)
+        self.assertIn("exit_app", src)
 
 
 # -----------------------------------------------------------------------
@@ -630,6 +650,47 @@ class TestPayloadStore(unittest.TestCase):
         with mock.patch.object(new, "_spawn_mpv") as m_spawn:
             new.reset()
         m_spawn.assert_called_once_with("new")
+
+    # -- 6. reset clears a stale exit request (audit IB-F8) ---------------
+
+    def test_reset_clears_stale_exit_request(self):
+        """An EOF-exit request left by a prior instance must not kill a
+        freshly relaunched video (same-tick race)."""
+        mod = self._vid_mod
+        with mod._payload_lock:
+            mod._should_exit = True
+            mod._restore_prior = False
+        app = mod.VideoApp.__new__(mod.VideoApp)
+        app._proc = None
+        app._sock_path = None
+        app._input_conf_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
+        mod.request_play("fresh", "Fresh")
+        with mock.patch.object(app, "_spawn_mpv"):
+            app.reset()
+        should_exit, restore = mod.drain_exit_request()
+        self.assertFalse(should_exit)
+        self.assertTrue(restore)
+
+    # -- 7. manual launch without payload is NOT playing (audit IA-F5) ----
+
+    def test_manual_launch_not_playing(self):
+        """reset() with no payload must leave _playing False — stop says
+        'No video is playing.', not 'Stopped the video.'"""
+        mod = self._vid_mod
+        app = mod.VideoApp.__new__(mod.VideoApp)
+        app._proc = None
+        app._sock_path = None
+        app._input_conf_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
+        with mock.patch.object(app, "_spawn_mpv") as m_spawn:
+            app.reset()
+        m_spawn.assert_not_called()
+        self.assertFalse(mod.is_playing())
 
 
 # -----------------------------------------------------------------------
@@ -919,7 +980,151 @@ class TestVideoApp(unittest.TestCase):
             "Font", (), {"render": lambda *a, **kw: types.SimpleNamespace()},
         )()
         app3._request_exit = lambda restore=True: exit_restore.append(restore)
-        app3._handle_mpv_exit(1)  # non-zero, non-SIGKILL
+        with mock.patch.object(mod, "_speak_in_background"):
+            app3._handle_mpv_exit(1)  # non-zero, non-SIGKILL
         self.assertIn("Video playback error", app3._last_error)
         self.assertEqual(exit_restore, [True])
         self.assertIsNone(app3._proc)
+
+    # -- 11. input-conf survives spawn, unlinked at cleanup (IB-F1/IA-F2) -
+
+    def test_input_conf_survives_spawn_unlinked_at_cleanup(self):
+        """The tap-to-stop conf must EXIST after spawn (mpv reads it after
+        exec — the delivered code unlinked it immediately, killing the
+        affordance) and be gone only after cleanup()."""
+        mod = self._vid_mod
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.poll.return_value = None
+            mock_popen.return_value.wait.return_value = None
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            app.reset()
+            conf = app._input_conf_path
+            self.assertIsNotNone(conf)
+            self.assertTrue(os.path.exists(conf),
+                            "input-conf deleted before mpv could read it")
+            with open(conf) as f:
+                self.assertIn("MBTN_LEFT quit", f.read())
+            app.cleanup()
+            self.assertFalse(os.path.exists(conf))
+        # Source-order pin: no immediate unlink of the conf in _spawn_mpv.
+        import inspect
+        spawn_src = inspect.getsource(mod.VideoApp._spawn_mpv)
+        self.assertNotIn("os.unlink(input_conf)", spawn_src)
+
+    # -- 12. failure speaks the error line; EOF/stop silent (IB-F2/IA-F1) -
+
+    def test_failure_speaks_error_line_eof_silent(self):
+        """D14: a playback FAILURE is spoken via background TTS; EOF (0)
+        and user-stop (-9) stay silent."""
+        mod = self._vid_mod
+        app = mod.VideoApp.__new__(mod.VideoApp)
+        app._proc = None
+        app._sock_path = None
+        app._input_conf_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
+        with mock.patch.object(mod, "_speak_in_background") as m_speak:
+            app._handle_mpv_exit(2)
+            m_speak.assert_called_once_with("Video playback error (code 2)")
+            m_speak.reset_mock()
+            app._handle_mpv_exit(0)   # EOF
+            m_speak.assert_not_called()
+            app._handle_mpv_exit(-9)  # SIGKILL from stop
+            m_speak.assert_not_called()
+        # The speaker uses the eyes precedent (background thread + TTS).
+        import inspect
+        speak_src = inspect.getsource(mod._speak_in_background)
+        self.assertIn("play_audio_chunks", speak_src)
+        self.assertIn("Thread", speak_src)
+
+    # -- 13. IPC quit bytes + end-file drain, real AF_UNIX (IB-F5/IA-F4) --
+
+    def test_ipc_quit_bytes_and_end_file_drain(self):
+        """Drive the REAL _send_ipc_quit/_drain_ipc against a fake mpv IPC
+        server: exact quit payload bytes; end-file event triggers quit."""
+        import socket as sk
+        import time
+        mod = self._vid_mod
+        sock_dir = tempfile.mkdtemp()
+        path = os.path.join(sock_dir, "ipc.sock")
+        srv = sk.socket(sk.AF_UNIX, sk.SOCK_STREAM)
+        srv.bind(path)
+        srv.listen(2)
+        srv.settimeout(3)
+        app = mod.VideoApp.__new__(mod.VideoApp)
+        app._proc = None
+        app._sock_path = path
+        app._input_conf_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
+
+        # Real mpv queues events ASYNCHRONOUSLY (data is buffered before
+        # the drain connects). A fake server can only send after accept,
+        # which the drain's non-blocking recv would outrace — so the
+        # socket wrapper yields 50ms after connect, letting the server
+        # emit first (models the async event stream deterministically).
+        real_socket = sk.socket
+
+        class EventStreamSocket:
+            def __init__(self, *a, **kw):
+                self._s = real_socket(*a, **kw)
+
+            def connect(self, addr):
+                self._s.connect(addr)
+                time.sleep(0.05)
+
+            def __getattr__(self, name):
+                return getattr(self._s, name)
+
+        try:
+            # 1) exact quit payload
+            with mock.patch("socket.socket", EventStreamSocket):
+                app._send_ipc_quit()
+            conn, _ = srv.accept()
+            data = conn.recv(4096)
+            conn.close()
+            self.assertEqual(data, b'{"command":["quit"]}\n')
+
+            # 2) end-file event → quit. The server emits the event on
+            # EVERY connection (like mpv's async event stream); the drain
+            # is polled per-frame as in the real run loop — a single
+            # non-blocking recv can miss data that arrives mid-frame.
+            received = []
+
+            def server():
+                while True:
+                    try:
+                        c, _ = srv.accept()
+                    except OSError:
+                        return
+                    data = b""
+                    try:
+                        try:
+                            c.sendall(b'{"event":"end-file","reason":"eof"}\n')
+                        except OSError:
+                            pass  # drain may close before we send
+                        c.settimeout(0.5)
+                        try:
+                            data = c.recv(4096)
+                        except OSError:
+                            data = b""
+                    finally:
+                        c.close()
+                    if data:
+                        received.append(data)
+                        return
+
+            t = threading.Thread(target=server, daemon=True)
+            t.start()
+            deadline = time.time() + 2
+            with mock.patch("socket.socket", EventStreamSocket):
+                while not received and time.time() < deadline:
+                    app._drain_ipc()
+                    time.sleep(0.05)
+            t.join(timeout=1)
+            self.assertEqual(received, [b'{"command":["quit"]}\n'])
+        finally:
+            srv.close()

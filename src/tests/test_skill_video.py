@@ -170,6 +170,27 @@ class TestSkillVideo(unittest.TestCase):
             self.assertIn("playback is disabled", r)
             self.assertIn("BBC iPlayer", r)
 
+            # Remaining enabled defaults + canonical clip host (IB-F6:
+            # dailymotion/youtu.be arms were missing; clips.twitch.tv was
+            # absent from the map AND live-rejected without /clip/).
+            r = execute(
+                {"action": "play",
+                 "url": "https://www.dailymotion.com/video/x123",
+                 "_config": {}}, None,
+            )
+            self.assertIn("Now playing", r)
+            r = execute(
+                {"action": "play", "url": "https://youtu.be/abc123",
+                 "_config": {}}, None,
+            )
+            self.assertIn("Now playing", r)
+            r = execute(
+                {"action": "play",
+                 "url": "https://clips.twitch.tv/SomeClipSlug",
+                 "_config": {}}, None,
+            )
+            self.assertIn("Now playing", r)
+
     # -- 3. search gated by site_youtube ---------------------------------
 
     def test_search_gated_by_site_youtube(self):
@@ -405,10 +426,14 @@ class TestInstallMedia(unittest.TestCase):
 
     def test_ytdlp_in_pi4_pi5_block(self):
         src = self._src
-        # Gate is: $"PI_VERSION" == "pi5" || "$PI_VERSION" == "pi4"
-        self.assertIn('"pi5" ||', src)
-        self.assertIn("yt-dlp", src)
-        self.assertIn("MEDIA", src)
+        # yt-dlp must sit INSIDE the pi4||pi5-gated MEDIA heredoc — a
+        # whole-file needle let an ungated relocation survive (IB-F7).
+        gate = ('if [[ "$PI_VERSION" == "pi5" || '
+                '"$PI_VERSION" == "pi4" ]]; then')
+        self.assertIn(gate, src)
+        rest = src[src.index(gate):]
+        body = rest[rest.index("<< 'MEDIA'"):].split("\nMEDIA\n", 1)[0]
+        self.assertIn("yt-dlp", body)
 
     def test_pandas_still_pi5_only(self):
         src = self._src
