@@ -52,6 +52,7 @@ from modules.module_agent_skills import (  # noqa: E402
 )
 
 _DICE_DEFAULTS = os.path.join(_SRC, "agent_skills_defaults", "dice-roll")
+_HA_DEFAULTS = os.path.join(_SRC, "agent_skills_defaults", "home-assistant")
 
 SKILL_MD_TEMPLATE = """---
 name: {name}
@@ -96,6 +97,21 @@ class TestFrontmatter(_SkillDirTestCase):
                                 parse_skill_md(os.path.join(
                                     _DICE_DEFAULTS, "SKILL.md")))
         self.assertEqual(errors, [])
+
+    def test_shipped_home_assistant_passes_validator(self):
+        errors = validate_skill(_HA_DEFAULTS,
+                                parse_skill_md(os.path.join(
+                                    _HA_DEFAULTS, "SKILL.md")))
+        self.assertEqual(errors, [])
+
+    def test_home_assistant_description_fits_200(self):
+        data = parse_skill_md(os.path.join(_HA_DEFAULTS, "SKILL.md"))
+        desc = data.get("description", "")
+        self.assertLessEqual(len(desc), 200,
+                             f"description {len(desc)} > 200")
+        # Tail needle: call_service. at the END
+        self.assertTrue(desc.strip().endswith("call_service."),
+                        f"description tail needle missing: {desc!r}")
 
     def test_rejects_seventh_top_level_key(self):
         skill_dir = self.write_skill(
@@ -505,6 +521,47 @@ class TestDescriptorsAndPrompt(_PoolTestCase):
         self.assertFalse(result.is_error, result.content)
         self.assertRegex(result.content,
                          _re.compile(r"Rolled 2d20: \d+, \d+ \(total \d+\)"))
+
+    def test_home_assistant_direct_descriptor(self):
+        from modules.module_toolregistry import ToolRegistry
+        ok, errors = self.store.install_from_folder(_HA_DEFAULTS)
+        self.assertTrue(ok, errors)
+        registry = ToolRegistry()
+        for d in self.store.iter_descriptors():
+            registry.register(d)
+        names = {d.name for d in registry.iter_descriptors()}
+        self.assertIn("home-assistant", names)
+        ha = registry.get("home-assistant")
+        self.assertEqual(ha.kind, "agent_skill")
+        self.assertTrue(ha.result_bearing)
+        from modules.module_toolregistry import ToolDescriptor
+        # speakable is never set for agent-skill descriptors
+        self.assertFalse(getattr(ha, "speakable", False))
+        self.assertIn("action", ha.parameters.get("required", []))
+        self.assertIn("entity_id", ha.parameters.get("properties", {}))
+
+    def test_home_assistant_one_hop_args_render_empty_placeholders(self):
+        """_make_agent_exec renders ['list_entities','','','',''] for
+        {"action": "list_entities"} with missing placeholders → ''.
+        Test the body and schema are well-formed; the rendering is tested
+        implicitly via the descriptor dispatch (M5 runbook step 5)."""
+        ok, errors = self.store.install_from_folder(_HA_DEFAULTS)
+        self.assertTrue(ok, errors)
+        body = self.store._raw_body("home-assistant")
+        data, errors = self.store._read_skill("home-assistant")
+        self.assertIsNotNone(data)
+        self.assertEqual(errors, [])
+        from modules.module_agent_skills import decode_tars_metadata
+        schema = decode_tars_metadata(data)["parameters"]
+        self.assertIsNotNone(schema)
+        self.assertIn("run_skill_script:", body)
+        self.assertIn("ha_rest.py", body)
+        # Placeholder args present for the 5 positional params
+        self.assertIn("<action>", body)
+        self.assertIn("<entity_id>", body)
+        self.assertIn("<domain>", body)
+        self.assertIn("<service>", body)
+        self.assertIn("<data>", body)
 
     def test_meta_tools_in_prompt(self):
         block, included, dropped = self.store.build_prompt_block()
