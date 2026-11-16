@@ -282,15 +282,36 @@ class UIManager(threading.Thread):
 
     def _schedule_video_exit_restack(self):
         """T-28 (bench-proven 2026-11-16): when mpv closes, labwc buries
-        the TARS surface WITHOUT any SDL event (loop alive, no QUIT or
-        WINDOWEVENT logged). Toggle fullscreen off/on over the next two
-        ticks to force the compositor to re-stack/re-activate TARS."""
-        self._restack_pending = 2
+        the TARS X surface UNDER the desktop — window alive + VIEWABLE
+        (_NET_WM_PID-verified), no SDL events, loop running. Fullscreen
+        toggling did NOT re-stack it; raise + input-focus does (X11)."""
+        self._restack_pending = 1
 
     def _apply_video_exit_restack(self):
         if self._restack_pending > 0:
-            pygame.display.toggle_fullscreen()
             self._restack_pending -= 1
+            self._raise_own_window()
+
+    def _raise_own_window(self):
+        """Raise + focus our own X window so labwc re-activates it."""
+        try:
+            import ctypes
+            wm = pygame.display.get_wm_info()
+            dpy = wm.get("display")
+            win = wm.get("window")
+            if not dpy or not win:
+                return
+            x = ctypes.CDLL("libX11.so.6")
+            x.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            x.XSetInputFocus.argtypes = [
+                ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+            x.XFlush.argtypes = [ctypes.c_void_p]
+            x.XRaiseWindow(dpy, win)
+            x.XSetInputFocus(dpy, win, 2, 0)  # RevertToParent, CurrentTime
+            x.XFlush(dpy)
+            queue_message("UI: raised own window after video exit (T-28)")
+        except Exception as e:
+            queue_message(f"UI: window raise failed: {e}")
 
     def exit_app(self, restore_prior=False):
         if self.app_manager:

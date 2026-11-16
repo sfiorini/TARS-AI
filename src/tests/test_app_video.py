@@ -239,22 +239,27 @@ class TestUiFramework(unittest.TestCase):
 
     # -- 0c. video-exit re-stack (T-28: labwc buries the surface) ---------
 
-    def test_video_exit_restack_toggles_twice(self):
-        """T-28 bench-proven: after mpv closes, the UI loop is alive and
-        SDL gets NO QUIT/WINDOWEVENT — labwc buries the TARS surface.
-        Re-stack = toggle fullscreen off then on over two ticks."""
+    def test_video_exit_restack_raises_own_window(self):
+        """T-28 bench-proven: after mpv closes, the TARS X window is
+        alive + VIEWABLE (_NET_WM_PID-verified) but buried under the
+        desktop; SDL gets no events. Re-stack = XRaiseWindow +
+        XSetInputFocus on our own window (fullscreen toggle did NOT
+        work — bench-tested)."""
         ui = self._make_ui_manager()
         mod = self._ui_mod
         ui._schedule_video_exit_restack()
-        self.assertEqual(ui._restack_pending, 2)
-        tog = mock.MagicMock()
-        disp = types.SimpleNamespace(toggle_fullscreen=tog)
-        with mock.patch.object(mod.pygame, "display", disp, create=True):
+        self.assertEqual(ui._restack_pending, 1)
+        disp = types.SimpleNamespace(
+            get_wm_info=lambda: {"display": 12345, "window": 67890})
+        fake_x = mock.MagicMock()
+        with mock.patch.object(mod.pygame, "display", disp, create=True), \
+             mock.patch("ctypes.CDLL", return_value=fake_x):
             ui._apply_video_exit_restack()
             ui._apply_video_exit_restack()
-            ui._apply_video_exit_restack()
-        self.assertEqual(tog.call_count, 2)
         self.assertEqual(ui._restack_pending, 0)
+        fake_x.XRaiseWindow.assert_called_once_with(12345, 67890)
+        fake_x.XSetInputFocus.assert_called_once_with(12345, 67890, 2, 0)
+        self.assertTrue(fake_x.XFlush.called)
 
     def test_run_loop_restack_and_driver_log_wired(self):
         import inspect
