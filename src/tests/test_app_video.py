@@ -382,11 +382,12 @@ class TestUiFramework(unittest.TestCase):
     # -- 8b. run loop wires the video exit-drain (audit IB-F4) ------------
 
     def test_run_loop_wires_exit_drain(self):
-        """Source pin: run() must call drain_exit_request — removing the
-        whole exit-drain block previously survived the suite."""
+        """Source pin: run() must CALL drain_exit_request — removing the
+        whole exit-drain block previously survived the suite. Pin the
+        exact call line (the import alone would satisfy a name needle)."""
         import inspect
         src = inspect.getsource(self._ui_mod.UIManager.run)
-        self.assertIn("drain_exit_request", src)
+        self.assertIn("exit_now, restore = drain_exit_request()", src)
         self.assertIn("exit_app", src)
 
 
