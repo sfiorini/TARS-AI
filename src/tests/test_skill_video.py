@@ -478,3 +478,74 @@ class TestInstallMedia(unittest.TestCase):
         block_src = chr(10).join(block_lines)
         self.assertIn("pandas", block_src)
         self.assertNotIn("yt-dlp", block_src)
+
+
+class TestYoutubeSearchResolution(unittest.TestCase):
+    """Bench defect 2026-11-16 (robot, yt-dlp 2026.10.26): with
+    extract_flat, a BARE query + default_search returns a _type=url
+    redirect with NO entries — the skill silently found nothing
+    ('Couldn't find a video for that search'). The explicit
+    'ytsearch1:' prefix returns a playlist with entries. Prior tests
+    mocked _resolve_youtube_search wholesale, so the real yt-dlp
+    interaction was never exercised (stub-fidelity gap)."""
+
+    @classmethod
+    def setUpClass(cls):
+        _ensure_modules()
+        cls._skill_mod = _import_skill_video()
+
+    @classmethod
+    def tearDownClass(cls):
+        _restore_modules()
+
+    def _fake_ytdlp(self, entries, capture):
+        class _FakeYDL:
+            def __init__(self, opts):
+                self.opts = opts
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+            def extract_info(self, url, download=False):
+                capture.append(url)
+                if url.startswith("ytsearch1:"):
+                    return {"_type": "playlist", "entries": entries}
+                # bench-faithful flat redirect: NO entries key
+                return {"_type": "url",
+                        "url": "https://www.youtube.com/watch?v=abc123",
+                        "webpage_url":
+                            "https://www.youtube.com/watch?v=abc123"}
+        fake = types.ModuleType("yt_dlp")
+        fake.YoutubeDL = _FakeYDL
+        return fake
+
+    def test_search_resolves_via_explicit_ytsearch_prefix(self):
+        capture = []
+        fake = self._fake_ytdlp(
+            [{"id": "abc123", "title": "Lofi Radio"}], capture)
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake}):
+            url, title = self._skill_mod._resolve_youtube_search(
+                "lofi hip hop")
+        self.assertEqual(url, "https://www.youtube.com/watch?v=abc123")
+        self.assertEqual(title, "Lofi Radio")
+        self.assertEqual(capture, ["ytsearch1:lofi hip hop"])
+
+    def test_search_handles_generator_entries(self):
+        capture = []
+        gen = (e for e in [{"id": "gen1", "title": "Gen"}])
+        fake = self._fake_ytdlp(gen, capture)
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake}):
+            url, title = self._skill_mod._resolve_youtube_search("q")
+        self.assertEqual(url, "https://www.youtube.com/watch?v=gen1")
+        self.assertEqual(title, "Gen")
+
+    def test_search_empty_results_returns_none(self):
+        capture = []
+        fake = self._fake_ytdlp([], capture)
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake}):
+            url, title = self._skill_mod._resolve_youtube_search("q")
+        self.assertIsNone(url)
+        self.assertEqual(title, "")

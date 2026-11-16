@@ -180,19 +180,27 @@ def _resolve_youtube_search(query):
             "quiet": True,
             "no_warnings": True,
             "extract_flat": True,
-            "default_search": "ytsearch1",
             "skip_download": True,
         }
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(query, download=False)
+            # Explicit ytsearch1 prefix — bench defect 2026-11-16: with
+            # extract_flat, a BARE query + default_search returns a
+            # _type=url redirect with NO entries (yt-dlp 2026.10.26),
+            # so the search silently found nothing. The prefix yields
+            # a playlist with entries.
+            info = ydl.extract_info(f"ytsearch1:{query}", download=False)
             entries = info.get("entries") if info else None
-            if entries and len(entries) > 0:
-                entry = entries[0]
-                vid = entry.get("id") or entry.get("url")
-                title = entry.get("title") or ""
-                if vid:
-                    url = f"https://www.youtube.com/watch?v={vid}"
-                    return url, title
+            if entries is not None:
+                entries = list(entries)  # may be a generator
+                if entries:
+                    entry = entries[0]
+                    title = entry.get("title") or ""
+                    vid = entry.get("id")
+                    if vid:
+                        return f"https://www.youtube.com/watch?v={vid}", title
+                    url = entry.get("url") or ""
+                    if url.startswith("http"):
+                        return url, title
         return None, ""
     except Exception:
         return None, ""
