@@ -177,8 +177,13 @@ class VideoApp:
 
         with _payload_lock:
             global _pending_play, _stop_requested
-            _pending_play = None
-            _stop_requested = False
+            # D15 generation guard (audit R1-F5): clear the payload ONLY if
+            # no newer request arrived since this instance drained — a fresh
+            # request during relaunch must survive the old instance's cleanup
+            # (AppManager.launch cleans BEFORE constructing the new instance).
+            if _generation == self._my_generation:
+                _pending_play = None
+                _stop_requested = False
             _playing = False
 
     def handle_event(self, event):

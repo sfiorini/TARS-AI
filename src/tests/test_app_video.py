@@ -538,53 +538,94 @@ class TestPayloadStore(unittest.TestCase):
     # -- 4. generation guard: stale request cleared (R1-F5) ---------------
 
     def test_generation_guard_stale_cleared(self):
-        """A stale request_app overwritten before drain is cleared by cleanup."""
+        """R1-F5 pin, BEHAVIORAL (orchestrator rewrite — the delivered test
+        simulated the store inline and never called cleanup/reset): an
+        instance that drained generation N cleans up with NO newer request
+        → residual payload/stop cleared; a later manual reset() does NOT
+        auto-play. Kill: cleanup that never clears fails this test."""
         mod = self._vid_mod
+        app = mod.VideoApp.__new__(mod.VideoApp)  # bypass pygame __init__
+        app._proc = None
+        app._sock_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
 
-        # Simulate: request arrives, generation recorded
-        mod.request_play("stale", "Stale")
-        stale_gen = mod._generation
+        # Instance drains a real request (gen N) and "plays" it.
+        mod.request_play("first", "First")
+        with mock.patch.object(app, "_spawn_mpv") as m_spawn:
+            app.reset()
+        m_spawn.assert_called_once_with("first")
+        self.assertEqual(app._my_generation, mod._generation)
 
-        # Cleanup clears everything
-        with mod._payload_lock:
-            mod._pending_play = None
-            mod._stop_requested = False
-            mod._playing = False
+        # Residual stop flag at the SAME generation is cleared by cleanup.
+        mod.request_stop()
+        app.cleanup()
+        self.assertFalse(mod._stop_requested)
+        self.assertIsNone(mod._pending_play)
+        self.assertFalse(mod.is_playing())
 
-        # A later manual launch without a fresh request should NOT auto-play
-        with mod._payload_lock:
-            play = mod._pending_play  # None
-            mod._pending_play = None
-            mod._stop_requested = False
-        self.assertIsNone(play)
-
-        # Verify the stale generation marker is irrelevant after cleanup
-        self.assertTrue(stale_gen > 0)  # was set
-        self.assertIsNone(mod._pending_play)  # cleared
+        # Later MANUAL launch (no fresh request): reset() must NOT auto-play.
+        app2 = mod.VideoApp.__new__(mod.VideoApp)
+        app2._proc = None
+        app2._sock_path = None
+        app2._my_generation = 0
+        app2._title = ""
+        app2._last_error = ""
+        with mock.patch.object(app2, "_spawn_mpv") as m_spawn2:
+            app2.reset()
+        m_spawn2.assert_not_called()
 
     # -- 5. generation guard: fresh survives relaunch (R1-F5) -------------
 
     def test_generation_guard_fresh_survives_relaunch(self):
-        """Fresh request during old-instance cleanup survives the cleanup."""
+        """R1-F5 pin, BEHAVIORAL (orchestrator rewrite — the delivered test
+        simulated the store inline): a fresh request (newer generation)
+        during relaunch SURVIVES the old instance's cleanup (launch cleans
+        BEFORE construct); the old instance's update() quits mpv for the
+        replay; the NEW instance's reset() drains and plays it.
+        Kills: unguarded cleanup (clears fresh replays) AND removing the
+        generation check from update() both fail this test."""
         mod = self._vid_mod
+        old = mod.VideoApp.__new__(mod.VideoApp)
+        old._proc = mock.MagicMock()
+        old._proc.poll.return_value = None  # still "playing"
+        old._sock_path = None
+        old._my_generation = 0
+        old._title = ""
+        old._last_error = ""
 
-        # Old instance records its generation
+        # Old instance drains gen N.
         mod.request_play("old", "Old")
-        old_gen = mod._generation
+        with mock.patch.object(old, "_spawn_mpv"):
+            old.reset()
+        old_gen = old._my_generation
 
-        # Cleanup starts, but a NEW request arrives before cleanup clears pending
+        # Fresh request arrives (gen N+1) — the relaunch scenario.
         mod.request_play("new", "New")
-        new_gen = mod._generation
-        self.assertGreater(new_gen, old_gen)
+        self.assertGreater(mod._generation, old_gen)
 
-        # Old cleanup atomically reads — but a fresh drain sees the new request
-        with mod._payload_lock:
-            play = mod._pending_play  # "new" because request_play overwrote
-            mod._pending_play = None
-            mod._stop_requested = False
+        # Old instance's update() must quit mpv for the newer-gen replay
+        # (generation-check pin — removing the check fails here).
+        with mock.patch.object(old, "_send_ipc_quit") as m_quit:
+            old.update()
+        m_quit.assert_called_once()
 
-        self.assertEqual(play["url"], "new")
-        self.assertEqual(play["title"], "New")
+        # Old cleanup must NOT clear the newer-generation payload.
+        old.cleanup()
+        self.assertIsNotNone(mod._pending_play)
+        self.assertEqual(mod._pending_play["url"], "new")
+
+        # New instance drains and plays it.
+        new = mod.VideoApp.__new__(mod.VideoApp)
+        new._proc = None
+        new._sock_path = None
+        new._my_generation = 0
+        new._title = ""
+        new._last_error = ""
+        with mock.patch.object(new, "_spawn_mpv") as m_spawn:
+            new.reset()
+        m_spawn.assert_called_once_with("new")
 
 
 # -----------------------------------------------------------------------
