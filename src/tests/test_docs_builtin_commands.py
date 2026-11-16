@@ -408,3 +408,17 @@ class TestHaDocsPins:
         readme = (REPO_ROOT / "README.md").read_text()
         assert "Home Assistant Agent Skill" in readme, \
             "HA bullet missing from README"
+        # HA capability delta row: line-prefix + load-bearing claim needles
+        ha_row = _line_starting_with(index_text, "| Home Assistant Agent Skill:")
+        assert "REST" in ha_row, "HA delta row lost the REST claim"
+        assert "HA_TOKEN" in ha_row, "HA delta row lost the token claim"
+        assert "conversation-API" in ha_row, \
+            "HA delta row lost the replaces-the-built-in claim"
+        # Initiative row carries the HA clause
+        init_row = _line_starting_with(index_text, "| Built-in Commands:")
+        assert "Home Assistant moved to an Agent Skill" in init_row, \
+            "initiative row lost the HA clause"
+        # README bullet line-prefix (not just a substring somewhere)
+        readme_line = _line_starting_with(
+            readme, "- **Home Assistant Agent Skill**")
+        assert "REST" in readme_line, "README HA bullet lost the REST claim"

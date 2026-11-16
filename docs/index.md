@@ -16,13 +16,14 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | Movement Studio: the old Builder + Movements tabs merged into one editor — library with defaults-vs-live badges, Visual pose/timeline (slider **and** numeric entry per servo), advanced RAW JSON mode, BASE/ARMS branch editing, ref-step composition, approximate 3D leg preview, branch-accurate PLAY, persistent CRUD + browser draft autosave | `src/www/static/js/movement_editor.js`, [web-ui.md](web-ui.md), [movements.md](movements.md) |
 | Deferred reply loop (D1): result-bearing tools speak a holding line, run, then a follow-up LLM completion speaks the final answer; epoch cancellation, hop bound, one-line rollback switch | `src/modules/module_toolloop.py`, [voice-pipeline.md](voice-pipeline.md) |
 | Agent Skills pool: spec-pure SKILL.md packages installable from folder/zip, progressive disclosure, two shipped examples (`dice-roll`, `home-assistant`) enabled out of the box | `src/modules/module_agent_skills.py`, [skills.md](skills.md) |
+| Home Assistant Agent Skill: the shipped `home-assistant` standard skill controls the smart home via the HA REST API (list entities/services, get state, call service) with `HA_TOKEN` — replaces the broken conversation-API built-in | [skills.md](skills.md), [configuration.md](configuration.md) |
 | MCP client: external tool servers (stdio + Streamable HTTP, legacy era) exposed as `mcp_<server>_<tool>`, restart backoff + degraded state, one shipped example server enabled out of the box | `src/modules/module_mcp.py`, `src/mcp_example_server.py`, [mcp.md](mcp.md) |
 | ElevenLabs Scribe `scribe_v2` cloud STT with external-server fallback (30 s timeout) | `src/modules/module_stt.py`, [voice-pipeline.md](voice-pipeline.md) |
 | Configurable ordered TTS provider chain — Fish.audio → Speechify → ElevenLabs → external Piper → local Piper → espeak — with typed-error failover (quota / rate-limit / auth / timeout) and per-request timeouts | `src/modules/module_tts.py`, `module_fishaudio.py`, `module_speechify.py`, [voice-pipeline.md](voice-pipeline.md) |
 | `content_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
 | `App-Stop.py` TERM→KILL escalation (pygame/SDL swallows the first SIGTERM) | `App-Stop.py`, [running.md](running.md) |
 | Piper `./voices` bind mount in the server's docker-compose (voice weights are not in the repo) | `TARS-AI_Server/docker-compose.yml`, [server-mode.md](server-mode.md) |
-| Built-in Commands: the in-process command pool relabeled (internal `[SKILL:*]` identifiers unchanged); `example` removed | `development.md`, `configuration.md` |
+| Built-in Commands: the in-process command pool relabeled (internal `[SKILL:*]` identifiers unchanged); `example` removed; Home Assistant moved to an Agent Skill | `development.md`, `configuration.md` |
 
 ## Documentation map
 
