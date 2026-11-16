@@ -83,7 +83,7 @@ class TestToolCategoryMap(unittest.TestCase):
     def test_all_twelve_builtin_categories_covered(self):
         self.assertIn("execute_movement", TOOL_CATEGORY_MAP)
         self.assertIn("generate_image", TOOL_CATEGORY_MAP)
-        self.assertIn("home_assistant", TOOL_CATEGORY_MAP)
+        self.assertIn("home-assistant", TOOL_CATEGORY_MAP)
         self.assertIn("sandbox_exec", TOOL_CATEGORY_MAP)
         self.assertIn("reminder", TOOL_CATEGORY_MAP)
         self.assertIn("identify_speaker_name", TOOL_CATEGORY_MAP)
@@ -1325,7 +1325,7 @@ class TestDeadAirFiller(unittest.TestCase):
 
     def test_empty_reply_with_tool_call_speaks_a_category_filler(self):
         llm._speak_filler_if_reply_empty(
-            {"reply": "", "function_calls": [{"function": "home_assistant"}]},
+            {"reply": "", "function_calls": [{"function": "home-assistant"}]},
             "turn off the light", source="voice")
         self.assertEqual(len(self._played), 1)
         self.assertIn(self._played[0], mt.PHRASE_BANK["smart_home"])
@@ -1348,7 +1348,7 @@ class TestDeadAirFiller(unittest.TestCase):
 
     def test_block_list_reply_counts_as_a_reply(self):
         parsed = {"reply": [{"type": "text", "text": "On it."}],
-                  "function_calls": [{"function": "home_assistant"}]}
+                  "function_calls": [{"function": "home-assistant"}]}
         llm._speak_filler_if_reply_empty(parsed, "turn off the light",
                                          source="voice")
         self.assertEqual(self._played, [])
@@ -1370,7 +1370,7 @@ class TestDeadAirFiller(unittest.TestCase):
             tool_names=["web_search"], source="voice"))
         before = len(self._played)
         llm._speak_filler_if_reply_empty(
-            {"reply": "", "function_calls": [{"function": "home_assistant"}]},
+            {"reply": "", "function_calls": [{"function": "home-assistant"}]},
             "turn off the light", source="voice")
         self.assertEqual(len(self._played), before)
 

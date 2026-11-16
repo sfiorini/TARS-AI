@@ -198,14 +198,12 @@ class SkillManager:
 
         Maps:
           [DISCORD]       channel_id  -> [SKILL:discord]    channel_id
-          [HOME_ASSISTANT] url        -> [SKILL:home_assistant] url
           [STABLE_DIFFUSION] *        -> [SKILL:generate_image] *
         Only migrates a skill if it has no [SKILL:*] section yet.
         Saves immediately so migration only runs once.
         """
         LEGACY_MAP = {
             'discord':          ('DISCORD',          ['channel_id']),
-            'home_assistant':   ('HOME_ASSISTANT',   ['url']),  # token stays in .env only
             'generate_image':   ('STABLE_DIFFUSION', [
                 'service', 'url', 'prompt_prefix', 'prompt_postfix',
                 'negative_prompt', 'seed', 'steps', 'cfg_scale', 'sampler_name',

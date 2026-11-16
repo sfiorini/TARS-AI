@@ -363,9 +363,6 @@ rightHandOffset = 0
 [SKILL:discord]
 disabled = true
 
-[SKILL:home_assistant]
-disabled = true
-
 [SKILL:generate_image]
 disabled = true
 

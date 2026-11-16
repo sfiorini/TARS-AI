@@ -272,3 +272,68 @@ class TestExampleRemoval:
         descriptors = list(mgr.iter_descriptors())
         names = [d.name for d in descriptors]
         assert "example" not in names
+
+
+class TestHaRemovalPins:
+    """M2-S2: HA built-in removal surface (D7 rows 1-10)."""
+
+    def test_ha_builtin_file_absent(self):
+        ha_file = REPO_ROOT / "src" / "skills" / "skill_home_assistant.py"
+        assert not ha_file.exists(), f"{ha_file} still exists"
+
+    def test_legacy_map_lacks_home_assistant(self):
+        ms_source = (REPO_ROOT / "src" / "modules" / "module_skills.py").read_text()
+        # LEGACY_MAP block
+        lm_start = ms_source.index("LEGACY_MAP = {")
+        depth = 0
+        lm_end = lm_start
+        for i, ch in enumerate(ms_source[lm_start:], start=lm_start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    lm_end = i + 1
+                    break
+        lm_block = ms_source[lm_start:lm_end]
+        assert "'home_assistant'" not in lm_block, "LEGACY_MAP still has home_assistant"
+        assert "'discord'" in lm_block, "discord entry gone from LEGACY_MAP"
+        # Docstring line above LEGACY_MAP
+        doc_win = ms_source[max(0, lm_start - 500):lm_start]
+        assert "[HOME_ASSISTANT]" not in doc_win, "docstring still mentions HOME_ASSISTANT"
+
+    def test_thinking_map_home_assistant_hyphenated(self):
+        import sys
+        sys.path.insert(0, str(REPO_ROOT / "src"))
+        from modules.module_thinking import TOOL_CATEGORY_MAP
+        assert TOOL_CATEGORY_MAP.get("home-assistant") == "smart_home", \
+            "home-assistant not mapped to smart_home"
+        assert "home_assistant" not in TOOL_CATEGORY_MAP, \
+            "old home_assistant key still in TOOL_CATEGORY_MAP"
+
+    def test_no_home_assistant_builtin_descriptor(self):
+        import sys
+        sys.path.insert(0, str(REPO_ROOT / "src"))
+        from modules.module_skills import SkillManager
+        mgr = SkillManager()
+        mgr.discover()
+        mgr._disabled.clear()
+        descriptors = list(mgr.iter_descriptors())
+        names = [d.name for d in descriptors]
+        assert "home_assistant" not in names, \
+            f"home_assistant descriptor still present: {names}"
+
+    def test_env_template_keeps_ha_token_adds_ha_url_comment(self):
+        env_tmpl = (REPO_ROOT / ".env.template").read_text()
+        assert "HA_TOKEN" in env_tmpl, "HA_TOKEN missing from .env.template"
+        assert "# HA_URL" in env_tmpl or "#HA_URL" in env_tmpl or \
+               any("HA_URL" in line and line.strip().startswith("#")
+                   for line in env_tmpl.splitlines()), \
+            "HA_URL comment line missing from .env.template"
+
+    def test_template_lacks_ha_section(self):
+        cfg_tmpl = (REPO_ROOT / "src" / "config.ini.template").read_text()
+        assert "[SKILL:home_assistant]" not in cfg_tmpl, \
+            "[SKILL:home_assistant] still in config.ini.template"
+        assert "[SKILL:discord]" in cfg_tmpl, \
+            "other disabled sections missing from template"

@@ -193,11 +193,12 @@ def _speak_filler_if_reply_empty(parsed, user_text, source=None):
 
     The pre-LLM filler is suppressed when the utterance looks like a tool
     turn (``likely_tool_turn``), on the assumption that the model speaks its
-    own holding line. Measured live 2026-11-12: for Home Assistant
-    imperatives ("turn off the light") the model returns an EMPTY reply and
-    only a function call, so the suppressed turn spoke NOTHING until the
-    device changed — dead air for the whole HA round-trip. ``web_search`` is
-    unaffected because its skill prompt forces a reply-0 ("On it...").
+    own holding line. Measured live 2026-11-12: for tool-only turns (the
+    former home_assistant built-in's "turn off the light") the model returns
+    an EMPTY reply and only a function call, so the suppressed turn spoke
+    NOTHING until the tool completed — dead air for the whole round-trip.
+    ``web_search`` is unaffected because its skill prompt forces a reply-0
+    ("On it...").
 
     Speaks a category filler now, resolved from the tool names — which the
     pre-LLM path could not know, because the model had not chosen a tool
@@ -894,10 +895,10 @@ def execute_function_call(func_call, bot_response, user_input, source="voice", h
             # audit A3: this shim is only reached from the INLINE
             # (fire-and-forget) path — llm_execute_side_effects — because
             # the deferred loop dispatches through the registry directly.
-            # Non-followup skills that RETURN a string (home_assistant's
-            # "Lights on", its error text, …) must still surface it in the
-            # reply, exactly as pre-M4; result-bearing skills never get
-            # here (the loop owns them).
+            # Non-followup skills that RETURN a string (volume's
+            # "Volume set to 50%.", its error text, …) must still surface
+            # it in the reply, exactly as pre-M4; result-bearing skills
+            # never get here (the loop owns them).
             if bot_response.get("_skill_replied"):
                 bot_response["reply"] = \
                     f"{bot_response['reply']} {result.content}"

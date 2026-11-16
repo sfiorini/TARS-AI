@@ -702,7 +702,7 @@ class TarsConfigManager:
 
                 final_sections[section_name] = final_section
 
-            # Preserve dynamic sections (e.g. [SKILL:home_assistant]) not in template
+            # Preserve dynamic sections (e.g. [SKILL:discord]) not in template
             for section_name, existing_section in existing_sections.items():
                 if section_name not in template_sections:
                     final_sections[section_name] = existing_section

@@ -1190,8 +1190,8 @@ class TestLegacyMixedTurnDispatch(unittest.TestCase):
 class TestFireAndForgetReplies(unittest.TestCase):
     """Audit A3: non-followup builtin skills that RETURN a string must
     still surface it in the reply on the inline (fire-and-forget) path —
-    the pre-M4 behavior webui/discord rely on (e.g. home_assistant's
-    'Lights on' / error text). The loop path is unchanged."""
+    the pre-M4 behavior webui/discord rely on (e.g. volume's
+    'Volume set to 50%.' / error text). The loop path is unchanged."""
 
     def test_fire_and_forget_reply_surfaces(self):
         import concurrent.futures
@@ -1202,22 +1202,22 @@ class TestFireAndForgetReplies(unittest.TestCase):
         self.addCleanup(reset_registry)
 
         def fake_exec(params, ctx):
-            return "Lights on"
+            return "Volume set to 50%."
 
         descriptor = ToolDescriptor(
-            name="home_assistant", kind="builtin", description="",
+            name="volume", kind="builtin", description="",
             parameters=None, result_bearing=False, timeout_s=None,
             execute=fake_exec)
         from modules.module_toolregistry import get_registry
         get_registry().register(descriptor)
         parsed = {"reply": "",
-                  "function_calls": [{"function": "home_assistant",
+                  "function_calls": [{"function": "volume",
                                       "parameters": {}}],
                   "new_memories": []}
         # the webui fire-and-forget path: llm_execute_side_effects inline
-        module_llm.llm_execute_side_effects(parsed, "turn on the lights",
+        module_llm.llm_execute_side_effects(parsed, "set volume to 50%",
                                              source="webui")
-        self.assertEqual(parsed.get("reply"), "Lights on",
+        self.assertEqual(parsed.get("reply"), "Volume set to 50%.",
                          "the fire-and-forget skill's return string must "
                          "surface in the reply")
         self.assertTrue(parsed.get("_skill_replied"))

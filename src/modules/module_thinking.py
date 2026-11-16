@@ -113,7 +113,7 @@ TOOL_CATEGORY_MAP = {
     "execute_movement": "movement",
     "tars_radio": "music", "generate_music": "music",
     "generate_image": "creative",
-    "home_assistant": "smart_home",
+    "home-assistant": "smart_home",
     "system_control": "system", "volume": "system",
     "launch_retropie": "system", "browser": "system",
     "sandbox_exec": "compute",
