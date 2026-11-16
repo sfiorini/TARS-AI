@@ -1,6 +1,6 @@
 # Agent Skills
 
-Agent Skills are **spec-pure `SKILL.md` folders** — the standard skills format. Each skill is a directory in `src/agent_skills/` containing a `SKILL.md` (frontmatter + Markdown body) and optional `scripts/`. The pool ships with one working example (`dice-roll`) and you can install your own from a folder or a `.zip`, create and edit them in the web UI, or manage them with `python3 src/app-skills.py`.
+Agent Skills are **spec-pure `SKILL.md` folders** — the standard skills format. Each skill is a directory in `src/agent_skills/` containing a `SKILL.md` (frontmatter + Markdown body) and optional `scripts/`. The pool ships with two working examples (`dice-roll`, `home-assistant`) and you can install your own from a folder or a `.zip`, create and edit them in the web UI, or manage them with `python3 src/app-skills.py`.
 
 ## The six frontmatter fields (and only these)
 
@@ -141,12 +141,36 @@ python3 src/app-skills.py reset --yes
 python3 src/app-skills.py list          # dice-roll is back
 ```
 
+## The `home-assistant` shipped example
+
+The shipped skill at `src/agent_skills_defaults/home-assistant/` controls a Home Assistant
+smart home via the REST API. Install it from the shipped folder (existing pools are NOT re-seeded):
+
+```bash
+python3 src/app-skills.py install src/agent_skills_defaults/home-assistant
+```
+
+Configure the URL and token:
+- `[SKILL_STD:home-assistant] url = http://<your-ha-ip>:8123` in `config.ini` (hand-edited), or
+  `HA_URL=http://<your-ha-ip>:8123` in `.env`.
+- `HA_TOKEN=<your-long-lived-token>` in `.env` (never passed as a skill argument, never printed).
+
+The skill supports four actions: `list_entities`, `get_state`, `list_services`, and `call_service`.
+**Start with read-only actions** (`list_entities` / `get_state`) to learn what's available before
+calling any service. The first live `call_service` should be done with the user present on a
+user-chosen benign entity (no unattended actuation).
+
+Agent skills go through the follow-up LLM (paraphrase), so the reply is not verbatim. A failed
+follow-up speaks the canned fallback line — this is a deliberate UX change from the old built-in.
+
+To remove: `python3 src/app-skills.py uninstall home-assistant` or delete from the Agent Skills UI.
+
 ## Where things live
 
 | Path | What |
 |---|---|
 | `src/agent_skills/` | the live pool (gitignored, seeded from defaults on first start) |
-| `src/agent_skills_defaults/` | the tracked shipped skills (`dice-roll`) |
+| `src/agent_skills_defaults/` | the tracked shipped skills (`dice-roll`, `home-assistant`) |
 | `src/modules/module_agent_skills.py` | parse/validate, store, `load_skill`/`run_skill_script`, descriptors |
 | `src/app-skills.py` | the CLI |
 | web UI **skills** tab | the panel (`/agent_skills/*` endpoints) |

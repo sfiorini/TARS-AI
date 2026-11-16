@@ -46,7 +46,7 @@ On first start the app seeds its per-robot state files from the tracked template
 | `src/agent_skills/` | `src/agent_skills_defaults/` |
 | `src/mcp_servers.json` | `src/mcp_servers.json.template` |
 
-Two working examples arrive **enabled out of the box**: the `dice-roll` agent skill (say "roll me a d20") and the `example` MCP server (say "what's 2 plus 3"). Verify after first launch:
+Three shipped examples arrive **enabled out of the box**: the `dice-roll` agent skill (say "roll me a d20"), the `home-assistant` agent skill (configure `HA_TOKEN` + url to use it), and the `example` MCP server (say "what's 2 plus 3"). Verify after first launch:
 
 ```bash
 python3 src/app-movements.py list      # 33 movements

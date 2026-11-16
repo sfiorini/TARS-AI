@@ -337,3 +337,74 @@ class TestHaRemovalPins:
             "[SKILL:home_assistant] still in config.ini.template"
         assert "[SKILL:discord]" in cfg_tmpl, \
             "other disabled sections missing from template"
+
+
+class TestHaDocsPins:
+    """M2-S3: HA docs + entry points + shipped-example counts."""
+
+    def test_skills_md_home_assistant_walkthrough(self):
+        text = _read("skills.md")
+        # Heading
+        heading = "## The `home-assistant` shipped example"
+        win = _section(text, heading)
+        assert "python3 src/app-skills.py install" in win, \
+            "missing install command"
+        assert "[SKILL_STD:home-assistant]" in win, \
+            "missing config section reference"
+        assert "HA_TOKEN" in win, "missing token reference"
+        assert "HA_URL" in win, "missing HA_URL reference"
+        assert "list_entities" in win, "missing action docs"
+        assert "call_service" in win, "missing action docs"
+        assert "uninstall" in win, "missing uninstall escape docs"
+
+    def test_configuration_ha_token_repointed(self):
+        text = _read("configuration.md")
+        token_row = _line_starting_with(text, "| `HA_TOKEN` |")
+        assert "home-assistant" in token_row, \
+            f"HA_TOKEN row not repointed: {token_row}"
+        assert "skill_home_assistant" not in token_row, \
+            f"skill_home_assistant still in HA_TOKEN row: {token_row}"
+
+    def test_configuration_disabled_lists_lack_ha(self):
+        text = _read("configuration.md")
+        for needle in ("discord", "generate_image", "generate_music",
+                       "network_camera", "launch_retropie"):
+            assert needle in text, \
+                f"expected disabled section '{needle}' gone from config docs"
+        # Only check the disabled-list sentences, not the debris note
+        win1 = _section(text, "### `[SKILL:<name>]`")
+        assert "home_assistant" not in win1, \
+            "home_assistant still in first disabled list"
+        # The second disabled list is in the "## Built-in command sections" body
+        # before the "### `[SKILL_STD:home-assistant]`" subsection
+        sec2 = text.split("### `[SKILL_STD:home-assistant]`")[0]
+        win2 = sec2.split("## Built-in command sections")[1]
+        assert "home_assistant" not in win2, \
+            "home_assistant still in second disabled list"
+
+    def test_configuration_std_ha_url_note(self):
+        text = _read("configuration.md")
+        assert "[SKILL_STD:home-assistant]" in text, \
+            "missing [SKILL_STD:home-assistant] url note"
+        assert "HA_URL" in text, "missing HA_URL env reference in url note"
+
+    def test_voice_pipeline_ha_historical(self):
+        text = _read("voice-pipeline.md")
+        assert "(the former home_assistant built-in)" in text, \
+            "missing historical clarification in voice-pipeline.md"
+
+    def test_entry_points_ha(self):
+        index_text = _read("index.md")
+        # Shipped example count
+        assert "two shipped examples" in index_text, \
+            "index.md still says one shipped example"
+        assert "home-assistant" in index_text, \
+            "home-assistant missing from index.md"
+        # Quickstart count
+        qs_text = _read("quickstart.md")
+        assert "Three shipped examples" in qs_text, \
+            "quickstart.md count not updated"
+        # README bullet
+        readme = (REPO_ROOT / "README.md").read_text()
+        assert "Home Assistant Agent Skill" in readme, \
+            "HA bullet missing from README"

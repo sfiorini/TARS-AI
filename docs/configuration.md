@@ -19,7 +19,7 @@ All runtime settings live in two files at the repo root: **`src/config.ini`** (I
 | `EXTERNAL_API_KEY` | Bearer key for the companion companion server — sent as `Authorization: Bearer …` by the STT (`/save_audio`), TTS (`/tts/generate`) and vision clients |
 | `VISION_API_KEY` | dedicated vision API key (falls back to the LLM key) |
 | `DISCORD_TOKEN` | `skill_discord` |
-| `HA_TOKEN` | `skill_home_assistant` |
+| `HA_TOKEN` | `home-assistant` Agent Skill |
 
 `module_config.get_api_key()` maps the active `[LLM] llm_backend` to its env var and injects it as `CONFIG['LLM']['api_key']`, sent as `Authorization: Bearer <key>`.
 
@@ -77,7 +77,7 @@ Per-provider keys: `toggle_charvoice` (use the character card's voice), `elevenl
 !!! note "Built-in Commands vs skill identifiers"
     The web UI and docs call this pool **Built-in Commands**. The internal identifiers keep their historical names: `config.ini` sections stay `[SKILL:<name>]`, files stay `skill_*.py`, and the API routes stay `/get_skills`, `/toggle_skill`, `/save_skill_config`. These are stable identifiers, not labels — nothing needs migrating.
 
-Per-command config and enable flag, e.g. `[SKILL:discord] disabled = true`. The template disables discord, home_assistant, generate_image, generate_music, network_camera, launch_retropie by default. Toggle via the web UI (`POST /toggle_skill`) or by editing the file.
+Per-command config and enable flag, e.g. `[SKILL:discord] disabled = true`. The template disables discord, generate_image, generate_music, network_camera, launch_retropie by default. Toggle via the web UI (`POST /toggle_skill`) or by editing the file.
 
 ## Pointing the robot at the server host server
 
@@ -128,4 +128,11 @@ Then restart: web UI Config tab → reboot button (`POST /reboot_program`), or `
 
 ## Built-in command sections
 
-Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `home_assistant`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered built-in commands with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new built-in commands: [Development](development.md).
+Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered built-in commands with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new built-in commands: [Development](development.md).
+
+### `[SKILL_STD:home-assistant]` url
+
+The `home-assistant` Agent Skill reads its URL from `[SKILL_STD:home-assistant] url` in `config.ini`
+(fallback: `HA_URL` in `.env`). Hand-edit this value — there is no UI writer for standard-skill
+config in v1. Live `[SKILL:home_assistant]` sections from the old built-in are preserved by
+`app_cms` and harmless.
