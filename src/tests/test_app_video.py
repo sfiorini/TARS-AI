@@ -788,6 +788,9 @@ class TestVideoApp(unittest.TestCase):
 
             self.assertIn("ipc_quit", cleanup_log)
             mock_proc.wait.assert_called_with(timeout=2)
+            # Socket UNLINK pin (close-sweep S2-6 hardening — the test
+            # name promised it but never asserted it).
+            self.assertFalse(os.path.exists(sock_path))
 
         # Test 2: terminate/kill escalation
         sock_path2 = os.path.join(sock_dir, "test2.sock")
@@ -813,6 +816,7 @@ class TestVideoApp(unittest.TestCase):
 
             mock_proc2.terminate.assert_called_once()
             mock_proc2.kill.assert_called_once()
+            self.assertFalse(os.path.exists(sock_path2))
 
         # Test 3: pygame-free — cleanup works with no pygame objects.
         # The instance matches the CURRENT generation (it "drained" the
