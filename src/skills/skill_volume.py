@@ -2,6 +2,7 @@
 
 import subprocess
 import re
+import shutil
 
 SKILL = {
     "name": "volume",
@@ -86,6 +87,11 @@ def _get_vc():
 
 def execute(parameters, context):
     """Get or adjust system volume. Returns reply text."""
+    if shutil.which("amixer") is None:
+        return (
+            "Volume control needs ALSA (amixer), which isn't "
+            "available on this platform."
+        )
     vc = _get_vc()
     action = parameters.get("action", "set")
     value = parameters.get("value", 0)
