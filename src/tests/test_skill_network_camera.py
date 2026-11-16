@@ -87,10 +87,15 @@ class TestNetworkCameraSanitization(unittest.TestCase):
     # ---- 4. rtsp error unchanged ------------------------------------
 
     def test_rtsp_error_unchanged(self):
-        """_capture_rtsp already generic — pin its message unchanged."""
-        # _capture_rtsp imports cv2 internally; mock cv2.VideoCapture
-        with mock.patch("cv2.VideoCapture") as mock_vc:
-            mock_vc.return_value.read.return_value = (False, None)
+        """_capture_rtsp already generic — pin its message unchanged.
+        cv2 is STUBBED in sys.modules: CI has no opencv, and
+        mock.patch("cv2.VideoCapture") alone requires cv2 importable
+        (ModuleNotFoundError red both CI workflows at bb5ea068). The
+        function-level `import cv2` resolves the stub; the failure path
+        only touches VideoCapture + CAP_PROP_BUFFERSIZE."""
+        fake_cv2 = mock.MagicMock()
+        fake_cv2.VideoCapture.return_value.read.return_value = (False, None)
+        with mock.patch.dict(sys.modules, {"cv2": fake_cv2}):
             _, err = self.nc._capture_rtsp(
                 "rtsp://user:pass@10.0.0.5:554/stream"
             )
