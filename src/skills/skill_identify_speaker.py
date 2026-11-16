@@ -31,7 +31,7 @@ def execute(parameters, context):
 
     # Reject invalid names the LLM sometimes hallucinates
     _INVALID_NAMES = {"null", "none", "unknown", "undefined", "n/a", "na", ""}
-    if name.lower() in _INVALID_NAMES or name.startswith("Unknown_"):
+    if name.lower() in _INVALID_NAMES or name.lower().startswith("unknown_"):
         queue_message(f"WARNING: identify_speaker_name rejected invalid name '{name}'")
         return None
 
