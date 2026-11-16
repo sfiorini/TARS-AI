@@ -129,5 +129,61 @@ class TestNetworkCameraSanitization(unittest.TestCase):
         self.assertNotIn("://", result)
 
 
+class TestSanitizationNotes(unittest.TestCase):
+    """M3-S5: post-sanitization comment/docs note pins (D20 comment sweep).
+
+    Two tests pin the updated rationale in module_skills.py and
+    voice-pipeline.md — needles 'sanitized' + 'retained', stale claims
+    absent from the relevant scoped window.
+    """
+
+    def _module_skills_comment_window(self):
+        """Return the comment block above _SPEAKABLE_BUILTIN_SKILLS."""
+        import pathlib
+        nc_file = pathlib.Path(__file__).resolve().parents[1] / "modules" / "module_skills.py"
+        text = nc_file.read_text()
+        # window: from the G9 header line to the frozenset opening
+        marker = "# G9: builtin skills whose result content is natural"
+        close = "_SPEAKABLE_BUILTIN_SKILLS = frozenset({"
+        start = text.index(marker)
+        end = text.index(close, start)
+        return text[start:end]
+
+    def _voice_pipeline_followup_window(self):
+        """Return the Follow-up failure paragraph from voice-pipeline.md."""
+        import pathlib
+        vp_file = pathlib.Path(__file__).resolve().parents[2] / "docs" / "voice-pipeline.md"
+        text = vp_file.read_text()
+        # window: the Follow-up failure section — start at the heading, end at
+        # the next same-level heading or the Rollback section
+        heading = "\n- **Follow-up failure**"
+        start = text.index(heading)
+        # end at next heading-level marker: "- **Rollback**" or end of file
+        next_marker = text.find("\n- **Rollback**", start)
+        end = next_marker if next_marker != -1 else len(text)
+        return text[start:end]
+
+    def test_module_skills_comment_has_sanitized_rationale(self):
+        """The module_skills.py comment above _SPEAKABLE_BUILTIN_SKILLS
+        contains 'sanitized' + 'retained' and does NOT contain the stale
+        'fetch-failure paths' or 'tried camera URLs' claims."""
+        window = self._module_skills_comment_window()
+        self.assertIn("sanitized", window)
+        self.assertIn("retained", window)
+        self.assertNotIn("fetch-failure paths", window)
+        self.assertNotIn("tried camera URLs", window)
+
+    def test_voice_pipeline_followup_note_has_sanitized_rationale(self):
+        """The voice-pipeline.md Follow-up failure paragraph contains
+        'sanitized' + 'retained' in the network_camera note, and does
+        NOT contain the stale 'fetch-failure paths' or 'tried camera URLs'
+        claims within that window."""
+        window = self._voice_pipeline_followup_window()
+        self.assertIn("sanitized", window)
+        self.assertIn("retained", window)
+        self.assertNotIn("fetch-failure paths", window)
+        self.assertNotIn("tried camera URLs", window)
+
+
 if __name__ == "__main__":
     unittest.main()

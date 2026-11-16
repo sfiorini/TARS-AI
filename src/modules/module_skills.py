@@ -50,9 +50,9 @@ def _get_config_path():
 # when the follow-up LLM call fails (descriptor.speakable). Everything
 # else keeps the canned fallback — raw stdout (sandbox_exec), filenames
 # (take_photo), SKILL.md bodies and MCP JSON must never be read aloud.
-# network_camera is deliberately excluded: its fetch-failure paths return
-# the tried camera URLs (which may embed credentials) as ordinary content
-# with is_error=False, so the rescue would read them aloud.
+# network_camera errors are now sanitized at the source (M3-S1); the
+# speakable exclusion is retained conservatively — no behaviour
+# expansion until the follow-up-failure path is re-audited.
 _SPEAKABLE_BUILTIN_SKILLS = frozenset({
     "capture_camera_view",
     "tars_radio",
