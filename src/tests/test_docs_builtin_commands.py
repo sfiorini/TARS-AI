@@ -34,12 +34,14 @@ class TestUiRenamePins:
         assert not re.search(r"SKILLS\'\s*:\s*\'Skills\'", MAIN_JS, re.IGNORECASE)
 
     def test_loading_commands_count_is_two(self):
-        assert MAIN_JS.count('Loading commands\u2026') == 2
+        # </span> adjacency kills substring extensions (Loading commands...x)
+        assert MAIN_JS.count('Loading commands\u2026</span>') == 2
         assert not re.search(r'Loading skills', MAIN_JS, re.IGNORECASE)
 
     def test_no_commands_discovered(self):
-        assert 'No commands discovered' in MAIN_JS
-        assert 'No skills discovered' not in MAIN_JS
+        # </div> adjacency kills substring extensions (No commands discoveredx)
+        assert 'No commands discovered</div>' in MAIN_JS
+        assert not re.search(r'No skills discovered', MAIN_JS, re.IGNORECASE)
 
     def test_toggle_toast_line_prefix_and_underscore_replacement(self):
         line = _line_starting_with(
@@ -51,11 +53,11 @@ class TestUiRenamePins:
 
     def test_failed_to_toggle_command(self):
         assert 'Failed to toggle command' in MAIN_JS
-        assert 'Failed to toggle skill' not in MAIN_JS
+        assert not re.search(r'Failed to toggle skill', MAIN_JS, re.IGNORECASE)
 
     def test_failed_to_load_commands(self):
         assert 'Failed to load commands' in MAIN_JS
-        assert 'Failed to load skills' not in MAIN_JS
+        assert not re.search(r'Failed to load skills', MAIN_JS, re.IGNORECASE)
 
 
 class TestDocsRenamePins:
@@ -100,7 +102,7 @@ class TestDocsRenamePins:
         assert "web_search" in line
         assert "tars_radio" in line
         assert "capture_camera_view" in line
-        assert "example" not in line
+        assert not re.search(r"example", line, re.IGNORECASE)
 
     def test_movements_voice_heading_command(self):
         mov = _read("movements.md")
@@ -265,6 +267,8 @@ class TestExampleRemoval:
         sys.path.insert(0, str(REPO_ROOT / "src"))
         from modules.module_skills import SkillManager
         mgr = SkillManager()
+        mgr.discover()  # the real src/skills — without this the test is vacuous
+        mgr._disabled.clear()  # every loaded skill yields a descriptor
         descriptors = list(mgr.iter_descriptors())
         names = [d.name for d in descriptors]
         assert "example" not in names
