@@ -284,16 +284,18 @@ class UIManager(threading.Thread):
         """T-28 (bench-proven 2026-11-16): when mpv closes, labwc buries
         the TARS X surface UNDER the desktop — window alive + VIEWABLE
         (_NET_WM_PID-verified), no SDL events, loop running. Fullscreen
-        toggling did NOT re-stack it; raise + input-focus does (X11)."""
+        toggle and XRaiseWindow/XSetInputFocus were bench-DISPROVEN;
+        the EWMH _NET_ACTIVE_WINDOW message restored the UI live."""
         self._restack_pending = 1
 
     def _apply_video_exit_restack(self):
         if self._restack_pending > 0:
             self._restack_pending -= 1
-            self._raise_own_window()
+            self._activate_own_window()
 
-    def _raise_own_window(self):
-        """Raise + focus our own X window so labwc re-activates it."""
+    def _activate_own_window(self):
+        """Send _NET_ACTIVE_WINDOW for our own X window (honored by
+        labwc via Xwayland xdg-activation; bench-proven)."""
         try:
             import ctypes
             wm = pygame.display.get_wm_info()
@@ -302,16 +304,41 @@ class UIManager(threading.Thread):
             if not dpy or not win:
                 return
             x = ctypes.CDLL("libX11.so.6")
-            x.XRaiseWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
-            x.XSetInputFocus.argtypes = [
-                ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_ulong]
+            x.XDefaultRootWindow.restype = ctypes.c_ulong
+            x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            x.XInternAtom.restype = ctypes.c_ulong
+            x.XInternAtom.argtypes = [
+                ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+            x.XSendEvent.argtypes = [
+                ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int,
+                ctypes.c_long, ctypes.c_void_p]
             x.XFlush.argtypes = [ctypes.c_void_p]
-            x.XRaiseWindow(dpy, win)
-            x.XSetInputFocus(dpy, win, 2, 0)  # RevertToParent, CurrentTime
+
+            class _ClientMessage(ctypes.Structure):
+                _fields_ = [
+                    ("type", ctypes.c_int), ("serial", ctypes.c_ulong),
+                    ("send_event", ctypes.c_int),
+                    ("display", ctypes.c_void_p),
+                    ("window", ctypes.c_ulong),
+                    ("message_type", ctypes.c_ulong),
+                    ("format", ctypes.c_int), ("data", ctypes.c_long * 5)]
+
+            root = x.XDefaultRootWindow(dpy)
+            atom = x.XInternAtom(dpy, b"_NET_ACTIVE_WINDOW", 0)
+            ev = _ClientMessage()
+            ev.type = 33  # ClientMessage
+            ev.send_event = 1
+            ev.display = dpy
+            ev.window = win
+            ev.message_type = atom
+            ev.format = 32
+            ev.data[0] = 2  # source indication: pager
+            mask = (1 << 19) | (1 << 20)  # SubstructureRedirect|Notify
+            x.XSendEvent(dpy, root, 0, mask, ctypes.byref(ev))
             x.XFlush(dpy)
-            queue_message("UI: raised own window after video exit (T-28)")
+            queue_message("UI: activated own window after video exit (T-28)")
         except Exception as e:
-            queue_message(f"UI: window raise failed: {e}")
+            queue_message(f"UI: window activation failed: {e}")
 
     def exit_app(self, restore_prior=False):
         if self.app_manager:

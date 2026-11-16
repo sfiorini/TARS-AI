@@ -239,12 +239,12 @@ class TestUiFramework(unittest.TestCase):
 
     # -- 0c. video-exit re-stack (T-28: labwc buries the surface) ---------
 
-    def test_video_exit_restack_raises_own_window(self):
+    def test_video_exit_restack_activates_own_window(self):
         """T-28 bench-proven: after mpv closes, the TARS X window is
         alive + VIEWABLE (_NET_WM_PID-verified) but buried under the
-        desktop; SDL gets no events. Re-stack = XRaiseWindow +
-        XSetInputFocus on our own window (fullscreen toggle did NOT
-        work — bench-tested)."""
+        desktop; SDL gets no events. XRaiseWindow/XSetInputFocus and
+        fullscreen toggle were bench-DISPROVEN; the EWMH
+        _NET_ACTIVE_WINDOW client message restored the UI live."""
         ui = self._make_ui_manager()
         mod = self._ui_mod
         ui._schedule_video_exit_restack()
@@ -252,13 +252,20 @@ class TestUiFramework(unittest.TestCase):
         disp = types.SimpleNamespace(
             get_wm_info=lambda: {"display": 12345, "window": 67890})
         fake_x = mock.MagicMock()
+        fake_x.XDefaultRootWindow.return_value = 1
+        fake_x.XInternAtom.return_value = 999
         with mock.patch.object(mod.pygame, "display", disp, create=True), \
              mock.patch("ctypes.CDLL", return_value=fake_x):
             ui._apply_video_exit_restack()
             ui._apply_video_exit_restack()
         self.assertEqual(ui._restack_pending, 0)
-        fake_x.XRaiseWindow.assert_called_once_with(12345, 67890)
-        fake_x.XSetInputFocus.assert_called_once_with(12345, 67890, 2, 0)
+        fake_x.XInternAtom.assert_called_once_with(
+            12345, b"_NET_ACTIVE_WINDOW", 0)
+        self.assertEqual(fake_x.XSendEvent.call_count, 1)
+        args = fake_x.XSendEvent.call_args[0]
+        self.assertEqual(args[0], 12345)      # display
+        self.assertEqual(args[1], 1)          # root window
+        self.assertEqual(args[3], (1 << 19) | (1 << 20))
         self.assertTrue(fake_x.XFlush.called)
 
     def test_run_loop_restack_and_driver_log_wired(self):
