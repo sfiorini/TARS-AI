@@ -1407,7 +1407,7 @@ function executeAction() {
     'TTS':'Voice','UI':'Display','RAG':'Memory',
     'ACCESS':'Access',
     'BATTERY':'Battery',
-    'SKILLS':'Skills',
+    'SKILLS':'Built-in Commands',
     'MISC':'Misc',
     'CHARACTER_EDITOR':'Character',
     'WIFI':'WiFi'
@@ -1478,10 +1478,10 @@ function executeAction() {
   function loadSkillsPanel() {
     const grid = document.getElementById('skillsGrid');
     if (!grid) return;
-    grid.innerHTML = '<div class="config-loading"><div class="hud-spinner"></div><span>Loading skills…</span></div>';
+    grid.innerHTML = '<div class="config-loading"><div class="hud-spinner"></div><span>Loading commands…</span></div>';
     fetch('/get_skills').then(r => r.json()).then(data => {
       if (!data.skills || !data.skills.length) {
-        grid.innerHTML = '<div class="text-center p-3 text-muted">No skills discovered</div>';
+        grid.innerHTML = '<div class="text-center p-3 text-muted">No commands discovered</div>';
         return;
       }
       // Skill toggle cards in a grid — each skill card followed by its own config panel
@@ -1546,13 +1546,13 @@ function executeAction() {
             body: JSON.stringify({ name, enabled })
           }).then(r => r.json()).then(res => {
             if (res.success) {
-              showToast(`Skill "${name.replace(/_/g,' ')}" ${enabled?'enabled':'disabled'}`, 'success');
+              showToast(`"${name.replace(/_/g,' ')}" ${enabled?'enabled':'disabled'}`, 'success');
             } else {
               showToast(`Failed: ${res.error}`, 'error');
               toggle.checked = !enabled;
               if (lbl) lbl.textContent = !enabled ? 'Enabled' : 'Disabled';
             }
-          }).catch(() => { showToast('Failed to toggle skill', 'error'); toggle.checked = !enabled; });
+          }).catch(() => { showToast('Failed to toggle command', 'error'); toggle.checked = !enabled; });
         });
       });
 
@@ -1624,7 +1624,7 @@ function executeAction() {
       // Re-bind tooltips for dynamically rendered skill elements
       initConfigTooltips();
     }).catch(err => {
-      grid.innerHTML = `<div class="text-center p-3 text-danger">Failed to load skills: ${err.message}</div>`;
+      grid.innerHTML = `<div class="text-center p-3 text-danger">Failed to load commands: ${err.message}</div>`;
     });
   }
 
@@ -1671,7 +1671,7 @@ function executeAction() {
         if (section === 'SKILLS') {
           html += `<div class="config-panel-body">
             <div class="skills-grid" id="skillsGrid">
-              <div class="config-loading"><div class="hud-spinner"></div><span>Loading skills…</span></div>
+              <div class="config-loading"><div class="hud-spinner"></div><span>Loading commands…</span></div>
             </div>
           </div></div>`;
           continue;

@@ -263,7 +263,7 @@ def test_index_loads_movement_editor_after_main_before_tars_preview():
     css_tag = re.search(r'<link[^>]+movement_editor\.css[^>]*>', INDEX_HTML)
     assert js_tag and len(re.findall(r'movement_editor\.js', INDEX_HTML)) == 1
     assert '?v=8.1' in js_tag.group(0)
-    assert "filename='js/main.js') }}?v=8.1" in INDEX_HTML
+    assert "filename='js/main.js') }}?v=8.2" in INDEX_HTML
     assert INDEX_HTML.index("js/main.js") < js_tag.start() < INDEX_HTML.index("js/tars_preview.js")
     assert css_tag and len(re.findall(r'movement_editor\.css', INDEX_HTML)) == 1
     assert '?v=8.2' in css_tag.group(0)
