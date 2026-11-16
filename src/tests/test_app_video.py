@@ -84,6 +84,15 @@ def _get_stub_modules():
     stubs["OpenGL.GLU"] = gl_glu
     for mod in ("sounddevice", "cv2"):
         stubs[mod] = types.ModuleType(mod)
+    # CI runners have no Pillow (local Mac does) — module_ui.py:30 and
+    # module_ui_particles.py:23 do `from PIL import Image, ImageDraw,
+    # ImageFilter` at import time. Stub only when absent (cv2 hotfix
+    # precedent f26a6528: suite must be environment-independent).
+    pil = types.ModuleType("PIL")
+    pil.Image = mock.MagicMock()
+    pil.ImageDraw = mock.MagicMock()
+    pil.ImageFilter = mock.MagicMock()
+    stubs["PIL"] = pil
     return stubs
 
 
