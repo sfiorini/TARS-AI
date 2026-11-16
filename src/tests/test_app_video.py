@@ -187,15 +187,22 @@ class TestUiFramework(unittest.TestCase):
     def test_request_app_pending_under_lock(self):
         ui = self._make_ui_manager()
 
-        def _from_thread():
-            ui.request_app("video")
+        # Verify request_app USES the lock, not just that the attribute
+        # exists (plan-acknowledged behavioral race isn't
+        # deterministically testable; the lock-acquisition pin carries it).
+        with mock.patch.object(
+            ui, "_app_request_lock", wraps=ui._app_request_lock
+        ) as mock_lock:
 
-        t = threading.Thread(target=_from_thread)
-        t.start()
-        t.join()
+            def _from_thread():
+                ui.request_app("video")
 
-        self.assertEqual(ui._pending_app_request, "video")
-        self.assertTrue(hasattr(ui._app_request_lock, "acquire"))
+            t = threading.Thread(target=_from_thread)
+            t.start()
+            t.join()
+
+            self.assertEqual(ui._pending_app_request, "video")
+            mock_lock.__enter__.assert_called()
 
     # -- 2. drain on loop tick (last-wins) -------------------------------
 
