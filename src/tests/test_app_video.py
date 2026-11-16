@@ -229,6 +229,13 @@ class TestUiFramework(unittest.TestCase):
         self.assertIn("ignoring QUIT during video transition", src)
         self.assertIn("UI: window event", src)
         self.assertIn("UI: run loop exited", src)
+        # IA benchfix M5/M6/M7 pin hardening: tick recording, QUIT log,
+        # and the actual exit action must all stay wired.
+        self.assertIn("_video_exit_ticks = pygame.time.get_ticks()", src)
+        self.assertIn("UI: QUIT received", src)
+        self.assertIn(
+            'queue_message("UI: QUIT received — exiting run loop")\n'
+            "                            self.running = False", src)
 
     # -- 1. request_app pending under lock --------------------------------
 
