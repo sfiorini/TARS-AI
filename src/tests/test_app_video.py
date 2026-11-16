@@ -805,14 +805,16 @@ class TestVideoApp(unittest.TestCase):
             mock_proc2.terminate.assert_called_once()
             mock_proc2.kill.assert_called_once()
 
-        # Test 3: pygame-free — cleanup works with no pygame objects
+        # Test 3: pygame-free — cleanup works with no pygame objects.
+        # The instance matches the CURRENT generation (it "drained" the
+        # requests above), so the D15 guard clears the residual payload.
         app3 = mod.VideoApp.__new__(mod.VideoApp)
         app3.surface = None
         app3.width = 480
         app3.height = 320
         app3._proc = None
         app3._sock_path = None
-        app3._my_generation = 0
+        app3._my_generation = mod._generation
         app3._title = ""
         app3._last_error = ""
         app3._font = None
