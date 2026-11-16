@@ -31,6 +31,38 @@ _should_exit = False       # set by VideoApp when it wants to exit
 _restore_prior = True      # whether to restore prior app on exit
 
 
+def _usb_alsa_card_number(cards_text):
+    """First USB-Audio card number from /proc/asound/cards text, or None."""
+    import re
+    for line in cards_text.splitlines():
+        m = re.match(r"^\s*(\d+)\s+\[[^\]]*\]:\s+USB-Audio\b", line)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _alsa_playback_device():
+    """ALSA playback device string for the USB card, or None.
+
+    Bench defect 2026-11-16 (robot-proven): mpv's default pipewire ao
+    STALLS when TARS holds the USB card directly via ALSA — audio-pts
+    freezes and the picture freezes with it (demuxer cache keeps
+    filling). Switching the live instance to alsa/plughw:2,0 via IPC
+    unfroze playback instantly. Direct plughw playback coexists with
+    TARS's capture; plughw does the format conversion.
+    """
+    if sys.platform != "linux":
+        return None
+    try:
+        with open("/proc/asound/cards") as f:
+            n = _usb_alsa_card_number(f.read())
+    except OSError:
+        return None
+    if n is None:
+        return None
+    return f"alsa/plughw:{n},0"
+
+
 def _speak_in_background(text):
     """Fire TTS in a background thread without blocking the render loop
     (eyes precedent, module_app_eyes._speak_in_background). D14: a
@@ -271,6 +303,13 @@ class VideoApp:
             f"--input-conf={input_conf}",
             url,
         ]
+
+        # Direct ALSA playback on the USB card — pipewire auto stalls
+        # against TARS's ALSA hold (bench defect 2026-11-16).
+        if sys.platform == "linux":
+            audio_dev = _alsa_playback_device()
+            if audio_dev:
+                argv.insert(-1, f"--audio-device={audio_dev}")
 
         popen_kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         if sys.platform == "linux":

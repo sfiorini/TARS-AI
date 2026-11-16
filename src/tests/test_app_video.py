@@ -815,6 +815,65 @@ class TestVideoApp(unittest.TestCase):
             self.assertTrue(result)
             self.assertEqual(quit_calls, [True])
 
+    # -- 6b. ALSA audio device (bench defect 2026-11-16) ------------------
+
+    def test_usb_alsa_card_parser(self):
+        """Parse the first USB-Audio card from /proc/asound/cards text."""
+        mod = self._vid_mod
+        cards = (
+            " 0 [vc4hdmi0       ]: vc4_hdmi - vc4-hdmi-0\n"
+            "                      MAI PCM i2s-hifi-0\n"
+            " 1 [vc4hdmi1       ]: vc4_hdmi - vc4-hdmi-1\n"
+            "                      MAI PCM i2s-hifi-0\n"
+            " 2 [Device         ]: USB-Audio - USB PnP Audio Device\n"
+            "                      USB PnP Audio Device at usb-0000:01:00.0-1.2\n"
+        )
+        self.assertEqual(mod._usb_alsa_card_number(cards), 2)
+        self.assertIsNone(mod._usb_alsa_card_number(
+            " 0 [vc4hdmi0       ]: vc4_hdmi - vc4-hdmi-0\n"))
+        self.assertIsNone(mod._usb_alsa_card_number(""))
+
+    def test_spawn_uses_alsa_device_on_linux_usb(self):
+        """Bench defect: mpv's pipewire ao stalls against the ALSA-held
+        USB card (audio-pts frozen -> static frame, robot-proven; live
+        IPC switch to alsa/plughw:2,0 unfroze playback). On Linux with a
+        USB card, spawn must pass --audio-device=alsa/plughw:<n>,0."""
+        mod = self._vid_mod
+        with mock.patch("subprocess.Popen") as mock_popen, \
+             mock.patch.object(mod, "_alsa_playback_device",
+                               return_value="alsa/plughw:2,0"), \
+             mock.patch("ctypes.CDLL"), \
+             mock.patch("ctypes.util.find_library", return_value="libc.so"):
+            mock_popen.return_value.poll.return_value = None
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            with mock.patch("sys.platform", "linux"):
+                app.reset()
+            argv = mock_popen.call_args[0][0]
+            self.assertIn("--audio-device=alsa/plughw:2,0", argv)
+            self.assertLess(argv.index("--audio-device=alsa/plughw:2,0"),
+                            argv.index("url"))
+            app.cleanup()
+
+    def test_spawn_no_audio_device_flag_without_usb(self):
+        """No USB card (or non-Linux) -> no --audio-device flag; mpv
+        keeps its default ao choice."""
+        mod = self._vid_mod
+        with mock.patch("subprocess.Popen") as mock_popen, \
+             mock.patch.object(mod, "_alsa_playback_device",
+                               return_value=None), \
+             mock.patch("ctypes.CDLL"), \
+             mock.patch("ctypes.util.find_library", return_value="libc.so"):
+            mock_popen.return_value.poll.return_value = None
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            with mock.patch("sys.platform", "linux"):
+                app.reset()
+            argv = mock_popen.call_args[0][0]
+            self.assertFalse(
+                [a for a in argv if a.startswith("--audio-device=")])
+            app.cleanup()
+
     # -- 7. PDEATHSIG preexec Linux-guarded -------------------------------
 
     def test_pdeathsig_preexec_linux_guarded(self):
