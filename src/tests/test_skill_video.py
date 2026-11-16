@@ -549,3 +549,24 @@ class TestYoutubeSearchResolution(unittest.TestCase):
             url, title = self._skill_mod._resolve_youtube_search("q")
         self.assertIsNone(url)
         self.assertEqual(title, "")
+
+    def test_search_fallback_rejects_non_youtube_url(self):
+        """IA benchfix O-1: no downstream host gate on the search branch
+        — the raw-url fallback must stay YouTube-only."""
+        capture = []
+        fake = self._fake_ytdlp(
+            [{"url": "https://evil.example.com/x", "title": "T"}], capture)
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake}):
+            url, title = self._skill_mod._resolve_youtube_search("q")
+        self.assertIsNone(url)
+        self.assertEqual(title, "")
+
+    def test_search_fallback_accepts_youtube_url(self):
+        capture = []
+        fake = self._fake_ytdlp(
+            [{"url": "https://www.youtube.com/watch?v=xyz", "title": "T"}],
+            capture)
+        with mock.patch.dict(sys.modules, {"yt_dlp": fake}):
+            url, title = self._skill_mod._resolve_youtube_search("q")
+        self.assertEqual(url, "https://www.youtube.com/watch?v=xyz")
+        self.assertEqual(title, "T")

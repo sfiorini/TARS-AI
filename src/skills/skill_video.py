@@ -200,7 +200,13 @@ def _resolve_youtube_search(query):
                         return f"https://www.youtube.com/watch?v={vid}", title
                     url = entry.get("url") or ""
                     if url.startswith("http"):
-                        return url, title
+                        # IA benchfix O-1: the search branch has no
+                        # downstream host gate — keep the fallback
+                        # YouTube-only.
+                        host = (urlparse(url).hostname or "").lower()
+                        if host in ("www.youtube.com", "youtube.com",
+                                    "m.youtube.com", "youtu.be"):
+                            return url, title
         return None, ""
     except Exception:
         return None, ""
