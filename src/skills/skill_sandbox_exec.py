@@ -139,7 +139,7 @@ def _validate_ast(code_str):
         # Check name access for dunder attributes
         elif isinstance(node, ast.Attribute):
             if node.attr.startswith('__') and node.attr.endswith('__'):
-                if node.attr not in ('__name__', '__doc__', '__class__'):
+                if node.attr not in ('__name__', '__doc__'):
                     raise _SafetyError(f"Forbidden dunder access: {node.attr}")
 
         # Check name references
