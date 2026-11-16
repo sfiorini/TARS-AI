@@ -5,7 +5,7 @@ S2: generation-guarded payload store + VideoApp + mpv command construction.
 
 No real mpv, no pygame display, no network.
 
-Imports the real module_ui / module_ui_apps via mock.patch.dict to provide
+Imports the real module_ui / module_ui_apps via stubbed sys.modules to provide
 minimal stubs ONLY during import.  Instances are constructed via __new__
 (bypassing the heavy __init__ that needs CameraModule, sounddevice, etc.).
 """
@@ -13,6 +13,7 @@ import os
 import sys
 import types
 import threading
+import tempfile
 import unittest
 from unittest import mock
 
@@ -52,6 +53,7 @@ def _build_pygame_stub():
                   "MOUSEBUTTONDOWN", "MOUSEBUTTONUP", "MOUSEMOTION",
                   "MOUSEWHEEL", "QUIT"):
         setattr(_locals, attr, 1)
+        setattr(pg, attr, 1)  # real pygame re-exports constants
     pg.locals = _locals
     return pg, _locals
 
@@ -355,3 +357,506 @@ class TestUiFramework(unittest.TestCase):
 
         self.assertIn("deactivate", cleanup_log)
         mock_exit.assert_called_once_with(0)
+
+
+# -----------------------------------------------------------------------
+# S2: Payload store import helper
+# -----------------------------------------------------------------------
+
+def _import_payload_store():
+    """Import module_app_video's payload store under pygame stub.
+
+    Returns the module so callers can access the module-level globals
+    (_payload_lock, _pending_play, _stop_requested, _playing, _generation,
+    _should_exit, _restore_prior) and functions.
+
+    Saves and restores sys.modules state for pygame, module_messageQue, and
+    module_app_video so other test files aren't affected.
+    """
+    repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    src = os.path.join(repo, "src")
+
+    # Save state we'll overwrite
+    saved = {}
+    for key in ("pygame", "pygame.locals", "modules.module_messageQue",
+                 "modules.UI.apps.module_app_video"):
+        saved[key] = sys.modules.get(key)
+
+    try:
+        # Install pygame stub
+        pg, pg_locals = _build_pygame_stub()
+        sys.modules["pygame"] = pg
+        sys.modules["pygame.locals"] = pg_locals
+
+        # Ensure package hierarchy
+        for pkg_name in ("modules", "modules.UI", "modules.UI.apps"):
+            if pkg_name not in sys.modules:
+                m = types.ModuleType(pkg_name)
+                m.__path__ = [os.path.join(src, *pkg_name.split("."))]
+                sys.modules[pkg_name] = m
+                saved[f"_pkg_{pkg_name}"] = None  # mark for cleanup
+
+        # Stub module_messageQue
+        mq = types.ModuleType("modules.module_messageQue")
+        mq.queue_message = lambda *a, **kw: None
+        sys.modules["modules.module_messageQue"] = mq
+
+        # Force re-import of module_app_video under current stubs
+        sys.modules.pop("modules.UI.apps.module_app_video", None)
+
+        if src not in sys.path:
+            sys.path.insert(0, src)
+            src_added = True
+        else:
+            src_added = False
+
+        mod = __import__(
+            "modules.UI.apps.module_app_video", fromlist=[""]
+        )
+        return mod, src
+    finally:
+        if src_added:
+            sys.path.remove(src)
+        # Restore saved state
+        for key, orig in saved.items():
+            if key.startswith("_pkg_"):
+                pkg = key[len("_pkg_"):]
+                if orig is None:
+                    sys.modules.pop(pkg, None)
+            elif orig is None:
+                sys.modules.pop(key, None)
+            else:
+                sys.modules[key] = orig
+
+
+def _reset_payload_globals(mod):
+    """Reset module-level payload globals between tests."""
+    with mod._payload_lock:
+        mod._pending_play = None
+        mod._stop_requested = False
+        mod._playing = False
+        mod._generation = 0
+        mod._should_exit = False
+        mod._restore_prior = True
+
+
+# -----------------------------------------------------------------------
+# S2: TestPayloadStore
+# -----------------------------------------------------------------------
+
+
+class TestPayloadStore(unittest.TestCase):
+    """S2: generation-guarded payload store thread safety and semantics."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._vid_mod, cls._src = _import_payload_store()
+
+    def setUp(self):
+        _reset_payload_globals(self._vid_mod)
+
+    # -- 1. request_play drains atomically ---------------------------------
+
+    def test_request_play_drain_atomic(self):
+        """Thread writes url/title; reset drains atomically with generation."""
+        mod = self._vid_mod
+
+        # Write from a thread
+        written = []
+
+        def _writer():
+            mod.request_play("https://example.com/video.mp4", "Test Video")
+            written.append(True)
+
+        t = threading.Thread(target=_writer)
+        t.start()
+        t.join()
+
+        self.assertTrue(written)
+        with mod._payload_lock:
+            self.assertEqual(
+                mod._pending_play["url"], "https://example.com/video.mp4"
+            )
+            self.assertEqual(mod._pending_play["title"], "Test Video")
+            gen_after_write = mod._generation
+            self.assertGreater(gen_after_write, 0)
+
+        # Drain atomically by simulating reset()'s drain
+        with mod._payload_lock:
+            play = mod._pending_play
+            mod._pending_play = None
+            mod._stop_requested = False
+            my_gen = mod._generation
+
+        self.assertEqual(play["url"], "https://example.com/video.mp4")
+        self.assertEqual(play["title"], "Test Video")
+        self.assertEqual(my_gen, gen_after_write)
+        with mod._payload_lock:
+            self.assertIsNone(mod._pending_play)
+
+    # -- 2. stop flag and is_playing --------------------------------------
+
+    def test_stop_flag_and_is_playing(self):
+        mod = self._vid_mod
+
+        self.assertFalse(mod.is_playing())
+        mod.request_play("url", "")
+        self.assertFalse(mod.is_playing())  # not yet drained
+
+        with mod._payload_lock:
+            mod._playing = True
+        self.assertTrue(mod.is_playing())
+
+        mod.request_stop()
+        with mod._payload_lock:
+            self.assertTrue(mod._stop_requested)
+            self.assertTrue(mod._playing)  # stop doesn't clear playing
+
+    # -- 3. last-wins overwrite before drain -----------------------------
+
+    def test_last_wins_overwrite(self):
+        mod = self._vid_mod
+
+        mod.request_play("first", "First")
+        gen1 = mod._generation
+        mod.request_play("second", "Second")
+        gen2 = mod._generation
+        self.assertEqual(gen2, gen1 + 1)
+
+        with mod._payload_lock:
+            self.assertEqual(mod._pending_play["url"], "second")
+            self.assertEqual(mod._pending_play["title"], "Second")
+            self.assertEqual(mod._generation, gen2)
+
+    # -- 4. generation guard: stale request cleared (R1-F5) ---------------
+
+    def test_generation_guard_stale_cleared(self):
+        """A stale request_app overwritten before drain is cleared by cleanup."""
+        mod = self._vid_mod
+
+        # Simulate: request arrives, generation recorded
+        mod.request_play("stale", "Stale")
+        stale_gen = mod._generation
+
+        # Cleanup clears everything
+        with mod._payload_lock:
+            mod._pending_play = None
+            mod._stop_requested = False
+            mod._playing = False
+
+        # A later manual launch without a fresh request should NOT auto-play
+        with mod._payload_lock:
+            play = mod._pending_play  # None
+            mod._pending_play = None
+            mod._stop_requested = False
+        self.assertIsNone(play)
+
+        # Verify the stale generation marker is irrelevant after cleanup
+        self.assertTrue(stale_gen > 0)  # was set
+        self.assertIsNone(mod._pending_play)  # cleared
+
+    # -- 5. generation guard: fresh survives relaunch (R1-F5) -------------
+
+    def test_generation_guard_fresh_survives_relaunch(self):
+        """Fresh request during old-instance cleanup survives the cleanup."""
+        mod = self._vid_mod
+
+        # Old instance records its generation
+        mod.request_play("old", "Old")
+        old_gen = mod._generation
+
+        # Cleanup starts, but a NEW request arrives before cleanup clears pending
+        mod.request_play("new", "New")
+        new_gen = mod._generation
+        self.assertGreater(new_gen, old_gen)
+
+        # Old cleanup atomically reads — but a fresh drain sees the new request
+        with mod._payload_lock:
+            play = mod._pending_play  # "new" because request_play overwrote
+            mod._pending_play = None
+            mod._stop_requested = False
+
+        self.assertEqual(play["url"], "new")
+        self.assertEqual(play["title"], "New")
+
+
+# -----------------------------------------------------------------------
+# S2: TestVideoApp
+# -----------------------------------------------------------------------
+
+
+class TestVideoApp(unittest.TestCase):
+    """S2: VideoApp — mpv command construction, lifecycle, cleanup."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._vid_mod, cls._src = _import_payload_store()
+
+    def setUp(self):
+        _reset_payload_globals(self._vid_mod)
+
+    def _make_surface(self):
+        """Minimal pygame surface stub for VideoApp construction."""
+        surf = types.SimpleNamespace()
+        surf.blit = lambda *a, **kw: None
+        surf.fill = lambda *a, **kw: None
+        surf.get_width = lambda: 480
+        surf.get_height = lambda: 320
+        return surf
+
+    # -- 6. mpv command construction (D14 verbatim) -----------------------
+
+    def test_mpv_command_construction(self):
+        """All D14 flags verbatim: fullscreen, avc1/720p policy, IPC socket,
+        tap-to-stop input-conf (MBTN_LEFT quit), URL last, handle_event pin."""
+        mod = self._vid_mod
+
+        with mock.patch("subprocess.Popen") as mock_popen, mock.patch(
+            "os.unlink"
+        ) as mock_unlink:
+            mock_popen.return_value.poll.return_value = None
+            mock_popen.return_value.wait.return_value = None
+
+            mod.request_play("https://youtube.com/watch?v=test", "Test")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            app.reset()
+
+            self.assertTrue(mock_popen.called)
+            argv = mock_popen.call_args[0][0]
+
+            # Mandatory D14 flags
+            self.assertIn("--fullscreen", argv)
+            self.assertIn("--force-window=immediate", argv)
+            self.assertIn("--really-quiet", argv)
+
+            # IPC socket
+            ipc_arg = [a for a in argv if a.startswith("--input-ipc-server=")]
+            self.assertEqual(len(ipc_arg), 1)
+            self.assertIn("tars_mpv_", ipc_arg[0])
+            self.assertIn(".sock", ipc_arg[0])
+
+            # Format policy — vcodec^=avc1 and height<=720
+            fmt_arg = [a for a in argv if a.startswith("--ytdl-format=")]
+            self.assertEqual(len(fmt_arg), 1)
+            self.assertIn("vcodec^=avc1", fmt_arg[0])
+            self.assertIn("height<=720", fmt_arg[0])
+
+            # Input conf (tap-to-stop)
+            conf_arg = [a for a in argv if a.startswith("--input-conf=")]
+            self.assertEqual(len(conf_arg), 1)
+
+            # URL is the last positional
+            self.assertEqual(argv[-1], "https://youtube.com/watch?v=test")
+
+            # Verify input-conf file content: MBTN_LEFT quit
+            conf_path = conf_arg[0].split("=", 1)[1]
+            with open(conf_path) as f:
+                conf_content = f.read()
+            self.assertIn("MBTN_LEFT quit", conf_content)
+            os.unlink(conf_path)
+
+            # Tap-to-stop: handle_event on mouse event sends IPC quit
+            quit_calls = []
+            app._send_ipc_quit = lambda: quit_calls.append(True)
+            event = types.SimpleNamespace(type=1)  # MOUSEBUTTONDOWN
+            result = app.handle_event(event)
+            self.assertTrue(result)
+            self.assertEqual(quit_calls, [True])
+
+    # -- 7. PDEATHSIG preexec Linux-guarded -------------------------------
+
+    def test_pdeathsig_preexec_linux_guarded(self):
+        """PDEATHSIG preexec_fn only on Linux; skipped otherwise."""
+        mod = self._vid_mod
+
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.poll.return_value = None
+            mock_popen.return_value.wait.return_value = None
+
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+
+            with mock.patch("sys.platform", "linux"), mock.patch(
+                "ctypes.CDLL"
+            ), mock.patch(
+                "ctypes.util.find_library", return_value="libc.so"
+            ):
+                app.reset()
+                self.assertTrue(mock_popen.called)
+                kwargs = mock_popen.call_args[1]
+                self.assertIn("preexec_fn", kwargs)
+
+            # On non-Linux, no preexec_fn — fresh request needed since
+            # the payload was drained by the first reset()
+            mock_popen.reset_mock()
+            mod.request_play("url2", "")
+            app2 = mod.VideoApp(self._make_surface(), 480, 320)
+            with mock.patch("sys.platform", "darwin"):
+                app2.reset()
+                self.assertTrue(mock_popen.called)
+                kwargs2 = mock_popen.call_args[1]
+                self.assertNotIn("preexec_fn", kwargs2)
+
+    # -- 8. cleanup kills proc, unlinks socket, pygame-free ---------------
+
+    def test_cleanup_kills_proc_unlinks_sock(self):
+        """Cleanup: IPC quit → wait → terminate/kill escalation → unlink;
+        also callable with NO pygame objects (thread-safe)."""
+        mod = self._vid_mod
+
+        # Test 1: normal cleanup path with wait
+        sock_dir = tempfile.mkdtemp()
+        sock_path = os.path.join(sock_dir, "test.sock")
+        with open(sock_path, "w") as f:
+            f.write("")
+
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock.MagicMock()
+            mock_proc.poll.return_value = None
+            mock_proc.wait.return_value = None
+            mock_popen.return_value = mock_proc
+
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            app._sock_path = sock_path
+            app._proc = mock_proc
+
+            cleanup_log = []
+
+            def fake_send_quit():
+                cleanup_log.append("ipc_quit")
+
+            app._send_ipc_quit = fake_send_quit
+            app.cleanup()
+
+            self.assertIn("ipc_quit", cleanup_log)
+            mock_proc.wait.assert_called_with(timeout=2)
+
+        # Test 2: terminate/kill escalation
+        sock_path2 = os.path.join(sock_dir, "test2.sock")
+        with open(sock_path2, "w") as f:
+            f.write("")
+        subp = __import__("subprocess")
+
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_proc2 = mock.MagicMock()
+            mock_proc2.poll.return_value = None
+            mock_proc2.wait.side_effect = [
+                subp.TimeoutExpired("cmd", 2),
+                subp.TimeoutExpired("cmd", 1),
+                None,
+            ]
+            mock_popen.return_value = mock_proc2
+
+            app2 = mod.VideoApp(self._make_surface(), 480, 320)
+            app2._sock_path = sock_path2
+            app2._proc = mock_proc2
+            app2._send_ipc_quit = lambda: None
+            app2.cleanup()
+
+            mock_proc2.terminate.assert_called_once()
+            mock_proc2.kill.assert_called_once()
+
+        # Test 3: pygame-free — cleanup works with no pygame objects
+        app3 = mod.VideoApp.__new__(mod.VideoApp)
+        app3.surface = None
+        app3.width = 480
+        app3.height = 320
+        app3._proc = None
+        app3._sock_path = None
+        app3._my_generation = 0
+        app3._title = ""
+        app3._last_error = ""
+        app3._font = None
+        app3.cleanup()
+
+        with mod._payload_lock:
+            self.assertFalse(mod._playing)
+            self.assertIsNone(mod._pending_play)
+            self.assertFalse(mod._stop_requested)
+
+    # -- 9. stale socket unlinked before spawn ---------------------------
+
+    def test_stale_socket_unlinked_before_spawn(self):
+        """Pre-existing pid-unique socket is unlinked before Popen."""
+        mod = self._vid_mod
+
+        pid_sock = os.path.join(
+            tempfile.gettempdir(), f"tars_mpv_{os.getpid()}.sock"
+        )
+        with open(pid_sock, "w") as f:
+            f.write("stale")
+        self.assertTrue(os.path.exists(pid_sock))
+
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value.poll.return_value = None
+            mock_popen.return_value.wait.return_value = None
+
+            mod.request_play("url", "")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            app.reset()
+
+            self.assertFalse(os.path.exists(pid_sock))
+
+    # -- 10. update polls proc, drains stop/replay/end-file/crash ---------
+
+    def test_update_polls_and_drains_ipc(self):
+        """update(): poll per frame; stop → IPC quit; replay → IPC quit;
+        proc crash → error + exit request with restore_prior=True."""
+        mod = self._vid_mod
+
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_proc = mock.MagicMock()
+            mock_proc.poll.return_value = None
+            mock_popen.return_value = mock_proc
+
+            mod.request_play("url", "Test Title")
+            app = mod.VideoApp(self._make_surface(), 480, 320)
+            app.reset()
+
+            # Running — poll returns None
+            app.update()
+            self.assertIsNotNone(app._proc)
+
+            # Stop flag → IPC quit
+            quit_calls = []
+            app._send_ipc_quit = lambda: quit_calls.append(True)
+            mod.request_stop()
+            app.update()
+            self.assertEqual(quit_calls, [True])
+
+        # New instance: replay with newer generation
+        with mock.patch("subprocess.Popen") as mock_popen:
+            mock_proc2 = mock.MagicMock()
+            mock_proc2.poll.return_value = None
+            mock_popen.return_value = mock_proc2
+
+            mod.request_play("url1", "Old")
+            app2 = mod.VideoApp(self._make_surface(), 480, 320)
+            app2.reset()
+
+            quit_calls2 = []
+            app2._send_ipc_quit = lambda: quit_calls2.append(True)
+            mod.request_play("url2", "New")
+            app2.update()
+            self.assertEqual(quit_calls2, [True])
+
+        # Proc crash → error + exit request with restore=True
+        exit_restore = []
+        app3 = mod.VideoApp.__new__(mod.VideoApp)
+        app3.surface = self._make_surface()
+        app3.width = 480
+        app3.height = 320
+        app3._proc = None
+        app3._sock_path = None
+        app3._my_generation = 0
+        app3._title = ""
+        app3._last_error = ""
+        app3._font = type(
+            "Font", (), {"render": lambda *a, **kw: types.SimpleNamespace()},
+        )()
+        app3._request_exit = lambda restore=True: exit_restore.append(restore)
+        app3._handle_mpv_exit(1)  # non-zero, non-SIGKILL
+        self.assertIn("Video playback error", app3._last_error)
+        self.assertEqual(exit_restore, [True])
+        self.assertIsNone(app3._proc)

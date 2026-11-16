@@ -112,6 +112,8 @@ class VideoApp:
 
     def update(self):
         """Called every frame on the UI thread."""
+        global _stop_requested, _pending_play, _generation
+
         if self._proc is None:
             return
 
