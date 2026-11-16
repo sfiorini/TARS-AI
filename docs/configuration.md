@@ -146,11 +146,21 @@ device display.  It replaces the external-browser built-in.
 Pi 4 and Pi 5, and yt-dlp on Pi 4 and Pi 5.  Run `pip install -U yt-dlp` in
 the virtual environment if missing.
 
-**Stop affordances:** voice ("stop the video") and tap-anywhere-to-stop (any
-mouse or touch input on the video surface quits playback).
+**Stop affordances:** **tap anywhere on the video surface** is the reliable
+stop during playback (any mouse or touch input quits mpv).  Voice ("stop the
+video") is understood, but while mpv holds the audio device TARS cannot hear
+or speak (see below), so a voice stop is effectively answered once playback
+ends — tap to stop immediately.
 
-**Return behaviour:** playback returns to the *previous app* (the app that was
-active when video was launched).  ESC always exits to the terminal.
+**During playback:** mpv owns the USB audio device, so TARS is effectively
+deaf and mute until the video stops: voice commands are not actioned
+mid-video, and spoken confirmations or error lines may not be audible.  This
+is a known limitation; an audio handoff (TARS yields the device during video)
+is a planned follow-up.
+
+**Return behaviour:** when the video stops, the on-device display returns
+automatically to the *previous app* — or to the base visualization if no app
+was active.  ESC exits the current app.
 
 **Per-site toggles** in `[SKILL:video]` (booleans):
 

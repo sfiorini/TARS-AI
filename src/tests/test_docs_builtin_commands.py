@@ -365,6 +365,10 @@ class TestHaDocsPins:
         assert "user present" in win, \
             "missing attended-first-call guidance (D11)"
         assert "canned fallback" in win, "missing UX-delta note (D8)"
+        # fresh-install seeding behaviour (user question 2026-11-16)
+        assert "fresh install" in win, "missing fresh-install seeding note"
+        assert "seeded automatically" in win, \
+            "missing auto-seed claim for fresh installs"
 
     def test_configuration_ha_token_repointed(self):
         text = _read("configuration.md")
@@ -478,7 +482,11 @@ class TestVideoDocsPins(unittest.TestCase):
             m, "video subsection heading missing or re-leveled")
         win = c[m.end():].split("\n## ", 1)[0].split("\n### ", 1)[0]
         for needle in ("site_youtube", "mpv", "yt-dlp", "tap",
-                       "previous app", "extractor", "Live streams"):
+                       "previous app", "extractor", "Live streams",
+                       # bench-verified behaviour (2026-11-16): tap is the
+                       # reliable stop; TARS deaf/mute while mpv holds audio;
+                       # display auto-restores after video.
+                       "deaf", "audio device", "automatically"):
             self.assertIn(needle, win,
                           f"video subsection lost claim: {needle}")
 

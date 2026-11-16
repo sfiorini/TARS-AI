@@ -274,6 +274,14 @@ class TestUiFramework(unittest.TestCase):
         self.assertEqual(args[0], 12345)      # display
         self.assertEqual(args[1], 1)          # root window
         self.assertEqual(args[3], (1 << 19) | (1 << 20))
+        # IA F-IA1: pin the full event payload (source indication 2 =
+        # pager is the bench-proven EWMH-correct value).
+        ev = args[4]._obj
+        self.assertEqual(ev.type, 33)
+        self.assertEqual(ev.format, 32)
+        self.assertEqual(ev.window, 67890)
+        self.assertEqual(ev.message_type, 999)
+        self.assertEqual(ev.data[0], 2)
         self.assertTrue(fake_x.XFlush.called)
 
     def test_run_loop_restack_and_driver_log_wired(self):

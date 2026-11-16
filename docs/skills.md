@@ -144,7 +144,10 @@ python3 src/app-skills.py list          # dice-roll is back
 ## The `home-assistant` shipped example
 
 The shipped skill at `src/agent_skills_defaults/home-assistant/` controls a Home Assistant
-smart home via the REST API. Install it from the shipped folder (existing pools are NOT re-seeded):
+smart home via the REST API. On a **fresh install** the skill is seeded automatically at first
+app start (the defaults pool includes `home-assistant` alongside `dice-roll`) — only the
+configuration below is manual. Existing pools are NOT re-seeded, so on an existing installation
+install it from the shipped folder:
 
 ```bash
 python3 src/app-skills.py install src/agent_skills_defaults/home-assistant
