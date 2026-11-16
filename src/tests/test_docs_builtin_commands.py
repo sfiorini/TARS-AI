@@ -177,6 +177,12 @@ class TestDocsRenamePins:
         dev = _read("development.md")
         dev_line = _line_starting_with(dev, "| **Agent skill**")
         assert "Agent Skills" in dev_line
+        # T-26 accuracy: the old "no restart" claim was disproven on the
+        # bench — directly-callable skills need a restart after install.
+        assert "restart" in dev_line, \
+            "agent-skill row lost the restart caveat (T-26)"
+        assert "no restart" not in dev_line, \
+            "disproven 'no restart' claim returned (T-26)"
         # configuration.md:21 skill_discord filename reference
         assert "`skill_discord`" in cfg
 
@@ -369,6 +375,9 @@ class TestHaDocsPins:
         assert "fresh install" in win, "missing fresh-install seeding note"
         assert "seeded automatically" in win, \
             "missing auto-seed claim for fresh installs"
+        # T-26: runtime install needs a restart for direct dispatch
+        assert "restart the app" in win, \
+            "missing post-install restart guidance (T-26)"
 
     def test_configuration_ha_token_repointed(self):
         text = _read("configuration.md")

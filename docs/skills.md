@@ -153,6 +153,10 @@ install it from the shipped folder:
 python3 src/app-skills.py install src/agent_skills_defaults/home-assistant
 ```
 
+After installing into a running pool, **restart the app** so the skill becomes
+directly callable by voice (tool descriptors register at startup; the
+`load_skill` path works without a restart).
+
 Configure the URL and token:
 - `[SKILL_STD:home-assistant] url = http://<your-ha-ip>:8123` in `config.ini` (hand-edited), or
   `HA_URL=http://<your-ha-ip>:8123` in `.env`.
