@@ -730,13 +730,18 @@ class TestVideoApp(unittest.TestCase):
 
             with mock.patch("sys.platform", "linux"), mock.patch(
                 "ctypes.CDLL"
-            ), mock.patch(
+            ) as mock_cdll, mock.patch(
                 "ctypes.util.find_library", return_value="libc.so"
             ):
                 app.reset()
                 self.assertTrue(mock_popen.called)
                 kwargs = mock_popen.call_args[1]
                 self.assertIn("preexec_fn", kwargs)
+                # Behavioral pin (close-sweep S2-3 hardening): the preexec
+                # must ACTUALLY set PR_SET_PDEATHSIG=1 to SIGTERM=15 —
+                # presence-only let a dropped prctl call survive.
+                kwargs["preexec_fn"]()
+                mock_cdll.return_value.prctl.assert_called_once_with(1, 15)
 
             # On non-Linux, no preexec_fn — fresh request needed since
             # the payload was drained by the first reset()
