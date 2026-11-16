@@ -205,7 +205,9 @@ def _redact_url(url_str):
             )
     except Exception:
         pass
-    return url_str
+    # No-scheme fallback (audit IA-F3): strip a leading user:pass@ so
+    # userinfo never survives even when urlparse finds no hostname.
+    return re.sub(r"^[^@/\s]+@", "", url_str)
 
 
 def _capture_rtsp(url, width=640):

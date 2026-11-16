@@ -100,33 +100,67 @@ class TestNetworkCameraSanitization(unittest.TestCase):
     # ---- 5. _redact_url helper --------------------------------------
 
     def test_redact_url_strips_userinfo(self):
-        """_redact_url strips user:pass@, keeps scheme+host."""
+        """_redact_url strips user:pass@, keeps scheme+host; no-scheme
+        userinfo is stripped too (audit IA-F3 fallback)."""
         result = self.nc._redact_url(
             "http://admin:secret@192.168.1.100:8080/some/path"
         )
         self.assertEqual(result, "http://192.168.1.100:8080")
         self.assertNotIn("admin", result)
         self.assertNotIn("secret", result)
+        no_scheme = self.nc._redact_url("user:pass@host/path")
+        self.assertNotIn("user:pass", no_scheme)
+        self.assertEqual(no_scheme, "host/path")
 
     # ---- 6. handlers wrap sanitized err -----------------------------
 
     def test_handlers_wrap_sanitized_err(self):
         """At execute level with a failing camera → RETURNED content has
-        no :// (the leak path is content → follow-up LLM → speech)."""
+        no :// and no userinfo (the leak path is content → follow-up LLM
+        → speech). Audit IA-F1/IB-F1: parametrized over snapshot/analyze
+        × http/agentdvr (previously snapshot-only) + the stream
+        registration reply."""
         exc_with_url = _req_exc(
             "ConnectionError to http://user:pass@10.0.0.5:8080/snap.jpg"
         )
-        with mock.patch("requests.get", side_effect=exc_with_url):
-            result = self.nc.execute(
-                {"camera": "driveway", "action": "snapshot"},
-                {
-                    "skill_config": {
-                        "cameras": '[{"name":"driveway","url":"http://x:y@10.0.0.5:8080/snap.jpg","type":"http"}]'
-                    },
-                    "source": "voice",
-                },
-            )
-        self.assertNotIn("://", result)
+        cams = {
+            "http": '[{"name":"driveway","url":"http://x:y@10.0.0.5:8080/snap.jpg","type":"http"}]',
+            "agentdvr": '[{"name":"driveway","type":"agentdvr"}]',
+        }
+        for action in ("snapshot", "analyze"):
+            for ctype, cam_json in cams.items():
+                with self.subTest(action=action, type=ctype):
+                    with mock.patch("requests.get",
+                                    side_effect=exc_with_url):
+                        result = self.nc.execute(
+                            {"camera": "driveway", "action": action},
+                            {
+                                "skill_config": {
+                                    "cameras": cam_json,
+                                    "agentdvr_url": "http://10.0.0.5:8080",
+                                },
+                                "source": "voice",
+                            },
+                        )
+                    self.assertNotIn("://", result)
+                    self.assertNotIn("user:pass", result)
+                    self.assertNotIn("x:y@", result)
+        # stream: registration reply must also carry no URL/userinfo
+        for ctype, cam_json in cams.items():
+            with self.subTest(action="stream", type=ctype):
+                with mock.patch.object(self.nc, "_ensure_stream_route"):
+                    result = self.nc.execute(
+                        {"camera": "driveway", "action": "stream"},
+                        {
+                            "skill_config": {
+                                "cameras": cam_json,
+                                "agentdvr_url": "http://10.0.0.5:8080",
+                            },
+                            "source": "voice",
+                        },
+                    )
+                self.assertNotIn("://", result)
+                self.assertNotIn("user:pass", result)
 
 
 class TestSanitizationNotes(unittest.TestCase):
@@ -168,8 +202,10 @@ class TestSanitizationNotes(unittest.TestCase):
         contains 'sanitized' + 'retained' and does NOT contain the stale
         'fetch-failure paths' or 'tried camera URLs' claims."""
         window = self._module_skills_comment_window()
-        self.assertIn("sanitized", window)
-        self.assertIn("retained", window)
+        # word-boundary needles (audit IB-F2: substring "sanitizedd"
+        # extension must not satisfy the pin)
+        self.assertRegex(window, r"\bsanitized\b")
+        self.assertRegex(window, r"\bretained\b")
         self.assertNotIn("fetch-failure paths", window)
         self.assertNotIn("tried camera URLs", window)
 
@@ -179,8 +215,10 @@ class TestSanitizationNotes(unittest.TestCase):
         NOT contain the stale 'fetch-failure paths' or 'tried camera URLs'
         claims within that window."""
         window = self._voice_pipeline_followup_window()
-        self.assertIn("sanitized", window)
-        self.assertIn("retained", window)
+        # word-boundary needles (audit IB-F2: substring "sanitizedd"
+        # extension must not satisfy the pin)
+        self.assertRegex(window, r"\bsanitized\b")
+        self.assertRegex(window, r"\bretained\b")
         self.assertNotIn("fetch-failure paths", window)
         self.assertNotIn("tried camera URLs", window)
 

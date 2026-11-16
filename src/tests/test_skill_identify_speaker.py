@@ -48,17 +48,19 @@ class TestIdentifySpeakerCaseFix(unittest.TestCase):
     # ---- 2. mixed-case unknown rejected -----------------------------
 
     def test_mixed_case_unknown_rejected(self):
-        """"Unknown_foo" → None (existing behavior preserved)."""
-        with mock.patch(
-            "modules.module_messageQue.queue_message"
-        ) as mock_q:
-            result = self.sid.execute(
-                {"name": "Unknown_foo"},
-                {},
-            )
-        self.assertIsNone(result)
-        mock_q.assert_called_once()
-        self.assertIn("rejected", mock_q.call_args[0][0])
+        """ALL case variants of Unknown_ → None (audit IA-F2: a
+        two-variant startswith mutation slipped past UnKnOwN_foo when
+        only Unknown_foo was pinned)."""
+        for name in ("Unknown_foo", "UnKnOwN_foo", "UNKNOWN_FOO",
+                     "uNkNoWn_Bar"):
+            with self.subTest(name=name):
+                with mock.patch(
+                    "modules.module_messageQue.queue_message"
+                ) as mock_q:
+                    result = self.sid.execute({"name": name}, {})
+                self.assertIsNone(result)
+                mock_q.assert_called_once()
+                self.assertIn("rejected", mock_q.call_args[0][0])
 
     # ---- 3. valid name passes ---------------------------------------
 
