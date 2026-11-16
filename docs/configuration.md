@@ -48,6 +48,13 @@ Deferred reply loop keys (all optional — old config.ini files keep working):
 
 `enabled` (default `True`, master switch), `body_char_limit` (default `4000`, how much of a skill body `load_skill` returns), `prompt_budget_chars` (default `3000`, the agent-skills prompt block budget — overflow drops entries alphabetically and logs each drop). Per-skill config values persist under `[SKILL_STD:<name>]` sections.
 
+### `[SKILL_STD:home-assistant]` url
+
+The `home-assistant` Agent Skill reads its URL from `[SKILL_STD:home-assistant] url` in `config.ini`
+(fallback: `HA_URL` in `.env`). Hand-edit this value — there is no UI writer for standard-skill
+config in v1. Live `[SKILL:home_assistant]` sections from the old built-in are preserved by
+`app_cms` and harmless.
+
 ### `[MCP]` — the MCP client
 
 `enabled` (default `True`), `prompt_budget_chars` (default `4000`, the MCP tools prompt block budget), `request_timeout` (default `30` s per JSON-RPC request), `health_interval_s` (default `60`, periodic ping; `0` disables), `restart_max_attempts` (default `3` consecutive failures before a server is degraded). See [MCP](mcp.md).
@@ -129,10 +136,3 @@ Then restart: web UI Config tab → reboot button (`POST /reboot_program`), or `
 ## Built-in command sections
 
 Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered built-in commands with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new built-in commands: [Development](development.md).
-
-### `[SKILL_STD:home-assistant]` url
-
-The `home-assistant` Agent Skill reads its URL from `[SKILL_STD:home-assistant] url` in `config.ini`
-(fallback: `HA_URL` in `.env`). Hand-edit this value — there is no UI writer for standard-skill
-config in v1. Live `[SKILL:home_assistant]` sections from the old built-in are preserved by
-`app_cms` and harmless.

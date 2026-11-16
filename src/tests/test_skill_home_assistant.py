@@ -333,24 +333,81 @@ class TestHaRestScript(unittest.TestCase):
     @mock.patch("urllib.request.urlopen")
     @mock.patch("urllib.request.Request")
     def test_token_never_echoed(self, mock_req_cls, mock_urlopen_cls):
-        """Sentinel token absent from ALL stdout/stderr across actions."""
-        cm = mock.MagicMock()
-        cm.__enter__ = mock.MagicMock(return_value=cm)
-        cm.__exit__ = mock.MagicMock(return_value=False)
-        cm.status = 200
-        cm.read.return_value = json.dumps(_states_fixture(2, 2)).encode(
-            "utf-8")
-        cm.getheader.return_value = "application/json"
-        mock_urlopen_cls.return_value = cm
+        """Sentinel token absent from ALL stdout/stderr across ALL four
+        actions AND the error paths (M2 audit IA-F1/IB-F1: the delivered
+        version covered only 2 success-path actions — a token appended to
+        a 401 message passed the suite)."""
+        import urllib.error
 
-        for action in ("list_entities", "list_services"):
-            with self.subTest(action=action):
-                ec, out, err = self._run_main([action])
-                self.assertEqual(ec, 0, err)
-                self.assertNotIn(self._sentinel_token, out,
-                                 f"token leaked on stdout for {action}")
-                self.assertNotIn(self._sentinel_token, err,
-                                 f"token leaked on stderr for {action}")
+        action_argv = {
+            "list_entities": ["list_entities"],
+            "get_state": ["get_state", "light.kitchen"],
+            "list_services": ["list_services"],
+            "call_service": ["call_service", "light.kitchen", "light",
+                             "turn_on", "{}"],
+        }
+        success_payload = {
+            "list_entities": _states_fixture(2, 2),
+            "get_state": {"entity_id": "light.kitchen", "state": "on",
+                          "attributes": {"friendly_name": "Kitchen"}},
+            "list_services": [{"domain": "light",
+                               "services": {"turn_on": {},
+                                            "turn_off": {}}}],
+            "call_service": [],
+        }
+
+        def _cm(payload):
+            cm = mock.MagicMock()
+            cm.__enter__ = mock.MagicMock(return_value=cm)
+            cm.__exit__ = mock.MagicMock(return_value=False)
+            cm.status = 200
+            cm.read.return_value = json.dumps(payload).encode("utf-8")
+            cm.getheader.return_value = "application/json"
+            return cm
+
+        def _check(action, extra_env=None):
+            ec, out, err = self._run_main(action_argv[action],
+                                          **(extra_env or {}))
+            self.assertNotIn(self._sentinel_token, out,
+                             f"token leaked on stdout for {action}")
+            self.assertNotIn(self._sentinel_token, err,
+                             f"token leaked on stderr for {action}")
+            return ec
+
+        for action in action_argv:
+            mock_urlopen_cls.side_effect = None
+            mock_urlopen_cls.return_value = _cm(success_payload[action])
+            with self.subTest(action=action, case="success"):
+                self.assertEqual(_check(action), 0)
+            mock_urlopen_cls.side_effect = urllib.error.HTTPError(
+                "http://ha.local/api/states", 401, "Unauthorized", {},
+                io.BytesIO(b""))
+            with self.subTest(action=action, case="http401"):
+                self.assertNotEqual(_check(action), 0)
+            mock_urlopen_cls.side_effect = urllib.error.URLError(
+                "connection refused")
+            with self.subTest(action=action, case="urlerror"):
+                self.assertNotEqual(_check(action), 0)
+            mock_urlopen_cls.side_effect = None
+            bad = _cm([])
+            bad.read.return_value = b"<html>not json</html>"
+            mock_urlopen_cls.return_value = bad
+            with self.subTest(action=action, case="nonjson"):
+                self.assertNotEqual(_check(action), 0)
+        # missing-token exit (URL resolves via setUp HA_URL)
+        mock_urlopen_cls.side_effect = None
+        with self.subTest(case="missing-token"):
+            ec, out, err = self._run_main(["list_entities"], HA_TOKEN="")
+            self.assertNotEqual(ec, 0)
+            self.assertNotIn(self._sentinel_token, out + err)
+        # missing-URL exit with the token PRESENT — it must not leak
+        self._write_config(url=None)
+        with self.subTest(case="missing-url"):
+            ec, out, err = self._run_main(
+                ["list_entities"], HA_URL="",
+                TARS_CONFIG_PATH=self._tmp_config)
+            self.assertNotEqual(ec, 0)
+            self.assertNotIn(self._sentinel_token, out + err)
 
     # ── test 14: token missing exit1 ────────────────────────────
 
@@ -488,14 +545,20 @@ class TestHaRestScript(unittest.TestCase):
         self.assertIn("usage:", proc.stderr.lower())
 
     def test_real_subprocess_url_self_sourcing(self):
-        """TARS_CONFIG_PATH → URL resolves, token error proves it ran."""
+        """TARS_CONFIG_PATH branch self-sources the URL: token absent and
+        NO HA_URL fallback, so the token error (not the URL error) proves
+        the URL resolved from the temp config. BRANCH-SENSITIVE (M2 audit
+        IB-F5): deleting the TARS_CONFIG_PATH branch falls to the default
+        config (no HA url in the suite environment) and then to the empty
+        HA_URL → URL error → this test fails. URL is resolved before the
+        token check in _request (IB-F5/F6 fix)."""
         self._write_config(url=self._ha_url)
         proc = subprocess.run(
             [sys.executable, _HA_SCRIPT, "list_entities"],
             capture_output=True, text=True, timeout=10,
             env={**os.environ,
                  "HA_TOKEN": "",
-                 "HA_URL": "http://wrong.example.com:8123",
+                 "HA_URL": "",
                  "TARS_CONFIG_PATH": self._tmp_config},
         )
         self.assertNotEqual(proc.returncode, 0)
@@ -505,3 +568,6 @@ class TestHaRestScript(unittest.TestCase):
         with open(_HA_SCRIPT, "r") as fh:
             source = fh.read()
         self.assertIn('parents[3] / "config.ini"', source)
+        # Structural pin (IB-F6): the default-config branch is the ELSE of
+        # the TARS_CONFIG_PATH check — no fall-through when it is set.
+        self.assertRegex(source, r"if config_path:[\s\S]*?\n    else:")

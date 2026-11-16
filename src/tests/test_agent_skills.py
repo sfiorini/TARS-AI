@@ -539,12 +539,19 @@ class TestDescriptorsAndPrompt(_PoolTestCase):
         self.assertFalse(getattr(ha, "speakable", False))
         self.assertIn("action", ha.parameters.get("required", []))
         self.assertIn("entity_id", ha.parameters.get("properties", {}))
+        # EXACT parameter set (M2 audit IA-F4/IB-F2): presence-only pins
+        # let a token-as-arg property slip into the LLM-visible schema.
+        self.assertEqual(set(ha.parameters.get("properties", {}).keys()),
+                         {"action", "entity_id", "domain", "service",
+                          "data"})
+        self.assertEqual(ha.parameters.get("required", []), ["action"])
 
     def test_home_assistant_one_hop_args_render_empty_placeholders(self):
         """_make_agent_exec renders ['list_entities','','','',''] for
         {"action": "list_entities"} with missing placeholders → ''.
-        Test the body and schema are well-formed; the rendering is tested
-        implicitly via the descriptor dispatch (M5 runbook step 5)."""
+        M2 audit IA-F2/IB-F4: the delivered test only checked body/schema
+        well-formedness — now the exec closure is ACTUALLY called with
+        run_skill_script mocked and the exact rendered args asserted."""
         ok, errors = self.store.install_from_folder(_HA_DEFAULTS)
         self.assertTrue(ok, errors)
         body = self.store._raw_body("home-assistant")
@@ -562,6 +569,29 @@ class TestDescriptorsAndPrompt(_PoolTestCase):
         self.assertIn("<domain>", body)
         self.assertIn("<service>", body)
         self.assertIn("<data>", body)
+        # Behavioral render pin: call the real exec closure.
+        from modules.module_toolregistry import ToolResult
+        ha = None
+        for d in self.store.iter_descriptors():
+            if d.name == "home-assistant":
+                ha = d
+        self.assertIsNotNone(ha)
+        with mock.patch.object(
+                self.store, "run_skill_script",
+                return_value=ToolResult(content="ok")) as m_run:
+            ha.execute({"action": "list_entities"}, None)
+            m_run.assert_called_once_with(
+                "home-assistant", "ha_rest.py",
+                ["list_entities", "", "", "", ""])
+            m_run.reset_mock()
+            ha.execute({"action": "call_service",
+                        "entity_id": "light.kitchen", "domain": "light",
+                        "service": "turn_on",
+                        "data": '{"brightness_pct": 50}'}, None)
+            m_run.assert_called_once_with(
+                "home-assistant", "ha_rest.py",
+                ["call_service", "light.kitchen", "light", "turn_on",
+                 '{"brightness_pct": 50}'])
 
     def test_meta_tools_in_prompt(self):
         block, included, dropped = self.store.build_prompt_block()

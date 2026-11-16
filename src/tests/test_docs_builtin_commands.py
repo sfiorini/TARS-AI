@@ -356,13 +356,21 @@ class TestHaDocsPins:
         assert "list_entities" in win, "missing action docs"
         assert "call_service" in win, "missing action docs"
         assert "uninstall" in win, "missing uninstall escape docs"
+        # D11 safety guidance + D8 UX delta (M2 audit IA-F3/IB-F3: these
+        # paragraphs were deletable with the pins green)
+        assert "Start with read-only actions" in win, \
+            "missing read-only-first safety guidance (D11)"
+        assert "user present" in win, \
+            "missing attended-first-call guidance (D11)"
+        assert "canned fallback" in win, "missing UX-delta note (D8)"
 
     def test_configuration_ha_token_repointed(self):
         text = _read("configuration.md")
         token_row = _line_starting_with(text, "| `HA_TOKEN` |")
         assert "home-assistant" in token_row, \
             f"HA_TOKEN row not repointed: {token_row}"
-        assert "skill_home_assistant" not in token_row, \
+        assert not re.search(r"skill_home_assistant", token_row,
+                             re.IGNORECASE), \
             f"skill_home_assistant still in HA_TOKEN row: {token_row}"
 
     def test_configuration_disabled_lists_lack_ha(self):
@@ -372,14 +380,16 @@ class TestHaDocsPins:
             assert needle in text, \
                 f"expected disabled section '{needle}' gone from config docs"
         # Only check the disabled-list sentences, not the debris note
+        # (case-insensitive per §0.3.6 — M2 audit IA-F7)
         win1 = _section(text, "### `[SKILL:<name>]`")
-        assert "home_assistant" not in win1, \
+        assert not re.search(r"home_assistant", win1, re.IGNORECASE), \
             "home_assistant still in first disabled list"
-        # The second disabled list is in the "## Built-in command sections" body
-        # before the "### `[SKILL_STD:home-assistant]`" subsection
-        sec2 = text.split("### `[SKILL_STD:home-assistant]`")[0]
-        win2 = sec2.split("## Built-in command sections")[1]
-        assert "home_assistant" not in win2, \
+        # The second disabled list is the "## Built-in command sections"
+        # intro paragraph (up to the next ### heading). The url-note +
+        # debris subsection now lives AFTER [STANDARD_SKILLS] (audit
+        # IB-F7 relocation), so it is outside this window by construction.
+        win2 = text.split("## Built-in command sections")[1].split("\n###")[0]
+        assert not re.search(r"home_assistant", win2, re.IGNORECASE), \
             "home_assistant still in second disabled list"
 
     def test_configuration_std_ha_url_note(self):
@@ -387,6 +397,20 @@ class TestHaDocsPins:
         assert "[SKILL_STD:home-assistant]" in text, \
             "missing [SKILL_STD:home-assistant] url note"
         assert "HA_URL" in text, "missing HA_URL env reference in url note"
+        # Placement (audit IB-F7): the note belongs AFTER the
+        # [STANDARD_SKILLS] subsection, BEFORE [MCP] — not at EOF under
+        # Built-in command sections.
+        note_i = text.index("### `[SKILL_STD:home-assistant]` url")
+        assert note_i > text.index("### `[STANDARD_SKILLS]`"), \
+            "url note must sit after the [STANDARD_SKILLS] subsection"
+        assert note_i < text.index("### `[MCP]`"), \
+            "url note must sit before [MCP] (plan §0.4 placement)"
+        # Content needles (audit IA-F6): hand-edit guidance + the
+        # preserved/harmless debris claim, scoped to the note window.
+        win = text[note_i:].split("\n### ")[0].split("\n## ")[0]
+        assert "Hand-edit" in win, "url note lost the hand-edit guidance"
+        assert "preserved" in win, "url note lost the debris-preserved claim"
+        assert "harmless" in win, "url note lost the debris-harmless claim"
 
     def test_voice_pipeline_ha_historical(self):
         text = _read("voice-pipeline.md")
@@ -400,10 +424,14 @@ class TestHaDocsPins:
             "index.md still says one shipped example"
         assert "home-assistant" in index_text, \
             "home-assistant missing from index.md"
-        # Quickstart count
+        # Quickstart count + HA membership on the count line (audit
+        # IA-F5/IB-F3: the membership was deletable with the pin green)
         qs_text = _read("quickstart.md")
         assert "Three shipped examples" in qs_text, \
             "quickstart.md count not updated"
+        qs_line = _line_starting_with(qs_text, "Three shipped examples")
+        assert "home-assistant" in qs_line, \
+            "quickstart count line lost the home-assistant membership"
         # README bullet
         readme = (REPO_ROOT / "README.md").read_text()
         assert "Home Assistant Agent Skill" in readme, \

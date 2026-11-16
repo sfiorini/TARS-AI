@@ -27,6 +27,10 @@ def _usage():
 
 
 def _resolve_url():
+    # D6 literal order: TARS_CONFIG_PATH if set (EXCLUSIVE — no fall-through
+    # to the default config), ELSE the script-relative default config;
+    # then HA_URL env; then exit 1. (M2 audit IB-F6: the delivered version
+    # consulted the default config even when TARS_CONFIG_PATH was set.)
     config_path = os.environ.get("TARS_CONFIG_PATH")
     if config_path:
         parser = configparser.ConfigParser()
@@ -34,15 +38,16 @@ def _resolve_url():
         url = parser.get("SKILL_STD:home-assistant", "url", fallback="")
         if url:
             return url
-    # default branch: script → scripts → home-assistant → agent_skills_defaults → src
-    default_config = (Path(__file__).resolve().parents[3]
-                      / "config.ini")
-    if default_config.exists():
-        parser = configparser.ConfigParser()
-        parser.read(str(default_config))
-        url = parser.get("SKILL_STD:home-assistant", "url", fallback="")
-        if url:
-            return url
+    else:
+        # default branch: script → home-assistant → agent_skills(_defaults) → src
+        default_config = (Path(__file__).resolve().parents[3]
+                          / "config.ini")
+        if default_config.exists():
+            parser = configparser.ConfigParser()
+            parser.read(str(default_config))
+            url = parser.get("SKILL_STD:home-assistant", "url", fallback="")
+            if url:
+                return url
     url_env = os.environ.get("HA_URL", "")
     if url_env:
         return url_env
@@ -61,11 +66,15 @@ def _post(path, body):
 
 
 def _request(method, path, body=None):
+    # URL resolved BEFORE the token check (M2 audit IB-F5): config errors
+    # surface before auth errors, and the real-subprocess self-sourcing
+    # test becomes branch-sensitive (a deleted TARS_CONFIG_PATH branch
+    # yields the URL error, not the token error).
+    base = _resolve_url().rstrip("/")
     token = os.environ.get("HA_TOKEN", "")
     if not token:
         print("HA_TOKEN not set (add it to .env)", file=sys.stderr)
         sys.exit(1)
-    base = _resolve_url().rstrip("/")
     url = f"{base}{path}"
     headers = {
         "Authorization": f"Bearer {token}",
