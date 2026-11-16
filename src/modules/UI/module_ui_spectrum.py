@@ -25,10 +25,22 @@ from modules.module_mic import open_native_stream
 import threading
 
 class SpectrumSystem:
+    # Seconds between attempts after a failed hub registration (see
+    # start_audio_stream). One hub open attempt can sleep ~3 s inside
+    # _ensure_stream's bounded retries, so this must not retry per frame.
+    _AUDIO_RETRY_INTERVAL = 2.0
+
     def __init__(self, width, height, style='wave', bg_alpha=0, sample_rate=16000, chunk_size=1024):
         from modules.module_mic import get_native_rate
         self.stream = None
         self.audio_running = False
+        # The hub device open can lose a boot-time race with the
+        # background-noise calibration stream ("Device unavailable
+        # [PaErrorCode -9985]"), so a failed start is retried from
+        # update_spectrum() instead of being terminal. _want_audio keeps
+        # stop_audio_stream() (UI shutdown) final — no resurrection.
+        self._want_audio = True
+        self._next_audio_retry = 0.0
 
         self.width = width
         self.height = height
@@ -143,21 +155,43 @@ class SpectrumSystem:
                     self._ring_pos = n - space
 
     def start_audio_stream(self):
+        """Register as a consumer of the shared mic hub.
+
+        open_native_stream() does not open its own PortAudio stream — it
+        returns a _SharedCallbackStream that registers a callback consumer on
+        the hub's single shared stream. The hub opens the device lazily on the
+        first registration, and at boot that open races the just-released
+        background-noise calibration stream, which is exactly how the robot
+        logged "Failed to start audio stream: Error opening InputStream:
+        Device unavailable [PaErrorCode -9985]" once, at startup — and left
+        every spectrum style blank for the whole session.
+        """
         try:
             self.stream = open_native_stream(
                 callback=self.audio_callback, blocksize=self.chunk_size, name="spectrum"
             )
             self.stream.start()
             self.audio_running = True
+            self._next_audio_retry = 0.0
         except Exception as e:
-            print(f"Failed to start audio stream: {e}")
+            print(f"Failed to start audio stream: {e} (will retry)")
             self.audio_running = False
+            self._next_audio_retry = time.monotonic() + self._AUDIO_RETRY_INTERVAL
+
+    def _retry_audio_if_due(self):
+        """Re-attempt a failed registration, rate-limited. No-op once stopped."""
+        if not self._want_audio:
+            return
+        if time.monotonic() < self._next_audio_retry:
+            return
+        self.start_audio_stream()
 
     def stop_audio_stream(self):
+        self._want_audio = False
         if self.stream:
             self.stream.stop()
             self.stream.close()
-            self.audio_running = False
+        self.audio_running = False
 
     def process_audio(self):
         with self.audio_lock:
@@ -212,6 +246,8 @@ class SpectrumSystem:
 
     def update_spectrum(self, spectrum_data=None):
         if spectrum_data is None:
+            if not self.audio_running:
+                self._retry_audio_if_due()
             if self.audio_running:
                 spectrum_data = self.process_audio()
             else:
