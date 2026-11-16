@@ -22,6 +22,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | `content_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
 | `App-Stop.py` TERM→KILL escalation (pygame/SDL swallows the first SIGTERM) | `App-Stop.py`, [running.md](running.md) |
 | Piper `./voices` bind mount in the server's docker-compose (voice weights are not in the repo) | `TARS-AI_Server/docker-compose.yml`, [server-mode.md](server-mode.md) |
+| Built-in Commands: the in-process command pool relabeled (internal `[SKILL:*]` identifiers unchanged); `example` removed | `development.md`, `configuration.md` |
 
 ## Documentation map
 
@@ -37,7 +38,7 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 - [Server Mode](server-mode.md) — FastAPI `app-server.py` on :5678, Bearer auth, CPU-only Docker deploy at `/srv`.
 - [Servo Watchdog & Recovery](servo-watchdog.md) — self-healing design, reading MODE1/MODE2, manual `i2cset` recovery.
 - [Troubleshooting](troubleshooting.md) — empty LLM replies, STT latency, silent servos, wake word, logs, `vcgencmd get_throttled`.
-- [Development](development.md) — repo layout, `src/.venv`, running the tests, authoring skills, CI, contributing.
+- [Development](development.md) — repo layout, `src/.venv`, running the tests, authoring built-in commands & agent skills, CI, contributing.
 
 ## License & attribution
 
@@ -79,7 +80,7 @@ Two machines, one robot:
 
 ## How a conversation flows
 
-Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + skills, e.g. `execute_movement`) → TTS (configurable chain, e.g. Fish.audio → Speechify → ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 2 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
+Wake word (`hey tars`) → STT (ElevenLabs Scribe, external whisper fallback) → LLM on the Pi (character card + RAG memory + built-in commands, e.g. `execute_movement`) → TTS (configurable chain, e.g. Fish.audio → Speechify → ElevenLabs → external Piper → local piper → espeak) → avatar/emotion on the web UI and the on-device display. Movement commands go through the 33-entry registry to the servos, which are kept healthy by the 2 s watchdog. Details: [Voice Pipeline](voice-pipeline.md), [Movements](movements.md), [Servo Watchdog & Recovery](servo-watchdog.md).
 
 ## Hardware at a glance
 

@@ -177,9 +177,38 @@ class TestDocsRenamePins:
         assert "`skill_discord`" in cfg
 
 
+class TestEntryPointPins:
+    """M1-S4: entry points — index delta table + doc-map + flow line + README."""
+
+    def test_index_delta_table_builtin_commands_row(self):
+        idx = _read("index.md")
+        window = _section(idx, "## What V3 adds over upstream")
+        line = _line_starting_with(window, "| Built-in Commands:")
+        assert "relabeled" in line
+        assert "`[SKILL:*]`" in line
+        assert "`example`" in line
+
+    def test_index_doc_map_development_line(self):
+        idx = _read("index.md")
+        line = _line_starting_with(idx, "- [Development](development.md)")
+        assert "authoring built-in commands & agent skills" in line
+
+    def test_index_conversation_flow_builtin_commands(self):
+        idx = _read("index.md")
+        assert "built-in commands, e.g." in idx
+        assert "skills, e.g. `execute_movement`" not in idx
+
+    def test_readme_execute_movement_command(self):
+        readme = (REPO_ROOT / "README.md").read_text()
+        line = _line_starting_with(
+            readme,
+            "- **Full movement registry exposed to the LLM**",
+        )
+        assert "`execute_movement` command" in line
+        assert "`execute_movement` skill" not in line
+
+
 class TestExampleRemoval:
-    """M1-S2: example built-in removed — file absent, frozenset updated,
-    thinking triggers replaced, no descriptor."""
 
     def test_example_skill_file_absent(self):
         import os
