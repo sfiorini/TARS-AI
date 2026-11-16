@@ -277,7 +277,11 @@ class TestUiFramework(unittest.TestCase):
 
         launched.clear()
         mgr._prior_app_name = "eyes"
-        ui.exit_app(restore_prior=False)
+        # ESC arm uses the REAL call form — exit_app() with NO argument,
+        # exactly as the ESC site in module_ui.py calls it. This pins the
+        # restore_prior=False DEFAULT: flipping the default would regress
+        # ESC to prior-restoration (orchestrator close-sweep hardening).
+        ui.exit_app()
         self.assertEqual(launched, [])
         self.assertIsNone(mgr._prior_app_name)
         ui.exit_app(restore_prior=True)
