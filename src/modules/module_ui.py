@@ -301,8 +301,22 @@ class UIManager(threading.Thread):
             wm = pygame.display.get_wm_info()
             dpy = wm.get("display")
             win = wm.get("window")
-            if not dpy or not win:
+            if dpy is None or win is None:
                 return
+            # pygame wraps the Display* in a PyCapsule (bench-proven:
+            # raw capsule → ctypes TypeError) — unwrap to the pointer.
+            pyapi = ctypes.pythonapi
+            pyapi.PyCapsule_GetName.restype = ctypes.c_char_p
+            pyapi.PyCapsule_GetName.argtypes = [ctypes.py_object]
+            pyapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
+            pyapi.PyCapsule_GetPointer.argtypes = [
+                ctypes.py_object, ctypes.c_char_p]
+            if not isinstance(dpy, int):
+                dpy = pyapi.PyCapsule_GetPointer(
+                    dpy, pyapi.PyCapsule_GetName(dpy))
+            if not isinstance(win, int):
+                win = pyapi.PyCapsule_GetPointer(
+                    win, pyapi.PyCapsule_GetName(win))
             x = ctypes.CDLL("libX11.so.6")
             x.XDefaultRootWindow.restype = ctypes.c_ulong
             x.XDefaultRootWindow.argtypes = [ctypes.c_void_p]

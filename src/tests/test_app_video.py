@@ -249,8 +249,16 @@ class TestUiFramework(unittest.TestCase):
         mod = self._ui_mod
         ui._schedule_video_exit_restack()
         self.assertEqual(ui._restack_pending, 1)
+        # pygame returns the Display* as a PyCapsule (bench-proven
+        # TypeError with raw ints-only stubs) — use a REAL capsule.
+        import ctypes
+        pyapi = ctypes.pythonapi
+        pyapi.PyCapsule_New.restype = ctypes.py_object
+        pyapi.PyCapsule_New.argtypes = [
+            ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
+        cap = pyapi.PyCapsule_New(ctypes.c_void_p(12345), None, None)
         disp = types.SimpleNamespace(
-            get_wm_info=lambda: {"display": 12345, "window": 67890})
+            get_wm_info=lambda: {"display": cap, "window": 67890})
         fake_x = mock.MagicMock()
         fake_x.XDefaultRootWindow.return_value = 1
         fake_x.XInternAtom.return_value = 999
