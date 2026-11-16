@@ -861,6 +861,15 @@ class UIManager(threading.Thread):
                 # M4-S1: drain pending app request (cross-thread, overlay precedent)
                 self._drain_pending_app_request()
 
+                # M4-S2: drain video-app exit request
+                try:
+                    from modules.UI.apps.module_app_video import drain_exit_request
+                except ImportError:
+                    drain_exit_request = lambda: (False, True)
+                exit_now, restore = drain_exit_request()
+                if exit_now and self.show_app:
+                    self.exit_app(restore_prior=restore)
+
                 if self.screensaver_manager:
                     if self.show_app or self.show_camera:
                         if self.screensaver_manager.is_active():

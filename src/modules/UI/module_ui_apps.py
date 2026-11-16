@@ -48,6 +48,12 @@ try:
 except Exception:
     HAS_REMOTE = False
 
+try:
+    from modules.UI.apps.module_app_video import VideoApp, is_playing
+    HAS_VIDEO = True
+except Exception:
+    HAS_VIDEO = False
+
 from UI.screensavers.module_screensaver_dashboard import DashboardAnimation
 
 AVAILABLE_APPS = {
@@ -56,6 +62,7 @@ AVAILABLE_APPS = {
     **({"eyes": {"class": EyesApp, "type": "pygame", "label": "Eyes"}} if HAS_EYES else {}),
     **({"avatar": {"class": AvatarApp, "type": "pygame", "label": "Avatar"}} if HAS_AVATAR else {}),
     **({"remote": {"class": RemoteApp, "type": "pygame", "label": "Remote"}} if HAS_REMOTE else {}),
+    **({"video": {"class": VideoApp, "type": "pygame", "label": "Video"}} if HAS_VIDEO else {}),
     "audio": {"class": AudioTimelineApp, "type": "pygame", "label": "Audio"},
 }
 
