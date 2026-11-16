@@ -208,7 +208,7 @@ KEYWORDS = {
     "identity": ("my name is", "call me", "be more", "be less", "your humor",
         "your sarcasm", "your verbosity", "remember my name", "your name",
         "who are you", "what are you"),
-    "skill": ("skill example", "run skill", "load skill", "skill"),
+    "skill": ("dice roll", "run skill", "load skill", "skill"),
     "mcp": (),
     "general": (),
 }
@@ -324,7 +324,7 @@ SUPPRESSION_TRIGGERS = {
         "your humor", "your sarcasm", "your verbosity",
         "remember my name", "adjust your persona", "change your persona",
         "your persona"),
-    "skill": ("run skill", "load skill", "skill example", "on discord",
+    "skill": ("run skill", "load skill", "dice roll", "on discord",
         "send a message", "send a message on discord", "send a discord"),
     "mcp": (),
     "general": (),

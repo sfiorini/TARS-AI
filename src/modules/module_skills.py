@@ -55,7 +55,6 @@ def _get_config_path():
 # with is_error=False, so the rescue would read them aloud.
 _SPEAKABLE_BUILTIN_SKILLS = frozenset({
     "capture_camera_view",
-    "example",
     "tars_radio",
     "web_search",
 })

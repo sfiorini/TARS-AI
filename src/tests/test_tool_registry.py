@@ -296,12 +296,11 @@ class TestRequiredParamsGuard(_StubSkillsDirTestCase):
 # Golden pins for the followup skills' trigger text (M3 review F2).
 # These skills' prompts drive the deferred loop's trigger reliability —
 # any reformat must be a conscious change (update the pins deliberately).
-# The followup pool is 7 skills (skill_discord has prompt "" and no
+# The followup pool is 6 skills (skill_discord has prompt "" and no
 # followup flag — its earlier "followup" grep hit was followup_text code).
 GOLDEN_FOLLOWUP_TRIGGERS = {
     "capture_camera_view":
         "MUST USE when user asks ANY question about vision/seeing",
-    "example": 'MUST call when the user says "skill example"',
     "network_camera": "network/security/IP camera feed",
     "sandbox_exec": "execute Python code to answer the user's question",
     "take_photo": "to KEEP, not to analyze",
@@ -313,7 +312,6 @@ GOLDEN_FOLLOWUP_TRIGGERS = {
 }
 GOLDEN_FOLLOWUP_PROMPT_LENGTHS = {
     "capture_camera_view": 854,
-    "example": 233,
     "network_camera": 1009,
     "sandbox_exec": 1203,
     "take_photo": 674,

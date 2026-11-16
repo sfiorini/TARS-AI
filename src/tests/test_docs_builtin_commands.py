@@ -56,3 +56,67 @@ class TestUiRenamePins:
     def test_failed_to_load_commands(self):
         assert 'Failed to load commands' in MAIN_JS
         assert 'Failed to load skills' not in MAIN_JS
+
+
+class TestExampleRemoval:
+    """M1-S2: example built-in removed — file absent, frozenset updated,
+    thinking triggers replaced, no descriptor."""
+
+    def test_example_skill_file_absent(self):
+        import os
+        assert not os.path.exists(
+            str(REPO_ROOT / "src" / "skills" / "skill_example.py")
+        )
+
+    def test_speakable_set_lacks_example(self):
+        from src.modules.module_skills import _SPEAKABLE_BUILTIN_SKILLS
+        assert "example" not in _SPEAKABLE_BUILTIN_SKILLS
+        assert "capture_camera_view" in _SPEAKABLE_BUILTIN_SKILLS
+        assert "tars_radio" in _SPEAKABLE_BUILTIN_SKILLS
+        assert "web_search" in _SPEAKABLE_BUILTIN_SKILLS
+
+    def test_thinking_keywords_dice_roll_not_skill_example(self):
+        thinking = (REPO_ROOT / "src" / "modules" / "module_thinking.py").read_text()
+        # KEYWORDS dict line for "skill" (around line 211)
+        # Contains: "skill": ("skill example", ...) or after fix: "dice roll"
+        kw_start = thinking.index('KEYWORDS = {')
+        # Find the matching closing brace: count nesting
+        depth = 0
+        kw_end = kw_start
+        for i, ch in enumerate(thinking[kw_start:], start=kw_start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    kw_end = i + 1
+                    break
+        kw_block = thinking[kw_start:kw_end]
+        assert '"dice roll"' in kw_block
+        assert '"skill example"' not in kw_block
+
+    def test_thinking_suppression_dice_roll_not_skill_example(self):
+        thinking = (REPO_ROOT / "src" / "modules" / "module_thinking.py").read_text()
+        sup_start = thinking.index('SUPPRESSION_TRIGGERS = {')
+        depth = 0
+        sup_end = sup_start
+        for i, ch in enumerate(thinking[sup_start:], start=sup_start):
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    sup_end = i + 1
+                    break
+        sup_block = thinking[sup_start:sup_end]
+        assert '"dice roll"' in sup_block
+        assert '"skill example"' not in sup_block
+
+    def test_no_example_builtin_descriptor(self):
+        import sys
+        sys.path.insert(0, str(REPO_ROOT / "src"))
+        from modules.module_skills import SkillManager
+        mgr = SkillManager()
+        descriptors = list(mgr.iter_descriptors())
+        names = [d.name for d in descriptors]
+        assert "example" not in names
