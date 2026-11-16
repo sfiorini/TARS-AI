@@ -247,8 +247,9 @@ class TestUiFramework(unittest.TestCase):
         mod = self._ui_mod
         ui._schedule_video_exit_restack()
         self.assertEqual(ui._restack_pending, 2)
-        with mock.patch.object(mod.pygame.display, "toggle_fullscreen",
-                               create=True) as tog:
+        tog = mock.MagicMock()
+        disp = types.SimpleNamespace(toggle_fullscreen=tog)
+        with mock.patch.object(mod.pygame, "display", disp, create=True):
             ui._apply_video_exit_restack()
             ui._apply_video_exit_restack()
             ui._apply_video_exit_restack()
