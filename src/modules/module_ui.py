@@ -136,6 +136,8 @@ class UIManager(threading.Thread):
         self.app_switch_time = 0
         # T-28: ticks of the last video-app exit (spurious-QUIT guard)
         self._video_exit_ticks = None
+        # T-28: pending fullscreen toggles to re-stack after video exit
+        self._restack_pending = 0
 
         self.camera_module = None
         self.show_camera = False
@@ -277,6 +279,18 @@ class UIManager(threading.Thread):
             if pygame.time.get_ticks() - self._video_exit_ticks < 3000:
                 return True
         return False
+
+    def _schedule_video_exit_restack(self):
+        """T-28 (bench-proven 2026-11-16): when mpv closes, labwc buries
+        the TARS surface WITHOUT any SDL event (loop alive, no QUIT or
+        WINDOWEVENT logged). Toggle fullscreen off/on over the next two
+        ticks to force the compositor to re-stack/re-activate TARS."""
+        self._restack_pending = 2
+
+    def _apply_video_exit_restack(self):
+        if self._restack_pending > 0:
+            pygame.display.toggle_fullscreen()
+            self._restack_pending -= 1
 
     def exit_app(self, restore_prior=False):
         if self.app_manager:
@@ -645,7 +659,9 @@ class UIManager(threading.Thread):
                 win_w = self.width if self.width > 0 else os_width
                 win_h = self.height if self.height > 0 else os_height
                 screen = pygame.display.set_mode((win_w, win_h), display_flags)
-            
+
+            queue_message(f"UI: SDL driver={pygame.display.get_driver()}")
+
             actual_size = screen.get_size()
             display_width = actual_size[0]
             display_height = actual_size[1]
@@ -894,6 +910,8 @@ class UIManager(threading.Thread):
                 if exit_now and self.show_app:
                     self.exit_app(restore_prior=restore)
                     self._video_exit_ticks = pygame.time.get_ticks()
+                    self._schedule_video_exit_restack()
+                self._apply_video_exit_restack()
 
                 if self.screensaver_manager:
                     if self.show_app or self.show_camera:

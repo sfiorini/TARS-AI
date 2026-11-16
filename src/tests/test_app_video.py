@@ -237,6 +237,31 @@ class TestUiFramework(unittest.TestCase):
             'queue_message("UI: QUIT received — exiting run loop")\n'
             "                            self.running = False", src)
 
+    # -- 0c. video-exit re-stack (T-28: labwc buries the surface) ---------
+
+    def test_video_exit_restack_toggles_twice(self):
+        """T-28 bench-proven: after mpv closes, the UI loop is alive and
+        SDL gets NO QUIT/WINDOWEVENT — labwc buries the TARS surface.
+        Re-stack = toggle fullscreen off then on over two ticks."""
+        ui = self._make_ui_manager()
+        mod = self._ui_mod
+        ui._schedule_video_exit_restack()
+        self.assertEqual(ui._restack_pending, 2)
+        with mock.patch.object(mod.pygame.display, "toggle_fullscreen",
+                               create=True) as tog:
+            ui._apply_video_exit_restack()
+            ui._apply_video_exit_restack()
+            ui._apply_video_exit_restack()
+        self.assertEqual(tog.call_count, 2)
+        self.assertEqual(ui._restack_pending, 0)
+
+    def test_run_loop_restack_and_driver_log_wired(self):
+        import inspect
+        src = inspect.getsource(self._ui_mod.UIManager.run)
+        self.assertIn("_schedule_video_exit_restack()", src)
+        self.assertIn("_apply_video_exit_restack()", src)
+        self.assertIn("SDL driver=", src)
+
     # -- 1. request_app pending under lock --------------------------------
 
     def test_request_app_pending_under_lock(self):
