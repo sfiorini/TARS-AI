@@ -18,8 +18,10 @@ and the name should match the camera name or ID in AgentDVR. The skill will call
 
 import json
 import base64
+import re
 import time
 import threading
+from urllib.parse import urlparse
 
 SKILL = {
     "name": "network_camera",
@@ -193,6 +195,19 @@ def _find_camera(cameras, name):
     return None
 
 
+def _redact_url(url_str):
+    """Strip userinfo from a URL, keeping scheme and host only."""
+    try:
+        parsed = urlparse(url_str)
+        if parsed.hostname:
+            return f"{parsed.scheme}://{parsed.hostname}" + (
+                f":{parsed.port}" if parsed.port else ""
+            )
+    except Exception:
+        pass
+    return url_str
+
+
 def _capture_rtsp(url, width=640):
     """Capture a single frame from an RTSP stream using OpenCV."""
     import cv2
@@ -228,7 +243,10 @@ def _capture_agentdvr(base_url, camera_name):
                 return resp.content, None
         except requests.RequestException:
             continue
-    return None, f"Could not fetch snapshot from AgentDVR for camera '{camera_name}'. Tried: {', '.join(urls_to_try)}"
+    return None, (
+        f"Could not fetch snapshot from AgentDVR for camera "
+        f"'{camera_name}' (tried {len(urls_to_try)} snapshot endpoints)."
+    )
 
 
 def _capture_http(url):
@@ -239,8 +257,11 @@ def _capture_http(url):
         if resp.status_code == 200:
             return resp.content, None
         return None, f"HTTP camera returned status {resp.status_code}."
-    except requests.RequestException as e:
-        return None, f"Could not fetch snapshot from HTTP camera: {e}"
+    except requests.RequestException:
+        return None, (
+            "Could not fetch snapshot from HTTP camera "
+            "(connection failed or timed out)."
+        )
 
 
 def _capture_snapshot(cam, skill_config):
