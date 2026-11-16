@@ -141,6 +141,35 @@ class TestSkillVideo(unittest.TestCase):
             )
             self.assertIn("Live streams", r)
 
+            # Enabled defaults play (close-sweep S3-1 hardening: the
+            # matrix previously covered only unknown/disabled/live arms,
+            # so deleting an enabled site's gate entry survived).
+            r = execute(
+                {"action": "play", "url": "https://www.youtube.com/watch?v=x",
+                 "_config": {}}, None,
+            )
+            self.assertIn("Now playing", r)
+            r = execute(
+                {"action": "play", "url": "https://vimeo.com/12345",
+                 "_config": {}}, None,
+            )
+            self.assertIn("Now playing", r)
+
+            # Opt-in sites are disabled by default.
+            r = execute(
+                {"action": "play",
+                 "url": "https://www.tiktok.com/@user/video/123",
+                 "_config": {}}, None,
+            )
+            self.assertIn("playback is disabled", r)
+            self.assertIn("TikTok", r)
+            r = execute(
+                {"action": "play", "url": "https://www.bbc.co.uk/iplayer/episode/x",
+                 "_config": {}}, None,
+            )
+            self.assertIn("playback is disabled", r)
+            self.assertIn("BBC iPlayer", r)
+
     # -- 3. search gated by site_youtube ---------------------------------
 
     def test_search_gated_by_site_youtube(self):
