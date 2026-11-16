@@ -191,6 +191,45 @@ class TestUiFramework(unittest.TestCase):
         mgr._prior_app_name = None
         return mgr
 
+    # -- 0b. QUIT guard during video transitions (T-28 bench defect) ------
+
+    def test_quit_guard_video_active(self):
+        """T-28: mpv open/close under labwc delivers spurious QUIT events
+        that silently headless the appliance. While the video app is
+        active, QUIT must be ignored."""
+        ui = self._make_ui_manager()
+        ui.app_manager = types.SimpleNamespace(current_app_name="video")
+        ui._video_exit_ticks = None
+        self.assertTrue(ui._quit_during_video_transition())
+
+    def test_quit_guard_recent_video_exit(self):
+        ui = self._make_ui_manager()
+        ui.app_manager = types.SimpleNamespace(current_app_name=None)
+        ui._video_exit_ticks = 1000
+        mod = self._ui_mod
+        with mock.patch.object(mod.pygame.time, "get_ticks",
+                               return_value=2000):
+            self.assertTrue(ui._quit_during_video_transition())
+        with mock.patch.object(mod.pygame.time, "get_ticks",
+                               return_value=5000):
+            self.assertFalse(ui._quit_during_video_transition())
+
+    def test_quit_guard_idle_false(self):
+        ui = self._make_ui_manager()
+        ui.app_manager = None
+        ui._video_exit_ticks = None
+        self.assertFalse(ui._quit_during_video_transition())
+
+    def test_run_loop_quit_guard_and_event_logging_wired(self):
+        """Source pins: run() consults the guard before honoring QUIT,
+        logs ignored QUITs, and logs window events (T-28 diagnosis)."""
+        import inspect
+        src = inspect.getsource(self._ui_mod.UIManager.run)
+        self.assertIn("_quit_during_video_transition()", src)
+        self.assertIn("ignoring QUIT during video transition", src)
+        self.assertIn("UI: window event", src)
+        self.assertIn("UI: run loop exited", src)
+
     # -- 1. request_app pending under lock --------------------------------
 
     def test_request_app_pending_under_lock(self):

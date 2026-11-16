@@ -134,6 +134,8 @@ class UIManager(threading.Thread):
         self.app_manager = None
         self.show_app = False
         self.app_switch_time = 0
+        # T-28: ticks of the last video-app exit (spurious-QUIT guard)
+        self._video_exit_ticks = None
 
         self.camera_module = None
         self.show_camera = False
@@ -261,6 +263,20 @@ class UIManager(threading.Thread):
             self._pending_app_request = None
         if name is not None:
             self.launch_app(name)
+
+    def _quit_during_video_transition(self):
+        """T-28 (bench 2026-11-16): under labwc, mpv opening/closing
+        delivers spurious QUIT events to the pygame window; honoring
+        them silently headlesses the appliance (desktop shown, TARS
+        alive but invisible). Ignore QUIT while the video app is active
+        or within 3 s of its exit."""
+        if self.app_manager and getattr(
+                self.app_manager, "current_app_name", None) == "video":
+            return True
+        if self._video_exit_ticks is not None:
+            if pygame.time.get_ticks() - self._video_exit_ticks < 3000:
+                return True
+        return False
 
     def exit_app(self, restore_prior=False):
         if self.app_manager:
@@ -751,7 +767,15 @@ class UIManager(threading.Thread):
 
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
-                        self.running = False
+                        if self._quit_during_video_transition():
+                            queue_message(
+                                "UI: ignoring QUIT during video transition "
+                                "(T-28 spurious close)")
+                        else:
+                            queue_message("UI: QUIT received — exiting run loop")
+                            self.running = False
+                    elif event.type == getattr(pygame, "WINDOWEVENT", -1):
+                        queue_message(f"UI: window event {event.event}")
                     elif event.type == pygame.KEYDOWN:
                         if not self.show_app:
                             if self.screensaver_manager:
@@ -869,6 +893,7 @@ class UIManager(threading.Thread):
                 exit_now, restore = drain_exit_request()
                 if exit_now and self.show_app:
                     self.exit_app(restore_prior=restore)
+                    self._video_exit_ticks = pygame.time.get_ticks()
 
                 if self.screensaver_manager:
                     if self.show_app or self.show_camera:
@@ -1061,6 +1086,7 @@ class UIManager(threading.Thread):
             self.running = False
 
         finally:
+            queue_message("UI: run loop exited")
             self._wifi_thread_running = False
 
             if self.app_manager:
