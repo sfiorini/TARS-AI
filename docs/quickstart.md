@@ -135,6 +135,6 @@ Expected on V3: the whole suite green in a few seconds (run the command for the 
 ## Next steps
 
 - [Hardware & Wiring](hardware.md) — if you are assembling the body
-- [Configuration](configuration.md) — tune voice, LLM, servos, skills
+- [Configuration](configuration.md) — tune voice, LLM, servos, built-in commands & agent skills
 - [Server Mode](server-mode.md) — offload STT/TTS/vision to a PC
 - [Troubleshooting](troubleshooting.md) — when something misbehaves

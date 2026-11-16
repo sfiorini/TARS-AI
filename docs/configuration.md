@@ -73,7 +73,11 @@ Per-provider keys: `toggle_charvoice` (use the character card's voice), `elevenl
 `[SERVO]`: `arms_present` (gates all `has_arms` movements), leg calibration (`leftUpHeight`, `leftDownHeight`, `rightUpHeight`, `rightDownHeight`, `forwardLeftLeg`, `backLeftLeg`, `forwardRightLeg`, `backRightLeg`, `perfect*Offset` trims) and arm ranges (`leftMainMin/Max`, `leftForarmMin/Max`, `leftHandMin/Max` + right equivalents + offsets).
 
 ### `[SKILL:<name>]`
-Per-skill config and enable flag, e.g. `[SKILL:discord] disabled = true`. The template disables discord, home_assistant, generate_image, generate_music, network_camera, launch_retropie by default. Toggle via the web UI (`POST /toggle_skill`) or by editing the file.
+
+!!! note "Built-in Commands vs skill identifiers"
+    The web UI and docs call this pool **Built-in Commands**. The internal identifiers keep their historical names: `config.ini` sections stay `[SKILL:<name>]`, files stay `skill_*.py`, and the API routes stay `/get_skills`, `/toggle_skill`, `/save_skill_config`. These are stable identifiers, not labels — nothing needs migrating.
+
+Per-command config and enable flag, e.g. `[SKILL:discord] disabled = true`. The template disables discord, home_assistant, generate_image, generate_music, network_camera, launch_retropie by default. Toggle via the web UI (`POST /toggle_skill`) or by editing the file.
 
 ## Pointing the robot at the server host server
 
@@ -104,7 +108,7 @@ curl -b /tmp/tars.cookie http://<pi-ip>/get_config | python3 -m json.tool | head
 - `src/dashboard.template.ini` — dashboard layout template used by the web UI.
 - `src/config.ini` — your live config (gitignored; seeded from the template by `Install.sh`).
 - `.env` — secrets (gitignored; seeded from `.env.template`). `module_config.py` loads it with `python-dotenv` at import time, so a running app picks up `.env` changes only after restart.
-- `[SKILL:<name>]` sections — created on demand when a skill defines a `config` schema or is toggled in the web UI; per-skill values are exposed to the skill as `context["skill_config"]`.
+- `[SKILL:<name>]` sections — created on demand when a built-in command defines a `config` schema or is toggled in the web UI; per-skill values are exposed to the skill as `context["skill_config"]`.
 
 !!! note "Section-scoped edits"
     `configure_tars_client.sh` never touches `[LLM]` even though it also has a `base_url` — its `sed` replacements are scoped between the section header and the next `[` line, so `[LLM] base_url` (your direct LLM endpoint) is preserved verbatim.
@@ -122,6 +126,6 @@ sed -i '/^\[ACCESS\]/,/^\[/s/^webui_port[[:space:]]*=.*/webui_port = 8080/' src/
 
 Then restart: web UI Config tab → reboot button (`POST /reboot_program`), or `python3 App-Stop.py && ./tars-launcher.sh`. Config is read once at startup — edits never apply live.
 
-## Skills sections
+## Built-in command sections
 
-Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `home_assistant`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered skills with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new skills: [Development](development.md).
+Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `home_assistant`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered built-in commands with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new built-in commands: [Development](development.md).

@@ -41,7 +41,7 @@ The config tab's TTS provider selector sets **only the primary provider** (`[TTS
 | Endpoint | Purpose |
 |---|---|
 | `GET /get_config` / `POST /save_config` | config editor read/write |
-| `GET /get_skills` / `POST /toggle_skill` / `POST /save_skill_config` | skill list, enable/disable, per-skill config (`[SKILL:*]`) |
+| `GET /get_skills` / `POST /toggle_skill` / `POST /save_skill_config` | built-in command list, enable/disable, per-command config (`[SKILL:*]`) |
 | `GET /get_movements` | movement registry grouped by type (`reset_positions` first) |
 | `POST /robot_move` | `{"direction": "forward"|"backward"|"left"|"right"|"*_slow"}` |
 | `POST /move_legs`, `POST /move_arms`, `POST /neutral_legs`, `POST /reset_positions`, `POST /disable_servos` | direct servo control |

@@ -68,9 +68,9 @@ python3 src/app-movements.py validate    # "movements.json is valid" (exit 0) or
 - Sequences in the legacy `src/custom_sequences.json` file are **not migrated**; recreate them as movements in the Studio.
 - The **motion** tab dropdown executes movements through the store; a movement already in progress returns `409 Robot is already moving`. The dropdown **refreshes automatically after a whole-set import**; after individual saves/deletes it still needs a page reload (known limitation).
 
-## Voice: the `execute_movement` skill
+## Voice: the `execute_movement` command
 
-`src/skills/skill_execute_movement.py` resolves ids against the registry (rebuilt from the store after every mutation) and dispatches through `movementstore.execute(id)` — never `getattr` on raw LLM strings. The skill prompt is **built from the store at call time and bounded** (`PROMPT_BUDGET_CHARS = 4000`): descriptions are truncated, then entries are dropped alphabetically, and every dropped id is logged. A movement created via the UI or CLI is LLM-callable without a restart.
+`src/skills/skill_execute_movement.py` resolves ids against the registry (rebuilt from the store after every mutation) and dispatches through `movementstore.execute(id)` — never `getattr` on raw LLM strings. The command prompt is **built from the store at call time and bounded** (`PROMPT_BUDGET_CHARS = 4000`): descriptions are truncated, then entries are dropped alphabetically, and every dropped id is logged. A movement created via the UI or CLI is LLM-callable without a restart.
 
 Example LLM call: `{"function": "execute_movement", "parameters": {"movements": ["step_forward", "turn_left_slow"]}}`.
 
@@ -115,7 +115,7 @@ Generated from `src/movements_defaults.json` (33 entries — 19 `legs_only` + 14
 | `wave_right` | Wave Right | legs_only | wave a greeting with the right LEG |
 
 !!! note "Leg wave vs arm wave"
-    `wave_left` / `wave_right` wave the **legs**; `left_hi`, `right_hi` and the shy/open waves are **arm** gestures. The skill prompt says this explicitly so the LLM picks the right id.
+    `wave_left` / `wave_right` wave the **legs**; `left_hi`, `right_hi` and the shy/open waves are **arm** gestures. The command prompt says this explicitly so the LLM picks the right id.
 
 ## Servo channels and calibration
 

@@ -61,15 +61,15 @@ The LLM can call three kinds of tools, all dispatched through one registry (`mod
 
 | Kind | What it is | How to add one | Template to copy |
 |---|---|---|---|
-| **Builtin tool** | In-process Python code, enable/disable only, addable/modifiable only in code (D2) | Drop a `skill_*.py` in `src/skills/` (auto-discovered) — see below | `src/skills/skill_example.py` |
+| **Built-in command** | In-process Python code, enable/disable only, addable/modifiable only in code (D2) | Drop a `skill_*.py` in `src/skills/` (auto-discovered) — see below | `src/agent_skills_defaults/dice-roll/` (for the standard path); copy a simple built-in like `skill_volume.py` for the rare in-process case |
 | **Agent skill** | A spec-pure `SKILL.md` folder with optional scripts — installable from folder/zip at runtime, no restart | Create in the web UI **skills** tab, `app-skills.py install`, or drop a folder in `src/agent_skills/` | `src/agent_skills_defaults/dice-roll/` — see [Agent Skills](skills.md) |
 | **MCP tool** | An external server process (stdio or Streamable HTTP) — tools appear as `mcp_<server>_<tool>` | Add a registry entry via the web UI **MCP** tab or `app-mcp.py add` | `src/mcp_example_server.py` — see [MCP](mcp.md) |
 
 Movements are data, not code: the 33 shipped movements live in `src/movements_defaults.json` — the authoritative, hand-edited source of truth (`scripts/export_movement_defaults.py` is retained only as historical provenance for how the file was first derived and can no longer regenerate it — its input functions were deleted when the store took over). Add or edit movements in the web UI **movements** tab or `app-movements.py` — see [Movements](movements.md).
 
-### Builtin tools (skills)
+### Built-in Commands
 
-Skills are plain Python files **`src/skills/skill_*.py`**, auto-discovered by `module_skills.py` (glob `skills/skill_*.py`, imported as `skills.<name>`). Each defines a `SKILL` dict and an `execute()` function:
+Built-in commands are plain Python files **`src/skills/skill_*.py`**, auto-discovered by `module_skills.py` (glob `skills/skill_*.py`, imported as `skills.<name>`). Each defines a `SKILL` dict and an `execute()` function:
 
 ```python
 SKILL = {
@@ -88,7 +88,7 @@ def execute(parameters, context):
     return None  # or a dict that modifies the LLM reply
 ```
 
-A file missing `SKILL` or `execute` is skipped with a log line; duplicate names overwrite with a warning. Disable a skill via `[SKILL:my_skill] disabled = true` in `config.ini` or the web UI (`POST /toggle_skill`). Start from `src/skills/skill_example.py`; see `skill_execute_movement.py` for a store-driven per-request prompt ([Movements](movements.md)). Skills with `"followup": True` are result-bearing: their results flow through the deferred reply loop ([Voice Pipeline](voice-pipeline.md)).
+A file missing `SKILL` or `execute` is skipped with a log line; duplicate names overwrite with a warning. Disable a skill via `[SKILL:my_skill] disabled = true` in `config.ini` or the web UI (`POST /toggle_skill`). The inline skeleton above is the minimal starting point; for the recommended authoring path start from `src/agent_skills_defaults/dice-roll/` (the standard Skill.md format). Copy a simple built-in like `skill_volume.py` for the rare in-process case. See `skill_execute_movement.py` for a store-driven per-request prompt ([Movements](movements.md)). Skills with `"followup": True` are result-bearing: their results flow through the deferred reply loop ([Voice Pipeline](voice-pipeline.md)).
 
 ## Documentation and CI
 

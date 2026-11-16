@@ -1,6 +1,6 @@
 # MCP
 
-TARS is an **MCP client** (Model Context Protocol, decision D4): external tool servers expose tools the AI can call, dispatched through the same deferred reply loop as builtin skills and agent skills. One shipped example server (`example`) is enabled out of the box so the whole path works on a fresh install.
+TARS is an **MCP client** (Model Context Protocol, decision D4): external tool servers expose tools the AI can call, dispatched through the same deferred reply loop as built-in commands and agent skills. One shipped example server (`example`) is enabled out of the box so the whole path works on a fresh install.
 
 ## Protocol basics and the era choice
 
