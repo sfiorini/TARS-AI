@@ -177,6 +177,12 @@ class VideoApp:
             text = self._font.render(self._last_error, True, white)
         elif self._title:
             text = self._font.render(self._title, True, white)
+        elif self._proc is None:
+            # Manual launch with no payload: a helpful idle screen, not
+            # an endless "Loading..." (bench defect 2026-11-16).
+            text = self._font.render(
+                "No video playing. Say: play <query> on YouTube. "
+                "Tap to exit.", True, white)
         else:
             text = self._font.render("Loading...", True, white)
 
@@ -222,9 +228,15 @@ class VideoApp:
             _playing = False
 
     def handle_event(self, event):
-        """Tap-to-stop: any mouse/touch event sends IPC quit."""
+        """Tap-to-stop: any mouse/touch event sends IPC quit. With no
+        mpv (manual launch idle screen) a tap exits back to the prior
+        app — otherwise the idle screen is a dead end (bench defect
+        2026-11-16)."""
         if event.type in (pygame.MOUSEBUTTONDOWN,):
-            self._send_ipc_quit()
+            if self._proc is None:
+                self._request_exit(restore=True)
+            else:
+                self._send_ipc_quit()
             return True
         return False
 

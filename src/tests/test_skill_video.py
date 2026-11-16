@@ -109,6 +109,33 @@ class TestSkillVideo(unittest.TestCase):
         self.assertFalse(config["site_tiktok"]["default"])
         self.assertFalse(config["site_bbc_iplayer"]["default"])
 
+    def test_skill_examples_present_and_callable_format(self):
+        """Bench defect 2026-11-16: video was the ONLY builtin without
+        'examples' — the LLM never saw a call exemplar and answered with
+        text instead of calling the skill (6/6 voice turns, zero
+        TOOLLOOP). Every builtin ships examples in the house
+        doubled-brace Response-JSON format; video must cover play-query,
+        play-url and stop."""
+        import json as _json
+        examples = self._SKILL.get("examples")
+        self.assertTrue(examples, "video SKILL must ship examples")
+        self.assertGreaterEqual(len(examples), 3)
+        rendered = []
+        for ex in examples:
+            text = ex.format()
+            self.assertIn("Example - ", text)
+            self.assertIn("User:", text)
+            payload = _json.loads(text.split("Response: ", 1)[1])
+            calls = payload["function_calls"]
+            self.assertEqual(calls[0]["function"], "video")
+            rendered.append(calls[0]["parameters"])
+        actions = [p.get("action") for p in rendered]
+        self.assertIn("play", actions)
+        self.assertIn("stop", actions)
+        plays = [p for p in rendered if p.get("action") == "play"]
+        self.assertTrue(any("query" in p for p in plays))
+        self.assertTrue(any("url" in p for p in plays))
+
     # -- 2. site gate matrix ---------------------------------------------
 
     def test_site_gate_matrix(self):

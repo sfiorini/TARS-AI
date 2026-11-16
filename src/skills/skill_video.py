@@ -112,6 +112,19 @@ SKILL = {
     Actions: play (query OR url), stop.
     Site toggles: the seven [SKILL:video] site_* bools gate playback per
     site; defaults are YouTube/Vimeo/Dailymotion/Twitch ON, the rest OFF.""",
+    # Bench defect 2026-11-16: without examples the LLM answered with
+    # text instead of calling the skill (every other builtin ships them).
+    "examples": [
+        """Example - Play a YouTube video:
+User: "Play lofi hip hop on YouTube"
+Response: {{"reply": "Searching YouTube.", "function_calls": [{{"function": "video", "parameters": {{"action": "play", "query": "lofi hip hop"}}}}], "new_memories": []}}""",
+        """Example - Play a video URL:
+User: "Play https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+Response: {{"reply": "Playing that video.", "function_calls": [{{"function": "video", "parameters": {{"action": "play", "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}}}}], "new_memories": []}}""",
+        """Example - Stop the video:
+User: "Stop the video"
+Response: {{"reply": "Stopping the video.", "function_calls": [{{"function": "video", "parameters": {{"action": "stop"}}}}], "new_memories": []}}""",
+    ],
 }
 
 

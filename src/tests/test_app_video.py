@@ -702,6 +702,35 @@ class TestPayloadStore(unittest.TestCase):
         m_spawn.assert_not_called()
         self.assertFalse(mod.is_playing())
 
+    def test_manual_launch_idle_screen_and_tap_exit(self):
+        """Bench defect 2026-11-16: manual launch showed 'Loading...'
+        forever and tap was a no-op (no mpv → _send_ipc_quit early
+        return) — a dead-end black screen. The idle render must give a
+        helpful hint, and a tap with no mpv must exit back to the prior
+        app."""
+        mod = self._vid_mod
+        app = mod.VideoApp.__new__(mod.VideoApp)
+        app._proc = None
+        app._sock_path = None
+        app._input_conf_path = None
+        app._my_generation = 0
+        app._title = ""
+        app._last_error = ""
+        app._font = mock.MagicMock()
+        app.surface = mock.MagicMock()
+        with mock.patch.object(app, "_spawn_mpv"):
+            app.reset()
+        app.render()
+        rendered = app._font.render.call_args[0][0]
+        self.assertNotEqual(rendered, "Loading...")
+        self.assertIn("YouTube", rendered)
+        evt = mock.MagicMock()
+        evt.type = mod.pygame.MOUSEBUTTONDOWN
+        self.assertTrue(app.handle_event(evt))
+        should_exit, restore = mod.drain_exit_request()
+        self.assertTrue(should_exit)
+        self.assertTrue(restore)
+
 
 # -----------------------------------------------------------------------
 # S2: TestVideoApp
