@@ -468,16 +468,19 @@ class TestVideoDocsPins(unittest.TestCase):
 
     def test_configuration_video_subsection(self):
         c = self._config
-        self.assertIn("### Video playback", c)
-        self.assertIn("video", c)
-        self.assertIn("command", c)
-        self.assertIn("site_youtube", c)
-        self.assertIn("mpv", c)
-        self.assertIn("yt-dlp", c)
-        self.assertIn("tap", c)
-        self.assertIn("previous app", c)
-        self.assertIn("extractor", c)
-        self.assertIn("Live streams", c)
+        # House idiom (close-sweep S5-1 hardening): whole-line heading
+        # anchor -> SECTION WINDOW -> claim needles. Whole-file assertIn
+        # let a hollowed/relocated subsection pass on elsewhere-satisfied
+        # needles.
+        m = re.search(r"^### Video playback \(`video` command\)[ \t]*$",
+                      c, re.MULTILINE)
+        self.assertIsNotNone(
+            m, "video subsection heading missing or re-leveled")
+        win = c[m.end():].split("\n## ", 1)[0].split("\n### ", 1)[0]
+        for needle in ("site_youtube", "mpv", "yt-dlp", "tap",
+                       "previous app", "extractor", "Live streams"):
+            self.assertIn(needle, win,
+                          f"video subsection lost claim: {needle}")
 
     def test_entry_points_video(self):
         idx = self._index
