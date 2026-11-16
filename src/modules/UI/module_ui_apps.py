@@ -83,6 +83,7 @@ class AppManager:
         self.current_app_name = None
         self.current_app_type = None
         self.failed_apps = set()
+        self._prior_app_name = None  # M4-S1: 1-deep prior-app restore
 
         self.gl_mode_active = False
         try:
@@ -102,6 +103,10 @@ class AppManager:
         ]
 
     def launch(self, app_name):
+        # M4-S1: record prior when a DIFFERENT app is active (replay keeps existing)
+        if self.active and self.current_app_name and self.current_app_name != app_name:
+            self._prior_app_name = self.current_app_name
+
         if self.current_app and hasattr(self.current_app, 'cleanup'):
             self.current_app.cleanup()
             self.current_app = None

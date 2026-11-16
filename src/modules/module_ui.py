@@ -150,6 +150,10 @@ class UIManager(threading.Thread):
         self._overlay_pending_duration = 8
         self._overlay_lock = threading.Lock()
 
+        # M4-S1: cross-thread app request (overlay precedent)
+        self._pending_app_request = None
+        self._app_request_lock = threading.Lock()
+
         self.detection_manager = DetectionManager()
 
         if self.use_camera_module:
@@ -245,15 +249,34 @@ class UIManager(threading.Thread):
             if self.terminal_system:
                 self.terminal_system.set_app_active(True)
 
-    def exit_app(self):
+    def request_app(self, name):
+        """Queue an app to be launched on the next render-loop tick (thread-safe)."""
+        with self._app_request_lock:
+            self._pending_app_request = name
+
+    def _drain_pending_app_request(self):
+        """Deliver a pending app request on the UI thread (called from the run loop)."""
+        with self._app_request_lock:
+            name = self._pending_app_request
+            self._pending_app_request = None
+        if name is not None:
+            self.launch_app(name)
+
+    def exit_app(self, restore_prior=False):
         if self.app_manager:
+            prior = self.app_manager._prior_app_name if restore_prior else None
             self.app_manager.deactivate()
+            # Clear stale prior on explicit false or after consumption
+            if self.app_manager:
+                self.app_manager._prior_app_name = None
         self.show_app = False
         self.app_switch_time = pygame.time.get_ticks()
         if self.terminal_system:
             self.terminal_system.set_app_active(False)
         if self.screensaver_manager:
             self.screensaver_manager.reset_timer()
+        if restore_prior and prior:
+            self.launch_app(prior)
 
     def pause(self):
         self.paused = True
@@ -280,6 +303,8 @@ class UIManager(threading.Thread):
         self.running = False
         self.shutdown_event.set()
         import os
+        if self.app_manager:
+            self.app_manager.deactivate()
         os._exit(0)  
 
     def initiate_shutdown(self):
@@ -287,6 +312,8 @@ class UIManager(threading.Thread):
         self.shutdown_event.set()
         import subprocess
         import os
+        if self.app_manager:
+            self.app_manager.deactivate()
         try:
             subprocess.Popen(['sudo', 'shutdown', 'now'])  
 
@@ -830,6 +857,9 @@ class UIManager(threading.Thread):
                     pygame.display.flip()
                     clock.tick(self.target_fps)
                     continue
+
+                # M4-S1: drain pending app request (cross-thread, overlay precedent)
+                self._drain_pending_app_request()
 
                 if self.screensaver_manager:
                     if self.show_app or self.show_camera:
