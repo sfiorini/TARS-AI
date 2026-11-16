@@ -23,13 +23,13 @@ TARS-AI is an open-source project that recreates **TARS**, the robot from the fi
 | `content_text()` fix: GLM/Mistral `delta.content` list-of-blocks no longer produces empty LLM replies | `src/modules/module_llm.py` |
 | `App-Stop.py` TERM→KILL escalation (pygame/SDL swallows the first SIGTERM) | `App-Stop.py`, [running.md](running.md) |
 | Piper `./voices` bind mount in the server's docker-compose (voice weights are not in the repo) | `TARS-AI_Server/docker-compose.yml`, [server-mode.md](server-mode.md) |
-| Built-in Commands: the in-process command pool relabeled (internal `[SKILL:*]` identifiers unchanged); `example` removed; Home Assistant moved to an Agent Skill | `development.md`, `configuration.md` |
-
+| Internal video app: | mpv, YouTube search + URL playback, prior-app restore, per-site toggles | [configuration.md](configuration.md#video-playback-video-command) |
+| Built-in Commands: the in-process command pool relabeled (internal `[SKILL:*]` identifiers unchanged); `example` removed; Home Assistant moved to an Agent Skill; video app replaces external browser (mpv, YouTube, prior-app restore) | `development.md`, `configuration.md` |
 ## Documentation map
 
 - [Quickstart](quickstart.md) — OS image, clone `-b V3`, `Install.sh`, `.env`/`config.ini`, first launch, tests.
 - [Hardware & Wiring](hardware.md) — BOM summary, 3D-print folders, PCA9685 @ 0x40 (incl. the batch defect workaround), buck converter, INA260 @ 0x41, wiring SVGs.
-- [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; `scripts/configure_tars_client.sh` for pointing at the server host server.
+- [Configuration](configuration.md) — every `src/config.ini` section and `.env` key; video playback; `scripts/configure_tars_client.sh` for pointing at the server host server.
 - [Running TARS](running.md) — `tars-launcher.sh`, `App-Start.py`/`App-Stop.py`, XDG autostart, logs, restart without reboot.
 - [Web UI](web-ui.md) — Flask dashboard on `[ACCESS] webui_port`, login, tabs, config editor, Movement Studio, motion tab, `/servo_status` + `/servo_reinit`.
 - [Voice Pipeline](voice-pipeline.md) — wake word sensitivity semantics, Scribe STT, direct-from-Pi LLM, the configurable TTS provider chain.

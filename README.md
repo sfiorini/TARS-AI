@@ -29,6 +29,7 @@
 - **Servo self-healing watchdog** — continuously verifies the PCA9685 MODE1/MODE2 registers and re-initializes the chip when they drift, including the MODE2 = 0x04 output-drive quirk of this board; recovery endpoints `GET /servo_status` and `POST /servo_reinit`.
 - **Full movement registry exposed to the LLM** via the `execute_movement` command.
 - **Home Assistant Agent Skill** — a shipped `home-assistant` standard skill that talks to the HA REST API (list entities/services, get state, call service) via `HA_TOKEN` and a hand-edited URL in `config.ini` (or the `HA_URL` env variable), replacing the broken conversation-API built-in. See [skills.md](https://sfiorini.github.io/TARS-AI/skills/).
+- **Internal video app** — mpv-based playback (YouTube, per-site toggles, prior-app restore), replaces the external browser
 - **Movement Studio** — the old Builder and Movements tabs merged into one editor: a movement library with defaults-vs-live status badges, Visual pose/timeline editing with a slider **and** a numeric field per servo, an advanced RAW JSON mode, BASE/ARMS branch editing, ref-step composition, an approximate 3D leg preview, and branch-accurate on-robot PLAY. Saves persist to the movement store and unsaved drafts autosave in the browser ([movements docs](https://sfiorini.github.io/TARS-AI/movements/)).
 - **ElevenLabs Scribe (`scribe_v2`) STT support** (set `stt_processor = elevenlabs`), with automatic fallback to the external server.
 - **Mistral streaming fix** — `delta.content` sent as a list of content blocks no longer produces empty replies.

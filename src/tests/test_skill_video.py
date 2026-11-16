@@ -350,3 +350,50 @@ class TestSkillVideo(unittest.TestCase):
         self.assertNotIn('"open the browser"', thinking_src)
         self.assertNotIn('"open a browser"', thinking_src)
         self.assertIn('"open youtube"', thinking_src)
+
+class TestInstallMedia(unittest.TestCase):
+    """S4: Install.sh - mpv pi4+pi5 apt lines, yt-dlp pi4+pi5 MEDIA block, pandas Pi5-only."""
+
+    @classmethod
+    def setUpClass(cls):
+        repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        cls._install_path = os.path.join(repo, "Install.sh")
+        with open(cls._install_path) as f:
+            cls._src = f.read()
+
+    def test_mpv_in_pi4_and_pi5_apt_lines(self):
+        src = self._src
+        lines = src.split("\n")
+        # apt lines that contain both "apt install" and "mpv"
+        apt_mpv = [l for l in lines if "apt install" in l and "mpv" in l]
+        self.assertEqual(len(apt_mpv), 2, f"expected 2 apt mpv lines, got {len(apt_mpv)}")
+        # pi5 line (has swig)
+        pi5 = [l for l in apt_mpv if "swig" in l]
+        self.assertEqual(len(pi5), 1, "pi5 apt mpv line missing")
+        # pi4 line (has python3-libcamera without swig)
+        pi4 = [l for l in apt_mpv if "python3-libcamera" in l and "swig" not in l]
+        self.assertEqual(len(pi4), 1, "pi4 apt mpv line missing")
+
+    def test_ytdlp_in_pi4_pi5_block(self):
+        src = self._src
+        # Gate is: $"PI_VERSION" == "pi5" || "$PI_VERSION" == "pi4"
+        self.assertIn('"pi5" ||', src)
+        self.assertIn("yt-dlp", src)
+        self.assertIn("MEDIA", src)
+
+    def test_pandas_still_pi5_only(self):
+        src = self._src
+        lines = src.split(chr(10))
+        # Find line range of YOUTUBE heredoc
+        in_block = False
+        block_lines = []
+        for l in lines:
+            if "<< 'YOUTUBE'" in l:
+                in_block = True
+            elif in_block and l.strip() == "YOUTUBE":
+                break
+            elif in_block:
+                block_lines.append(l)
+        block_src = chr(10).join(block_lines)
+        self.assertIn("pandas", block_src)
+        self.assertNotIn("yt-dlp", block_src)

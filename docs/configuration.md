@@ -136,3 +136,36 @@ Then restart: web UI Config tab → reboot button (`POST /reboot_program`), or `
 ## Built-in command sections
 
 Every `src/skills/skill_*.py` gets an optional `[SKILL:<name>]` section in `config.ini` for `disabled` and custom keys; the template ships with `discord`, `generate_image`, `generate_music`, `network_camera`, `launch_retropie` disabled by default. The web UI Config tab lists all discovered built-in commands with toggles (`GET /get_skills`, `POST /toggle_skill`, `POST /save_skill_config`). Authoring new built-in commands: [Development](development.md).
+
+### Video playback (`video` command)
+
+The `video` built-in command plays web videos in an internal mpv window on the
+device display.  It replaces the external-browser built-in.
+
+**Requirements:** mpv and yt-dlp.  The Install.sh media deltas install mpv on
+Pi 4 and Pi 5, and yt-dlp on Pi 4 and Pi 5.  Run `pip install -U yt-dlp` in
+the virtual environment if missing.
+
+**Stop affordances:** voice ("stop the video") and tap-anywhere-to-stop (any
+mouse or touch input on the video surface quits playback).
+
+**Return behaviour:** playback returns to the *previous app* (the app that was
+active when video was launched).  ESC always exits to the terminal.
+
+**Per-site toggles** in `[SKILL:video]` (booleans):
+
+| Key | Default | Sites |
+|---|---|---|
+| `site_youtube` | `true` | youtube.com, youtu.be |
+| `site_vimeo` | `true` | vimeo.com |
+| `site_dailymotion` | `true` | dailymotion.com |
+| `site_twitch` | `true` | twitch.tv (clips and VODs only) |
+| `site_us_news` | `false` | cnn.com, nbcnews.com, abcnews.go.com, cbsnews.com, foxnews.com |
+| `site_tiktok` | `false` | tiktok.com |
+| `site_bbc_iplayer` | `false` | bbc.co.uk, bbc.com (UK-only — needs a UK IP) |
+
+**Extractor-rot caveat:** the site matrix is a 2026-11-15 snapshot.  If a site
+fails after a yt-dlp update, it is a yt-dlp extractor issue, not a TARS bug.
+**Live streams** are not supported.  YouTube bot-check troubleshooting (cookies)
+is parked for a future release.
+

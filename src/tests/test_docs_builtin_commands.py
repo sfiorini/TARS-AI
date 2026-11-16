@@ -3,7 +3,9 @@
 Mutation-kill-accepted; house idiom: whole-line heading anchors + line-prefix
 needles + load-bearing claim needles + scoped bans.
 """
+import os
 import re
+import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -450,3 +452,67 @@ class TestHaDocsPins:
         readme_line = _line_starting_with(
             readme, "- **Home Assistant Agent Skill**")
         assert "REST" in readme_line, "README HA bullet lost the REST claim"
+class TestVideoDocsPins(unittest.TestCase):
+    """S5: Video docs - configuration subsection, index/README entry points."""
+
+    @classmethod
+    def setUpClass(cls):
+        repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        docs = os.path.join(repo, "docs")
+        with open(os.path.join(docs, "configuration.md")) as f:
+            cls._config = f.read()
+        with open(os.path.join(docs, "index.md")) as f:
+            cls._index = f.read()
+        with open(os.path.join(repo, "README.md")) as f:
+            cls._readme = f.read()
+
+    def test_configuration_video_subsection(self):
+        c = self._config
+        self.assertIn("### Video playback", c)
+        self.assertIn("video", c)
+        self.assertIn("command", c)
+        self.assertIn("site_youtube", c)
+        self.assertIn("mpv", c)
+        self.assertIn("yt-dlp", c)
+        self.assertIn("tap", c)
+        self.assertIn("previous app", c)
+        self.assertIn("extractor", c)
+        self.assertIn("Live streams", c)
+
+    def test_entry_points_video(self):
+        idx = self._index
+        lines = idx.split(chr(10))
+        video_line = [l for l in lines if l.startswith("| Internal video app:")]
+        self.assertEqual(len(video_line), 1, "video row missing or duplicated")
+        self.assertIn("mpv", video_line[0])
+        self.assertIn("YouTube", video_line[0])
+        self.assertIn("prior-app", video_line[0])
+
+        initiative = [l for l in lines if l.startswith("| Built-in Commands:")]
+        self.assertEqual(len(initiative), 1)
+        self.assertIn("video", initiative[0].lower())
+
+        self.assertIn("video playback", idx.lower())
+
+        readme_lines = self._readme.split("\n")
+        video_bullet = [l for l in readme_lines if "video" in l.lower() and l.strip().startswith("- **Internal video")]
+        self.assertEqual(len(video_bullet), 1, "README video bullet missing")
+        self.assertIn("mpv", video_bullet[0])
+
+    def test_initiative_row_complete(self):
+        idx = self._index
+        lines = idx.split(chr(10))
+        initiative = [l for l in lines if l.startswith("| Built-in Commands:")]
+        self.assertEqual(len(initiative), 1)
+        row = initiative[0]
+        self.assertIn("relabeled", row)
+        self.assertIn("example", row)
+        self.assertIn("Home Assistant", row)
+        self.assertIn("video", row.lower())
+
+    def test_video_not_startup_app_option(self):
+        repo = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        config_path = os.path.join(repo, "src", "modules", "module_config.py")
+        with open(config_path) as f:
+            cfg = f.read()
+        self.assertNotIn("video", cfg)

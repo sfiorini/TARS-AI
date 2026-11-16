@@ -719,11 +719,19 @@ CLOUDONLY
 DISCORD
     fi
 
+    if [[ "$PI_VERSION" == "pi5" || "$PI_VERSION" == "pi4" ]]; then
+        cat >> "$req_file" << 'MEDIA'
+
+# === MEDIA (Pi4/Pi5) ===
+yt-dlp                          # Video playback (mpv + youtube-dl)
+
+MEDIA
+    fi
+
     if [[ "$PI_VERSION" == "pi5" ]]; then
         cat >> "$req_file" << 'YOUTUBE'
 
-# === MEDIA (Pi5) ===
-yt-dlp                          # Youtube downloading
+# === YOUTUBE (Pi5) ===
 pandas                          # Data analysis
 
 YOUTUBE
@@ -1031,9 +1039,9 @@ main() {
     tars_say "Installing system dependencies..." "info"
     
     if [[ "$PI_VERSION" == "pi5" ]]; then
-        sudo apt install -y python3-pip python3-venv python3-dev portaudio19-dev espeak-ng libcap-dev sox libsox-fmt-all git swig python3-libcamera python3-kms++ 2>&1 | tail -10
+        sudo apt install -y python3-pip python3-venv python3-dev portaudio19-dev espeak-ng libcap-dev sox libsox-fmt-all git swig python3-libcamera python3-kms++ mpv 2>&1 | tail -10
     elif [[ "$PI_VERSION" == "pi4" ]]; then
-        sudo apt install -y python3-pip python3-venv python3-dev portaudio19-dev espeak-ng libcap-dev sox libsox-fmt-all git python3-libcamera python3-kms++ 2>&1 | tail -10
+        sudo apt install -y python3-pip python3-venv python3-dev portaudio19-dev espeak-ng libcap-dev sox libsox-fmt-all git python3-libcamera python3-kms++ mpv 2>&1 | tail -10
     else
         sudo apt install -y python3-pip python3-venv python3-dev portaudio19-dev espeak-ng git 2>&1 | tail -10
     fi
